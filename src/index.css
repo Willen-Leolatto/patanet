@@ -1,0 +1,46 @@
+@import "tailwindcss";
+/* Dark por classe .dark (Tailwind v4) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Base mínima */
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+body {
+  margin: 0;
+  display: block;
+}
+
+/* (opcional) tokens iniciais */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --color-brand: oklch(62% 0.21 260);
+}
+
+/* utilitários simples */
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+}
+
+a:hover {
+  color: #535bf2;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+/* ⚠️ Removido o bloco global de "button { background-color:#1a1a1a; ... }"
+   pois ele deixava botões escuros mesmo no tema claro. */
