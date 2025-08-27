@@ -1,13 +1,14 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import { getSession, loginMock, logoutMock } from "../utils/authStorage";
+import React, { createContext,  useEffect, useMemo, useState } from "react";
+import {
+  getSession,
+  logoutMock,
+  setSession,
+} from "../utils/authStorage";
+import { createSession } from "../services/api/auth";
+import { api } from "../services/api";
+import { getMyProfile } from "../services/api/user";
 
-const AuthCtx = createContext(null);
+export const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(getSession().user);
@@ -22,10 +23,26 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       isAuthenticated: !!user,
-      async login({ email, password, name }) {
-        const { user: u } = await loginMock({ email, password, name });
-        setUser(u);
-        return u;
+      async login({ email, password }) {
+        const { access_token, refresh_token } = await createSession({
+          usernameOrEmail: email,
+          password,
+        });
+        api.defaults.headers.common.Authorization = `Bearer ${access_token}`;
+        const user = await getMyProfile();
+        setSession({
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            avatar: user.imageProfile,
+          },
+          token: access_token,
+          refreshToken: refresh_token,
+          loggedAt: Date.now(),
+        });
+        setUser(user);
+        return user;
       },
       async logout() {
         await logoutMock();
@@ -38,8 +55,3 @@ export function AuthProvider({ children }) {
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 
-export function useAuth() {
-  const ctx = useContext(AuthCtx);
-  if (!ctx) throw new Error("useAuth deve ser usado dentro de <AuthProvider>");
-  return ctx;
-}
