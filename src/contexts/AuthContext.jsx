@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { getSession, loginMock, logoutMock } from "../utils/authStorage";
+import { getSession, loginMock, logoutMock } from "@features/auth/services/authStorage";
 
 const AuthCtx = createContext(null);
 

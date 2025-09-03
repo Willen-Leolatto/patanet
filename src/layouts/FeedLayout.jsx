@@ -1,6 +1,6 @@
 import React from 'react'
 import { Outlet } from 'react-router-dom'
-import TopNav from '../components/TopNav'
+import TopNav from '@features/dashboard/components/TopNav'
 
 export default function FeedLayout() {
   return (

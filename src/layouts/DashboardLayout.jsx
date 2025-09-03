@@ -1,14 +1,14 @@
-import React, { useState } from 'react'
-import { Outlet } from 'react-router-dom'
-import TopNav from '../components/TopNav'
-import Sidebar from '../components/Sidebar'
+import React, { useState } from "react";
+import { Outlet } from "react-router-dom";
+import TopNav from "@features/dashboard/components/TopNav";
+import Sidebar from "@features/dashboard/components/Sidebar";
 
 export default function DashboardLayout() {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="min-h-dvh w-full">
-      <TopNav variant="dashboard" onToggleSidebar={() => setOpen(v => !v)} />
+      <TopNav variant="dashboard" onToggleSidebar={() => setOpen((v) => !v)} />
       <div className="pt-14 flex w-full">
         <Sidebar open={open} />
         {/* conteúdo: claro no padrão, escuro no dark */}
@@ -17,5 +17,5 @@ export default function DashboardLayout() {
         </main>
       </div>
     </div>
-  )
+  );
 }

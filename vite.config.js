@@ -1,7 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwind from "@tailwindcss/vite";
-import { VitePWA } from 'vite-plugin-pwa'
+import { VitePWA } from "vite-plugin-pwa";
+import path from "node:path"; // ✅ importa path (ESM)
+import { fileURLToPath } from "node:url"; // ✅ para calcular __dirname em ESM
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url)); // ✅ __dirname
 
 export default defineConfig({
   plugins: [
@@ -9,7 +13,7 @@ export default defineConfig({
     tailwind(),
     VitePWA({
       registerType: "autoUpdate",
-      devOptions: { enabled: true, type: "module" }, // permite testar em npm run dev
+      devOptions: { enabled: true, type: "module" },
       includeAssets: ["favicon.ico", "robots.txt", "apple-touch-icon.png"],
       manifest: {
         name: "PataNet",
@@ -39,11 +43,10 @@ export default defineConfig({
         ],
       },
       workbox: {
-        navigateFallback: "/offline.html", // fallback para rotas SPA quando offline
+        navigateFallback: "/index.html",
         globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
         runtimeCaching: [
           {
-            // imagens (posts/galeria, logos, etc.)
             urlPattern: ({ request }) => request.destination === "image",
             handler: "CacheFirst",
             options: {
@@ -52,7 +55,6 @@ export default defineConfig({
             },
           },
           {
-            // Google Fonts
             urlPattern: ({ url }) =>
               url.origin.includes("fonts.googleapis.com") ||
               url.origin.includes("fonts.gstatic.com"),
@@ -63,8 +65,16 @@ export default defineConfig({
             },
           },
         ],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB, ajustável
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
   ],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+      "@features": path.resolve(__dirname, "src/features"),
+      "@components": path.resolve(__dirname, "src/components"),
+      "@layouts": path.resolve(__dirname, "src/layouts"),
+    },
+  },
 });

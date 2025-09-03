@@ -1,0 +1,1 @@
+export { default as Feed } from './pages/Feed.jsx'

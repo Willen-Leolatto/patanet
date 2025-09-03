@@ -1,4 +1,4 @@
-import { getSession } from './authStorage'
+import { getSession } from '@features/auth/services/authStorage'
 import { loadSettings } from './userSettings'
 
 export function getCurrentUser() {

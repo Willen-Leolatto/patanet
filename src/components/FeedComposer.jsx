@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import ContentCard from "./ContentCard";
-import { addPosts } from "../utils/feedStorage";
-import { loadPets } from "../utils/petsStorage";
+import { addPosts } from "@features/feed/services/feedStorage";
+import { loadPets } from "@features/pets/services/petsStorage";
 import { compressImageSmart } from "../utils/image";
 import { useToast } from "./ui/ToastProvider";
 import { ImagePlus } from "lucide-react";
