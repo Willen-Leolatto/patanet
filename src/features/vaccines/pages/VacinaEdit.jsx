@@ -93,7 +93,7 @@ export default function VacinaEdit() {
         <FormCard title="Dados da Vacina" onSubmit={(e) => e.preventDefault()}>
           <div className="text-sm">
             Você precisa cadastrar um pet primeiro.{" "}
-            <Link to="/dashboard/pets/novo" className="underline">
+            <Link to="/pets/novo" className="underline">
               Cadastrar pet
             </Link>
           </div>

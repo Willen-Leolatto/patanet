@@ -48,7 +48,7 @@ export default function PetEdit() {
           title="Pet não encontrado"
           breadcrumbs={[
             { label: "Dashboard", to: "/dashboard" },
-            { label: "Meus Pets", to: "/dashboard/pets" },
+            { label: "Meus Pets", to: "/pets" },
           ]}
         />
       </div>
@@ -97,7 +97,7 @@ export default function PetEdit() {
       photo: photoDataUrl ?? pet.photo,
     });
     toast.success("Alterações salvas");
-    navigate(`/dashboard/pets/${id}`);
+    navigate(`/pets/${id}`);
   });
 
   const inputBase =
@@ -115,8 +115,8 @@ export default function PetEdit() {
         title={`Editar: ${pet.name}`}
         breadcrumbs={[
           { label: "Dashboard", to: "/dashboard" },
-          { label: "Meus Pets", to: "/dashboard/pets" },
-          { label: pet.name, to: `/dashboard/pets/${id}` },
+          { label: "Meus Pets", to: "/pets" },
+          { label: pet.name, to: `/pets/${id}` },
           { label: "Editar" },
         ]}
       />

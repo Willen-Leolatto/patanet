@@ -1,72 +1,72 @@
-const KEY = 'patanet_feed_posts'
+// src/features/feed/services/feedStorage.js
+const KEY = "patanet_feed_posts";
 
 export function loadFeed() {
   try {
-    const arr = JSON.parse(localStorage.getItem(KEY) || '[]')
-    // mais novo primeiro
-    return arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    return JSON.parse(localStorage.getItem(KEY) || "[]");
   } catch {
-    return []
+    return [];
   }
 }
 
-function _save(list) {
-  const json = JSON.stringify(list)
-  localStorage.setItem(KEY, json)
-  window.dispatchEvent(new Event('patanet:feed-updated'))
+function saveFeed(arr) {
+  localStorage.setItem(KEY, JSON.stringify(arr));
+  // notifica a UI para recarregar
+  window.dispatchEvent(new Event("patanet:feed-updated"));
 }
 
-function isQuotaError(err) {
-  return err && (err.name === 'QuotaExceededError' || err.code === 22)
+export function listPosts() {
+  return loadFeed().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
-/** Tenta salvar; se estourar, vai removendo os mais antigos até caber. */
-function saveSafely(list) {
-  try {
-    _save(list)
-    return { trimmed: 0 }
-  } catch (e) {
-    if (!isQuotaError(e)) throw e
-    let working = list.slice()
-    let trimmed = 0
-    while (working.length > 0) {
-      working.pop() // remove o mais antigo (o array está desc)
-      try {
-        _save(working)
-        return { trimmed }
-      } catch (e2) {
-        if (!isQuotaError(e2)) throw e2
-        trimmed++
-      }
-    }
-    // se chegou aqui, nada coube
-    throw e
-  }
-}
-
-export function addPosts(posts) {
-  const list = loadFeed()
-  const merged = [...posts, ...list] // preserva mais novos no topo
-  return saveSafely(merged)
-}
-
-/** Cria posts de foto referenciando photos por id (NÃO duplica base64). */
-export function addPhotoPostsById(photos, author = {}) {
-  const now = Date.now()
-  const posts = photos.map((ph, idx) => ({
-    id: now + idx,
-    type: 'photo',
-    photoId: ph.id,      // << referência
-    caption: ph.caption || '',
-    petIds: Array.isArray(ph.petIds) ? ph.petIds : (ph.petId != null ? [Number(ph.petId)] : []),
+export function addPost(partial) {
+  const post = {
+    id: crypto.randomUUID(),
     createdAt: Date.now(),
-    author: {
-      id: author.id ?? 'me',
-      name: author.name ?? 'Você',
-      avatar: author.avatar ?? null,
-    },
+    author: { name: "Você" },
+    text: "",
+    images: [], // [{ url }]
     likes: 0,
-    comments: [],
-  }))
-  return addPosts(posts)
+    liked: false,
+    comments: [], // [{id, text, createdAt, author}]
+    commentsCount: 0,
+    ...partial,
+  };
+  const arr = loadFeed();
+  arr.unshift(post);
+  saveFeed(arr);
+  return post;
+}
+
+export function toggleLike(id) {
+  const arr = loadFeed();
+  const i = arr.findIndex((p) => p.id === id);
+  if (i >= 0) {
+    const liked = !arr[i].liked;
+    arr[i].liked = liked;
+    arr[i].likes = Math.max(0, (arr[i].likes || 0) + (liked ? 1 : -1));
+    saveFeed(arr);
+    return arr[i];
+  }
+  return null;
+}
+
+export function addComment(id, text) {
+  const t = (text || "").trim();
+  if (!t) return null;
+  const arr = loadFeed();
+  const i = arr.findIndex((p) => p.id === id);
+  if (i >= 0) {
+    if (!arr[i].comments) arr[i].comments = [];
+    arr[i].comments.push({
+      id: crypto.randomUUID(),
+      text: t,
+      createdAt: Date.now(),
+      author: { name: "Você" },
+    });
+    arr[i].commentsCount = (arr[i].commentsCount || 0) + 1;
+    saveFeed(arr);
+    return arr[i];
+  }
+  return null;
 }

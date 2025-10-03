@@ -1,139 +1,120 @@
-import React, { useEffect, useMemo, useState } from "react";
-import ContentCard from "../../../components/ContentCard";
-import FeedComposer from "../../../components/FeedComposer";
-import { loadFeed } from "@features/feed/services/feedStorage";
-import { loadPets } from "@features/pets/services/petsStorage";
-import {
-  getPhotoById,
-  loadPhotos,
-} from "@features/photos/services/photosStorage";
+// src/features/feed/pages/Feed.jsx
+import React, { useEffect, useState } from "react";
+import FeedComposer from "@/components/FeedComposer";
+import FeedPostActions from "@/components/FeedPostActions";
+import Lightbox from "@/components/Lightbox";
+import { listPosts, toggleLike, addComment } from "@/features/feed/services/feedStorage";
 
 export default function Feed() {
   const [posts, setPosts] = useState([]);
-  const [pets, setPets] = useState([]);
-  const [photos, setPhotos] = useState([]);
+  const [lb, setLb] = useState({ open: false, imgs: [], idx: 0 });
 
   function refresh() {
-    setPosts(loadFeed());
-    setPets(loadPets());
-    setPhotos(loadPhotos());
+    setPosts(listPosts());
   }
 
   useEffect(() => {
     refresh();
-    const onPhotos = () => setPhotos(loadPhotos());
-    const onFeed = () => setPosts(loadFeed());
-    window.addEventListener("patanet:photos-updated", onPhotos);
-    window.addEventListener("patanet:feed-updated", onFeed);
-    return () => {
-      window.removeEventListener("patanet:photos-updated", onPhotos);
-      window.removeEventListener("patanet:feed-updated", onFeed);
-    };
+    const onUpd = () => refresh();
+    window.addEventListener("patanet:feed-updated", onUpd);
+    return () => window.removeEventListener("patanet:feed-updated", onUpd);
   }, []);
 
-  const petNameById = useMemo(() => {
-    const m = new Map();
-    pets.forEach((p) => m.set(Number(p.id), p.name));
-    return (id) => m.get(Number(id)) || null;
-  }, [pets]);
+  function onLike(post) {
+    toggleLike(post.id);
+    refresh();
+  }
 
-  const photoSrcById = useMemo(() => {
-    const m = new Map();
-    photos.forEach((ph) => m.set(Number(ph.id), ph.src));
-    return (id) => m.get(Number(id)) || null;
-  }, [photos]);
+  function onComment(post) {
+    const t = prompt("Escreva seu comentário:");
+    if (t && t.trim()) {
+      addComment(post.id, t.trim());
+      refresh();
+    }
+  }
+
+  function openLightbox(images, idx) {
+    setLb({ open: true, imgs: images, idx });
+  }
 
   return (
-    <div className="w-full">
-      <div className="mx-auto max-w-2xl px-3 py-4">
-        <FeedComposer onPosted={refresh} />
+    <div className="space-y-6">
+      <FeedComposer />
 
-        {posts.length === 0 ? (
-          <ContentCard className="mt-3">
-            <div className="text-sm opacity-70">Ainda não há publicações.</div>
-          </ContentCard>
-        ) : (
-          posts.map((p) => (
-            <ContentCard key={p.id} className="mt-3">
-              <article>
-                <header className="mb-2 flex items-center gap-3">
-                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                    {p.author?.avatar ? (
-                      <img
-                        src={p.author.avatar}
-                        alt={p.author.name || "Autor"}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {p.author?.name || "Usuário"}
-                    </div>
-                    <div className="truncate text-xs opacity-60">
-                      {new Date(p.createdAt).toLocaleString()}
-                    </div>
-                  </div>
+      {posts.length === 0 ? (
+        <div className="card rounded-xl p-6 text-center opacity-80">
+          Ainda não há publicações.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {posts.map((post) => {
+            const imgs = Array.isArray(post.images) ? post.images : [];
+
+            return (
+              <article key={post.id} className="card rounded-xl p-4">
+                <header className="mb-2 text-sm opacity-80">
+                  <span className="font-medium">{post.author?.name ?? "Usuário"}</span>{" "}
+                  <span className="opacity-70">
+                    · {new Date(post.createdAt).toLocaleString()}
+                  </span>
                 </header>
 
-                {p.type === "text" && (
-                  <>
-                    <p className="whitespace-pre-wrap text-sm">{p.text}</p>
-                    {Array.isArray(p.petIds) && p.petIds.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {p.petIds.map((pid) => (
-                          <span
-                            key={pid}
-                            className="rounded-full border px-2 py-0.5 text-[11px]
-                          border-slate-300 text-slate-700
-                          dark:border-slate-700 dark:text-slate-200"
-                          >
-                            {petNameById(pid) || "—"}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </>
+                {post.text && (
+                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-900 dark:text-white">
+                    {post.text}
+                  </p>
                 )}
 
-                {p.type === "photo" && (
-                  <>
-                    {p.caption && (
-                      <p className="mb-2 whitespace-pre-wrap text-sm">
-                        {p.caption}
-                      </p>
-                    )}
+                {/* Imagens */}
+                {imgs.length === 1 && (
+                  <div className="mt-3">
                     <img
-                      src={
-                        p.photoId
-                          ? photoSrcById(p.photoId) ||
-                            getPhotoById(p.photoId)?.src
-                          : p.imageSrc
-                      }
-                      alt={p.caption || "Publicação"}
-                      className="mb-2 w-full rounded-lg object-contain"
+                      src={imgs[0].url}
+                      alt=""
+                      className="w-full max-h-[520px] rounded-lg object-cover"
+                      loading="lazy"
+                      onClick={() => openLightbox(imgs, 0)}
+                      style={{ cursor: "zoom-in" }}
                     />
-                    {Array.isArray(p.petIds) && p.petIds.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {p.petIds.map((pid) => (
-                          <span
-                            key={pid}
-                            className="rounded-full border px-2 py-0.5 text-[11px]
-                          border-slate-300 text-slate-700
-                          dark:border-slate-700 dark:text-slate-200"
-                          >
-                            {petNameById(pid) || "—"}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </>
+                  </div>
                 )}
+
+                {imgs.length > 1 && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {imgs.map((im, i) => (
+                      <img
+                        key={i}
+                        src={im.url}
+                        alt=""
+                        className="h-40 w-full rounded-md object-cover"
+                        loading="lazy"
+                        onClick={() => openLightbox(imgs, i)}
+                        style={{ cursor: "zoom-in" }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <FeedPostActions
+                  liked={!!post.liked}
+                  likes={post.likes || 0}
+                  comments={post.commentsCount || (post.comments?.length ?? 0)}
+                  onLike={() => onLike(post)}
+                  onComment={() => onComment(post)}
+                />
               </article>
-            </ContentCard>
-          ))
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      {lb.open && (
+        <Lightbox
+          images={lb.imgs}
+          index={lb.idx}
+          onClose={() => setLb((s) => ({ ...s, open: false }))}
+        />
+      )}
     </div>
   );
 }

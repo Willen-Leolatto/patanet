@@ -6,6 +6,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import PageHeader from "../../../components/PageHeader";
 import FormCard from "../../../components/forms/FormCard";
 import { useToast } from "../../../components/ui/ToastProvider";
+import FormField from '@/components/FormField'
+import Input from '@/components/ui/Input'
+import Textarea from '@/components/ui/Textarea'
+import Button from '@/components/ui/Button'
 
 /* ----- schema ----- */
 const PetSchema = z.object({
@@ -94,7 +98,7 @@ export default function PetCreate() {
       toast.error("Não foi possível salvar o pet");
       return;
     }
-    navigate("/dashboard/pets");
+    navigate("/pets");
   });
 
   // estilos de campo
@@ -108,132 +112,24 @@ export default function PetCreate() {
   );
 
   return (
-    <div className="w-full">
-      <PageHeader
-        title="Novo Pet"
-        breadcrumbs={[
-          { label: "Dashboard", to: "/dashboard" },
-          { label: "Meus Pets", to: "/dashboard/pets" },
-          { label: "Novo" },
-        ]}
-        description="Preencha os dados do seu pet."
-      />
-
-      <FormCard
-        title="Informações do Pet"
-        description="Campos essenciais. Você poderá editar depois."
-        onSubmit={onSubmit}
-      >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          {/* Foto */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Foto</label>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="h-20 w-20 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                {preview && (
-                  // eslint-disable-next-line jsx-a11y/img-redundant-alt
-                  <img
-                    src={preview}
-                    alt="Foto do pet"
-                    className="h-full w-full object-cover"
-                  />
-                )}
-              </div>
-              <div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="block text-sm file:mr-2 file:rounded-md file:border file:px-3 file:py-1.5
-                             file:border-slate-300 file:bg-slate-100 file:text-slate-800
-                             hover:file:bg-slate-200
-                             dark:file:border-slate-700 dark:file:bg-slate-800 dark:file:text-slate-100
-                             dark:hover:file:bg-slate-700"
-                  {...register("photo")}
-                />
-                <p className="mt-1 text-xs opacity-70">PNG/JPG, até ~2MB.</p>
-              </div>
-            </div>
+     <div className="w-full">
+      <PageHeader title="Novo Pet" breadcrumbs={[{label:'Dashboard',to:'/dashboard'},{label:'Pets',to:'/pets'},{label:'Novo'}]} />
+      <form className="space-y-6">
+        <FormCard title="Informações básicas">
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField label="Nome" required><Input placeholder="Ex.: Max" /></FormField>
+            <FormField label="Espécie" required><Input placeholder="Cachorro, Gato..." /></FormField>
+            <FormField label="Raça"><Input placeholder="SRD, Pug, Siamês..." /></FormField>
+            <FormField label="Data de nascimento"><Input type="date" /></FormField>
+            <div className="md:col-span-2"><FormField label="Observações"><Textarea /></FormField></div>
           </div>
+        </FormCard>
 
-          {/* Nome */}
-          <div className="lg:col-span-4">
-            <label className="text-sm font-medium">Nome *</label>
-            <input type="text" className={inputBase} {...register("name")} />
-            {errors.name && errorText(errors.name.message)}
-          </div>
-
-          {/* Espécie */}
-          <div className="lg:col-span-2">
-            <label className="text-sm font-medium">Espécie *</label>
-            <select className={inputBase} {...register("species")}>
-              <option value="dog">Cachorro</option>
-              <option value="cat">Gato</option>
-              <option value="other">Outro</option>
-            </select>
-            {errors.species && errorText(errors.species.message)}
-          </div>
-
-          {/* Raça */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Raça</label>
-            <input type="text" className={inputBase} {...register("breed")} />
-            {errors.breed && errorText(errors.breed.message)}
-          </div>
-
-          {/* Sexo */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Sexo *</label>
-            <div className="mt-2 flex gap-4">
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" value="m" {...register("sex")} />
-                Macho
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" value="f" {...register("sex")} />
-                Fêmea
-              </label>
-            </div>
-            {errors.sex && errorText(errors.sex.message)}
-          </div>
-
-          {/* Nascimento */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Nascimento *</label>
-            <input
-              type="date"
-              className={inputBase}
-              {...register("birthDate")}
-            />
-            {errors.birthDate && errorText(errors.birthDate.message)}
-          </div>
-
-          {/* Peso */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Peso (kg)</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              className={inputBase}
-              {...register("weightKg", {
-                setValueAs: (v) =>
-                  v === "" || v === null ? undefined : Number(v),
-              })}
-            />
-            {errors.weightKg && errorText(errors.weightKg.message)}
-          </div>
-
-          {/* Observações */}
-          <div className="lg:col-span-12">
-            <label className="text-sm font-medium">Observações</label>
-            <textarea rows={4} className={inputBase} {...register("notes")} />
-            {errors.notes && errorText(errors.notes.message)}
-          </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" type="button">Cancelar</Button>
+          <Button type="submit">Salvar</Button>
         </div>
-
-        {/* footer padrão do FormCard já tem Cancelar/Salvar */}
-        <div className="mt-2 text-xs opacity-70">* Campos obrigatórios</div>
-      </FormCard>
+      </form>
     </div>
   );
 }

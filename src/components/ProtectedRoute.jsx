@@ -1,9 +1,14 @@
 import React from "react";
-import { Navigate } from "react-router-dom";
-import { getSession } from "@features/auth/services/authStorage";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "@/store/auth";
 
-export default function ProtectedRoute({ children }) {
-  const { user } = getSession();
-  if (user) return children;
-  return <Navigate to="/login" replace />;
+export default function ProtectedRoute() {
+  const user = useAuth((s) => s.user);
+  const loc = useLocation();
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: loc }} />;
+  }
+  // Importantíssimo: Outlet para renderizar as rotas filhas
+  return <Outlet />;
 }
