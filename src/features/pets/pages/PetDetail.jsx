@@ -1,21 +1,27 @@
-// src/features/pets/pages/PetDetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
-  Syringe,
+  Shield,
   Images,
-  ChevronDown,
-  ChevronUp,
-  CalendarDays,
-  Ruler,
-  Weight,
-  Pencil,
+  Syringe,
+  Pill,
+  Stethoscope,
+  Bandage,
   Plus,
+  Star,
+  Edit3,
+  Trash2,
+  ChevronDown,
 } from "lucide-react";
-import { getPetById } from "@features/pets/services/petsStorage";
+import Lightbox from "@/components/Lightbox";
 import { useToast } from "@/components/ui/ToastProvider";
+import {
+  getPet as storageGetPet,
+  updatePet as storageUpdatePet,
+} from "@/features/pets/services/petsStorage";
+import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
 
-// exemplos usados quando não há storage
+/* --------------------------- EXEMPLOS (ex-1..3) --------------------------- */
 const EXAMPLES = [
   {
     id: "ex-1",
@@ -26,11 +32,43 @@ const EXAMPLES = [
     weight: 28,
     size: "médio",
     birthday: "2021-06-10",
+    description:
+      "Companheiro fiel, ama passeios e água. Super sociável com outros cães.",
     avatar:
       "https://images.unsplash.com/photo-1517849845537-4d257902454a?w=600&q=80&auto=format&fit=crop",
     cover:
       "https://images.unsplash.com/photo-1518020382113-a7e8fc38eac9?w=1200&q=80&auto=format&fit=crop",
-    vaccines: 6,
+    media: [
+      {
+        id: "m1",
+        url: "https://images.unsplash.com/photo-1619983081563-430f63602796?w=1200&q=80&auto=format&fit=crop",
+        title: "Passeio no parque",
+        kind: "image",
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 7,
+      },
+      {
+        id: "m2",
+        url: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=1200&q=80&auto=format&fit=crop",
+        title: "Banho de sol",
+        kind: "image",
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 14,
+      },
+      {
+        id: "m3",
+        url: "https://images.unsplash.com/photo-1543852786-1cf6624b9987?w=1200&q=80&auto=format&fit=crop",
+        title: "Esperando petisco",
+        kind: "image",
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 30,
+      },
+      {
+        id: "m4",
+        url: "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=1200&q=80&auto=format&fit=crop",
+        title: "Carinha de pidão",
+        kind: "image",
+        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 45,
+      },
+    ],
+    vaccines: [],
   },
   {
     id: "ex-2",
@@ -41,11 +79,13 @@ const EXAMPLES = [
     weight: 19.5,
     size: "médio",
     birthday: "2022-03-15",
+    description: "Energética e muito esperta.",
     avatar:
       "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=600&q=80&auto=format&fit=crop",
     cover:
       "https://images.unsplash.com/photo-1525253086316-d0c936c814f8?w=1200&q=80&auto=format&fit=crop",
-    vaccines: 5,
+    media: [],
+    vaccines: [],
   },
   {
     id: "ex-3",
@@ -56,358 +96,543 @@ const EXAMPLES = [
     weight: 4.2,
     size: "pequeno",
     birthday: "2020-12-01",
+    description: "Sonequenta e dona do sofá.",
     avatar:
       "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=600&q=80&auto=format&fit=crop",
     cover:
       "https://images.unsplash.com/photo-1518020382113-a7e8fc38eac9?w=1200&q=80&auto=format&fit=crop",
-    vaccines: 7,
+    media: [],
+    vaccines: [],
   },
 ];
+const exampleById = (id) => EXAMPLES.find((p) => p.id === id) || null;
 
-function getExample(id) {
-  return EXAMPLES.find((p) => p.id === id);
-}
-
-function formatKg(n) {
-  if (n == null || n === "") return "—";
-  const num = typeof n === "number" ? n : parseFloat(String(n).replace(",", "."));
-  if (Number.isNaN(num)) return "—";
-  return `${num.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} kg`;
-}
-
-function formatDateIso(d) {
-  if (!d) return "—";
-  try {
-    const dt = new Date(d);
-    return dt.toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  } catch {
-    return "—";
-  }
-}
-
+/* ------------------------------ COMPONENTE -------------------------------- */
 export default function PetDetail() {
   const { id } = useParams();
   const toast = useToast();
-  const nav = useNavigate();
-  const fileRef = useRef(null);
+  const confirm = useConfirm();
+  const askInput = usePrompt();
 
-  const pet = useMemo(() => getPetById(id) || getExample(id), [id]);
+  const isExample = id?.startsWith("ex-");
+  const [pet, setPet] = useState(null);
 
-  // galeria local por pet
-  const storageKey = `patanet_pet_media_${id}`;
-  const [media, setMedia] = useState([]);
+  const [tab, setTab] = useState("health"); // 'health' | 'gallery'
+  const [vaccinesOpen, setVaccinesOpen] = useState(true);
 
+  // Lightbox
+  const [lbOpen, setLbOpen] = useState(false);
+  const [lbIndex, setLbIndex] = useState(0);
+
+  // Carregar pet
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      setMedia(raw ? JSON.parse(raw) : []);
-    } catch {
-      setMedia([]);
+    if (isExample) setPet(exampleById(id));
+    else {
+      const data = storageGetPet?.(id);
+      if (!data) return setPet(null);
+      data.media = Array.isArray(data.media) ? data.media : [];
+      setPet({ ...data });
     }
-  }, [storageKey]);
+  }, [id, isExample]);
 
-  function persistMedia(next) {
-    setMedia(next);
-    localStorage.setItem(storageKey, JSON.stringify(next));
-    window.dispatchEvent(new Event("patanet:photos-updated"));
-  }
+  // Persistência (real salva em storage, exemplo fica só em memória)
+  const persist = (patch) => {
+    if (!pet) return;
+    const next = { ...pet, ...patch };
+    setPet(next);
+    if (!isExample) storageUpdatePet?.(next.id, patch);
+  };
 
-  async function onPickFiles(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    try {
-      // lê como dataURL para persistir
-      const readers = files.map(
-        (f) =>
-          new Promise((res, rej) => {
-            const r = new FileReader();
-            r.onload = () => res({ id: crypto.randomUUID(), type: f.type, src: r.result });
-            r.onerror = rej;
-            r.readAsDataURL(f);
-          })
-      );
-      const items = await Promise.all(readers);
-      persistMedia([...items, ...media]); // mais novo primeiro
-      toast.success("Mídia adicionada!");
-    } catch {
-      toast.error("Falha ao processar o arquivo.");
-    } finally {
-      e.target.value = "";
+  /* --------------------------- GALERIA / LIGHTBOX -------------------------- */
+  const imagesOnly = useMemo(
+    () =>
+      (pet?.media || [])
+        .filter((m) => (m.kind || "image") === "image")
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+    [pet]
+  );
+  const lbImages = useMemo(() => imagesOnly.map((m) => m.url), [imagesOnly]);
+
+  const openLightbox = (idx) => {
+    setLbIndex(idx);
+    setLbOpen(true);
+  };
+
+  const handleAddMedia = (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Apenas imagens por enquanto.");
+      ev.target.value = "";
+      return;
     }
-  }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const item = {
+        id: crypto?.randomUUID?.() || String(Date.now()),
+        url: reader.result,
+        title: file.name.replace(/\.[^.]+$/, ""),
+        kind: "image",
+        createdAt: Date.now(),
+      };
+      persist({ media: [...(pet?.media || []), item] });
+      toast.success("Imagem adicionada!");
+      ev.target.value = "";
+    };
+    reader.onerror = () => toast.error("Falha ao ler a imagem.");
+    reader.readAsDataURL(file);
+  };
 
-  const [tab, setTab] = useState("saude"); // 'saude' | 'galeria'
-  const [openVac, setOpenVac] = useState(true);
+  const handleSetCover = async (item) => {
+    if (!item || pet?.avatar === item.url) return;
+    const ok = await confirm({
+      title: "Definir como capa?",
+      description: "Esta imagem será usada como foto de capa do pet.",
+      confirmText: "Definir capa",
+    });
+    if (!ok) return;
+    persist({ avatar: item.url });
+    toast.success("Imagem definida como capa.");
+  };
+
+  const handleEditTitle = async (item) => {
+    if (!item) return;
+
+    const newTitle = await askInput({
+      title: "Editar título",
+      description: "Dê um nome curto para esta foto.",
+      label: "Título da foto",
+      initialValue: item.title || "",
+      placeholder: "Ex.: Max no parque",
+      confirmText: "Salvar",
+      cancelText: "Cancelar",
+      validate: (v) => String(v).trim().length <= 80,
+      validateError: "Use no máximo 80 caracteres.",
+    });
+
+    if (newTitle == null) return; // cancelado
+
+    const next = (pet?.media || []).map((m) =>
+      m.id === item.id ? { ...m, title: String(newTitle).trim() } : m
+    );
+    persist({ media: next });
+    toast.success("Título atualizado.");
+  };
+
+  const handleDelete = async (item) => {
+    if (!item) return;
+    const ok = await confirm({
+      title: "Remover imagem?",
+      description: "Esta ação não pode ser desfeita.",
+      confirmText: "Remover",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    const next = (pet?.media || []).filter((m) => m.id !== item.id);
+    const patch = { media: next };
+    if (pet?.avatar === item.url) patch.avatar = "";
+    persist(patch);
+    toast.success("Imagem removida.");
+
+    // se o lightbox estiver aberto nessa imagem, ajusta o índice/fecha
+    if (lbOpen) {
+      const idx = imagesOnly.findIndex((m) => m.id === item.id);
+      if (idx === lbIndex) {
+        if (next.filter((m) => (m.kind || "image") === "image").length === 0) {
+          setLbOpen(false);
+        } else {
+          setLbIndex((i) => Math.max(0, i - 1));
+        }
+      }
+    }
+  };
+
+  const slides = imagesOnly.map((m) => ({
+    id: m.id,
+    url: m.url,
+    title: m.title || "",
+  }));
 
   if (!pet) {
-    return (
-      <div className="p-6">
-        <div className="rounded-xl border border-[var(--content-bd)] bg-[var(--content-bg)] p-6">
-          Pet não encontrado.
-        </div>
-      </div>
-    );
+    return <div className="p-6 text-sm opacity-70">Pet não encontrado.</div>;
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8">
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      {/* GRID: esquerda / divisor (>=xl) / direita */}
       <div className="grid grid-cols-12 gap-6">
-        {/* ESQUERDA - CARTÃO DO PET */}
-        <section className="col-span-12 lg:col-span-5">
-          <div className="rounded-2xl border border-[var(--content-bd)] bg-[var(--content-bg)] p-6">
-            {/* Faixa avatar + nome + raça/espécie */}
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <img
-                  src={pet.avatar}
-                  alt={pet.name}
-                  className="h-20 w-20 rounded-full object-cover ring-4 ring-black/10 dark:ring-white/10"
-                />
-                <button
-                  type="button"
-                  className="absolute -bottom-1 -right-1 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#f77904] text-white shadow hover:opacity-90"
-                  title="Editar perfil do pet"
-                  onClick={() => nav(`/pets/${id}/editar`)}
-                >
-                  <Pencil size={16} />
-                </button>
-              </div>
-
-              <div className="min-w-0">
-                <h1 className="truncate text-xl font-semibold text-[var(--text-strong)]">
-                  {pet.name}
-                </h1>
-                <p className="truncate text-sm opacity-80">
-                  {pet.species} • {pet.breed}
-                </p>
-              </div>
+        {/* ESQUERDA */}
+        <section className="col-span-12 xl:col-span-5 rounded-2xl bg-[var(--content-bg)] text-[var(--content-fg)] shadow-sm ring-1 ring-black/5 dark:ring-white/5 p-5">
+          {/* Header do pet */}
+          <div className="flex items-start gap-4">
+            <img
+              src={pet.avatar || pet.cover}
+              alt={pet.name}
+              className="h-16 w-16 md:h-20 md:w-20 rounded-full object-cover ring-4 ring-black/10 dark:ring-white/10"
+            />
+            <div className="min-w-0">
+              <h1 className="text-lg md:text-xl font-semibold">{pet.name}</h1>
+              <p className="text-xs md:text-sm opacity-70 capitalize">
+                {pet.species} • {pet.breed}
+              </p>
             </div>
+          </div>
 
-            {/* Descritivo */}
-            <div className="mt-4 text-sm leading-relaxed opacity-90">
-              {pet.bio || "Sem descrição adicionada."}
-            </div>
+          {/* Sobre */}
+          <div className="mt-5">
+            <h3 className="text-sm font-medium opacity-80">
+              Aparência e sinais distintos
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed opacity-90">
+              {pet.description || "—"}
+            </p>
+          </div>
 
-            {/* Linhas: tamanho/peso/sexo */}
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <InfoCard icon={<Ruler size={14} />} label="Tamanho" value={pet.size || "—"} />
-              <InfoCard icon={<Weight size={14} />} label="Peso" value={formatKg(pet.weight)} />
-              <InfoCard icon={<span className="inline-block h-2 w-2 rounded-full bg-current" />} label="Sexo" value={pet.gender || "—"} />
-            </div>
+          {/* Cards rápidos */}
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <InfoCard label="Tamanho" value={pet.size} />
+            <InfoCard label="Peso" value={`${pet.weight} kg`} />
+            <InfoCard label="Sexo" value={pet.gender} />
+          </div>
 
-            {/* Datas importantes */}
-            <div className="mt-6">
-              <h3 className="mb-3 text-sm font-semibold tracking-wide opacity-90">
-                Datas importantes
-              </h3>
-
-              <div className="space-y-3">
-                <DateRow
-                  icon={<CalendarDays size={16} />}
-                  label="Nascimento"
-                  value={formatDateIso(pet.birthday)}
-                  rightHint={ageFrom(pet.birthday)}
-                />
-                <DateRow
-                  icon={<CalendarDays size={16} />}
-                  label="Adoção"
-                  value={formatDateIso(pet.adoptedAt)}
-                  rightHint=""
-                />
-              </div>
+          {/* Datas */}
+          <div className="mt-6">
+            <h3 className="mb-3 text-sm font-medium opacity-80">
+              Datas importantes
+            </h3>
+            <div className="grid gap-3">
+              <InfoRow
+                label="Nascimento"
+                value={formatDate(pet.birthday)}
+                right={ageDiff(pet.birthday)}
+              />
+              <InfoRow
+                label="Adoção"
+                value={pet.adoption ? formatDate(pet.adoption) : "—"}
+              />
             </div>
           </div>
         </section>
 
-        {/* DIVISOR VERTICAL */}
-        <div className="hidden lg:block lg:col-span-1">
-          <div className="mx-auto h-full w-px bg-[var(--content-bd)]" />
-        </div>
+        {/* DIVISOR (xl+) */}
+        {/* <div className="hidden xl:block xl:col-span-0 relative">
+          <div className="absolute inset-y-0 -left-3 w-px bg-black/10 dark:bg-white/10" />
+        </div> */}
 
-        {/* DIREITA - SAÚDE / GALERIA */}
-        <section className="col-span-12 lg:col-span-6">
-          {/* Pills */}
-          <div className="mb-4 flex items-center gap-3 pt-2">
-            <button
-              onClick={() => setTab("saude")}
-              className={`inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium transition-all ${
-                tab === "saude"
-                  ? "bg-[#f77904] text-white shadow"
-                  : "bg-[var(--chip-bg)] text-[var(--text-weak)] hover:opacity-90"
-              }`}
+        {/* DIREITA */}
+        <section className="relative col-span-12 xl:col-span-7 rounded-2xl bg-[var(--content-bg)] text-[var(--content-fg)] shadow-sm ring-1 ring-black/5 dark:ring-white/5">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -left-3 top-0 hidden h-full w-px bg-black/10 dark:bg-white/10 xl:block"
+          />
+          {/* Pills (sem botão de upload aqui para não quebrar no mobile) */}
+          <div className="flex items-center gap-2 p-4">
+            <Tab
+              active={tab === "health"}
+              onClick={() => setTab("health")}
+              icon={<Shield className="h-4 w-4 -translate-y-[1px]" />}
             >
-              <Syringe size={16} /> Carteira de Saúde
-            </button>
-            <button
-              onClick={() => setTab("galeria")}
-              className={`inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium transition-all ${
-                tab === "galeria"
-                  ? "bg-[#f77904] text-white shadow"
-                  : "bg-[var(--chip-bg)] text-[var(--text-weak)] hover:opacity-90"
-              }`}
+              Carteira de Saúde
+            </Tab>
+            <Tab
+              active={tab === "gallery"}
+              onClick={() => setTab("gallery")}
+              icon={<Images className="h-4 w-4 -translate-y-[1px]" />}
             >
-              <Images size={16} /> Galeria
-            </button>
+              Galeria
+            </Tab>
           </div>
 
-          <div className="rounded-2xl border border-[var(--content-bd)] bg-[var(--content-bg)] p-4 sm:p-6">
-            {tab === "saude" ? (
-              <div className="space-y-4">
-                {/* Accordion Vacinas */}
-                <div className="rounded-xl border border-[var(--content-bd)]">
-                  <button
-                    onClick={() => setOpenVac((v) => !v)}
-                    className="flex w-full items-center justify-between gap-3 rounded-t-xl bg-[var(--content-soft)] px-4 py-3 text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/15 text-orange-500">
-                        <Syringe size={16} />
-                      </div>
-                      <div className="leading-tight">
-                        <div className="text-sm font-medium">Vacinas</div>
-                        <div className="text-xs opacity-70">0 registro(s)</div>
-                      </div>
-                    </div>
-                    {openVac ? (
-                      <ChevronUp className="opacity-70" size={18} />
-                    ) : (
-                      <ChevronDown className="opacity-70" size={18} />
-                    )}
-                  </button>
-
-                  <div
-                    className={`overflow-hidden px-4 transition-[max-height] duration-300 ease-in-out ${
-                      openVac ? "max-h-[480px] py-4" : "max-h-0"
-                    }`}
-                  >
-                    <div className="rounded-lg border border-dashed border-[var(--content-bd)] p-4 text-sm opacity-80">
-                      Nenhuma vacina registrada para este pet.
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-md bg-[#f77904] px-3 py-2 text-sm text-white hover:opacity-90"
-                        onClick={() =>
-                          toast.info("Gerenciador de vacinas entrará via modal na próxima etapa.")
-                        }
-                      >
-                        <Plus size={16} /> Gerenciar vacinas
-                      </button>
-                    </div>
+          {/* Conteúdo */}
+          <div className="px-4 pb-5">
+            {tab === "health" ? (
+              <div className="space-y-3">
+                {/* VACINAS (accordion com transição suave) */}
+                <Accordion
+                  open={vaccinesOpen}
+                  onToggle={() => setVaccinesOpen((v) => !v)}
+                  leftIcon={<Syringe className="h-4 w-4 opacity-70" />}
+                  title="Vacinas"
+                  rightActions={
+                    <span className="text-xs opacity-60">0 registro(s)</span>
+                  }
+                >
+                  <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                    Nenhuma vacina registrada para este pet.
                   </div>
-                </div>
+                </Accordion>
+
+                {/* outros cards “placeholder” com ícones – já no mesmo estilo */}
+                <StaticItem
+                  icon={<Pill className="h-4 w-4 opacity-70" />}
+                  title="Tratamentos antiparasitários"
+                />
+                <StaticItem
+                  icon={<Stethoscope className="h-4 w-4 opacity-70" />}
+                  title="Intervenções médicas"
+                />
+                <StaticItem
+                  icon={<Bandage className="h-4 w-4 opacity-70" />}
+                  title="Outros tratamentos"
+                />
               </div>
             ) : (
-              // Galeria
-              <div>
-                <div className="mb-4 flex items-center justify-between">
-                  <p className="text-sm opacity-80">
-                    {media.length} mídia(s) vinculadas
-                  </p>
-                  <div>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      multiple
-                      hidden
-                      onChange={onPickFiles}
-                    />
-                    <button
-                      onClick={() => fileRef.current?.click()}
-                      className="inline-flex items-center gap-2 rounded-md bg-[#f77904] px-3 py-2 text-sm text-white hover:opacity-90"
-                    >
-                      <Plus size={16} /> Adicionar mídia
-                    </button>
+              <div className="space-y-3">
+                <div className="rounded-xl ring-1 ring-black/5 dark:ring-white/5 p-3">
+                  {/* toolbar interna do card da galeria */}
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="text-sm font-medium opacity-80 flex items-center gap-2">
+                      <Images className="h-4 w-4" />
+                      Mídias do pet
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-md bg-[#f77904] px-3 py-1.5 text-white text-sm cursor-pointer hover:opacity-90">
+                      <Plus className="h-4 w-4" />
+                      Adicionar mídia
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleAddMedia}
+                      />
+                    </label>
                   </div>
-                </div>
 
-                {/* grid da galeria */}
-                {media.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-[var(--content-bd)] p-6 text-sm opacity-80">
-                    Nenhuma mídia ainda. Clique em “Adicionar mídia”.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {media.map((m) => (
-                      <div
-                        key={m.id}
-                        className="group overflow-hidden rounded-xl border border-[var(--content-bd)] bg-[var(--content-soft)]"
-                      >
-                        {m.type?.startsWith("video/") ? (
-                          <video
-                            src={m.src}
-                            controls
-                            className="h-40 w-full object-cover"
-                          />
-                        ) : (
+                  {imagesOnly.length === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-6 text-sm opacity-70">
+                      Nenhuma mídia ainda. Use “Adicionar mídia”.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {imagesOnly.map((m, idx) => (
+                        <button
+                          key={m.id}
+                          onClick={() => openLightbox(idx)}
+                          className="group relative overflow-hidden rounded-lg"
+                          title={m.title}
+                        >
                           <img
-                            src={m.src}
-                            alt=""
-                            className="h-40 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                            src={m.url}
+                            alt={m.title || ""}
+                            className="aspect-[4/3] w-full object-cover"
                           />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+
+                          {/* badge de capa */}
+                          {pet.avatar === m.url && (
+                            <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+                              <Star className="h-3 w-3 fill-white" /> capa
+                            </span>
+                          )}
+
+                          {/* barra de ações – sempre visível em telas pequenas; no desktop aparece no hover */}
+                          <div
+                            className="
+          absolute inset-x-0 bottom-0 flex items-center justify-between gap-2
+          bg-gradient-to-t from-black/60 to-black/0 p-2
+          text-white transition-opacity
+          opacity-100 md:opacity-0 md:group-hover:opacity-100
+        "
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="max-w-[60%] truncate text-xs">
+                              {m.title || "Sem título"}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                title="Definir como capa"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                onClick={() => handleSetCover(m)}
+                              >
+                                <Star
+                                  className={`h-4 w-4 ${
+                                    pet.avatar === m.url ? "fill-white" : ""
+                                  }`}
+                                />
+                              </button>
+                              <button
+                                title="Editar título"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                onClick={() => handleEditTitle(m)}
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </button>
+                              <button
+                                title="Remover"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                onClick={() => handleDelete(m)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
         </section>
       </div>
+
+      {/* LIGHTBOX + ações */}
+      {lbOpen && (
+        <>
+          <Lightbox
+            open={lbOpen}
+            images={lbImages}
+            index={lbIndex}
+            slides={slides}
+            onClose={() => setLbOpen(false)}
+            onPrev={() =>
+              setLbIndex((i) => (i - 1 + lbImages.length) % lbImages.length)
+            }
+            onNext={() => setLbIndex((i) => (i + 1) % lbImages.length)}
+          />
+        </>
+      )}
     </div>
   );
 }
 
-/* -------- components auxiliares -------- */
+/* ------------------------------ SUBCOMPONENTES ----------------------------- */
 
-function InfoCard({ icon, label, value }) {
+function Tab({ active, onClick, icon, children }) {
   return (
-    <div className="rounded-xl border border-[var(--content-bd)] bg-[var(--content-soft)] px-4 py-3">
-      <div className="mb-1 flex items-center gap-2 text-xs opacity-70">
-        <span className="inline-flex items-center">{icon}</span>
-        {label}
-      </div>
-      <div className="text-sm font-medium">{value || "—"}</div>
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm transition-all ${
+        active
+          ? "bg-[#f77904] text-white shadow-sm"
+          : "bg-[var(--chip-bg)] text-[var(--chip-fg)] hover:opacity-90"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function InfoCard({ label, value }) {
+  return (
+    <div className="rounded-xl bg-[var(--chip-bg)] p-3 ring-1 ring-black/5 dark:ring-white/5">
+      <div className="text-xs opacity-70">{label}</div>
+      <div className="mt-1 font-medium capitalize">{value || "—"}</div>
     </div>
   );
 }
 
-function DateRow({ icon, label, value, rightHint }) {
+function InfoRow({ label, value, right }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-[var(--content-bd)] bg-[var(--content-soft)] px-4 py-3">
+    <div className="flex items-center justify-between rounded-xl bg-[var(--chip-bg)] px-3 py-2 ring-1 ring-black/5 dark:ring-white/5">
+      <div className="text-xs opacity-70">{label}</div>
       <div className="flex items-center gap-2">
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[var(--chip-bg)]">
-          {icon}
+        <div className="font-medium">{value || "—"}</div>
+        {right && <span className="text-xs opacity-70">{right}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Item estático “card” com ícone, para manter o layout da carteira */
+function StaticItem({ icon, title }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 ring-1 ring-black/5 dark:ring-white/5">
+      <span className="inline-flex items-center gap-2">
+        {icon}
+        {title}
+      </span>
+      <span className="text-lg opacity-50">+</span>
+    </div>
+  );
+}
+
+/* --------- Accordion com transição suave (altura animada) --------- */
+function Accordion({
+  title,
+  open,
+  onToggle,
+  leftIcon,
+  rightActions,
+  children,
+}) {
+  const ref = useRef(null);
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open) {
+      // abre suavemente: mede e anima até a altura do conteúdo
+      const h = el.scrollHeight;
+      setHeight(h);
+      const id = setTimeout(() => setHeight("auto"), 300);
+      return () => clearTimeout(id);
+    } else {
+      if (height === "auto") {
+        // se estava aberto, volta para a altura atual antes de colapsar
+        setHeight(ref.current.scrollHeight);
+        requestAnimationFrame(() => setHeight(0));
+      } else {
+        setHeight(0);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return (
+    <div className="rounded-xl ring-1 ring-black/5 dark:ring-white/5">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 text-left text-sm font-medium"
+        aria-expanded={open}
+      >
+        <span className="inline-flex items-center gap-2">
+          {leftIcon}
+          {title}
         </span>
-        <div className="text-sm">
-          <div className="opacity-70">{label}</div>
-          <div className="font-medium">{value}</div>
+        <div className="flex items-center gap-3">
+          {rightActions}
+          <ChevronDown
+            className={`h-4 w-4 transition-transform duration-300 ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </div>
+      </button>
+
+      <div
+        style={{
+          overflow: "hidden",
+          transition: "max-height 300ms ease",
+          maxHeight: height === "auto" ? "9999px" : `${height}px`,
+        }}
+      >
+        <div ref={ref} className="px-4 py-3">
+          {children}
         </div>
       </div>
-      <div className="text-xs opacity-70">{rightHint}</div>
     </div>
   );
 }
 
-function ageFrom(dateStr) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  if (isNaN(+d)) return "";
-  const now = new Date();
-  let y = now.getFullYear() - d.getFullYear();
-  let m = now.getMonth() - d.getMonth();
-  if (m < 0) {
-    y -= 1;
-    m += 12;
+/* --------------------------------- utils ---------------------------------- */
+function formatDate(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("pt-BR");
+  } catch {
+    return iso;
   }
-  const ys = y > 0 ? `${y}a` : "";
-  const ms = m > 0 ? `${m}m` : "";
-  return [ys, ms].filter(Boolean).join(" ");
+}
+function ageDiff(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const y = now.getFullYear() - d.getFullYear();
+  let m = now.getMonth() - d.getMonth();
+  if (m < 0) m += 12;
+  return `${y}a ${m}m`;
 }

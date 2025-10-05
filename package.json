@@ -18,6 +18,7 @@
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.62.0",
     "react-router-dom": "^7.8.2",
+    "yet-another-react-lightbox": "^3.25.0",
     "zod": "^4.1.1",
     "zustand": "^5.0.8"
   },

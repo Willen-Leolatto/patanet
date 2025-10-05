@@ -1,166 +1,184 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
-import { createPortal } from "react-dom";
-import { playSfx } from "../../utils/sfx";
+// src/components/ConfirmProvider.jsx
+import React from "react";
 
-const ConfirmCtx = createContext(null);
+const ConfirmCtx = React.createContext(null);
 
-export function ConfirmProvider({ children }) {
-  const [state, setState] = useState(null); // {title, message, description, confirmText, cancelText, variant, resolve}
-  const cancelRef = useRef(null);
-  const confirmRef = useRef(null);
-  const previouslyFocused = useRef(null);
+export function useConfirm() {
+  const ctx = React.useContext(ConfirmCtx);
+  if (!ctx) throw new Error("useConfirm deve ser usado dentro de <ConfirmProvider/>");
+  return ctx.confirm;
+}
 
-  const confirm = useCallback((opts) => {
+export function usePrompt() {
+  const ctx = React.useContext(ConfirmCtx);
+  if (!ctx) throw new Error("usePrompt deve ser usado dentro de <ConfirmProvider/>");
+  return ctx.prompt;
+}
+
+export default function ConfirmProvider({ children }) {
+  const [open, setOpen] = React.useState(false);
+  const [mode, setMode] = React.useState("confirm"); // "confirm" | "prompt"
+  const [opts, setOpts] = React.useState(null);
+  const resolverRef = React.useRef(null);
+
+  // para prompt
+  const [value, setValue] = React.useState("");
+  const [error, setError] = React.useState("");
+
+  const close = React.useCallback(() => {
+    setOpen(false);
+    setTimeout(() => {
+      setOpts(null);
+      setValue("");
+      setError("");
+      setMode("confirm");
+      resolverRef.current = null;
+    }, 150);
+  }, []);
+
+  const confirm = React.useCallback((options = {}) => {
     return new Promise((resolve) => {
-      previouslyFocused.current = document.activeElement;
-      setState({
-        title: "Tem certeza?",
-        message: "",
+      resolverRef.current = (ok) => resolve(!!ok);
+      setMode("confirm");
+      setOpts({
+        title: "Confirmar ação",
         description: "",
         confirmText: "Confirmar",
         cancelText: "Cancelar",
-        variant: "danger",
-        ...opts,
-        resolve,
+        tone: "default", // "default" | "danger"
+        ...options,
       });
+      setOpen(true);
     });
   }, []);
 
-  const close = useCallback((result) => {
-    setState((curr) => {
-      if (curr?.resolve) curr.resolve(result);
-      return null;
+  const prompt = React.useCallback((options = {}) => {
+    return new Promise((resolve) => {
+      resolverRef.current = (result) => resolve(result);
+      const merged = {
+        title: "Editar",
+        description: "",
+        label: "Valor",
+        initialValue: "",
+        placeholder: "",
+        confirmText: "Salvar",
+        cancelText: "Cancelar",
+        validate: null, // (val) => true|false
+        ...options,
+      };
+      setMode("prompt");
+      setOpts(merged);
+      setValue(merged.initialValue || "");
+      setOpen(true);
     });
-    // retorna o foco onde estava
-    if (previouslyFocused.current && previouslyFocused.current.focus) {
-      previouslyFocused.current.focus();
+  }, []);
+
+  const onCancel = () => {
+    if (!resolverRef.current) return;
+    if (mode === "confirm") resolverRef.current(false);
+    else resolverRef.current(null);
+    close();
+  };
+
+  const onConfirm = () => {
+    if (!resolverRef.current) return;
+    if (mode === "confirm") {
+      resolverRef.current(true);
+      close();
+    } else {
+      if (opts?.validate && !opts.validate(value)) {
+        setError(typeof opts.validateError === "string" ? opts.validateError : "Valor inválido.");
+        return;
+      }
+      resolverRef.current(value);
+      close();
     }
-  }, []);
+  };
 
-  // Ao abrir: foca "Cancelar", toca sfx
-  useEffect(() => {
-    if (!state) return;
-    // foco
-    const t = setTimeout(() => cancelRef.current?.focus(), 0);
-    // sfx
-    playSfx("warning");
-    return () => clearTimeout(t);
-  }, [state]);
-
-  // Acessibilidade: Esc cancela, Enter confirma
-  useEffect(() => {
-    if (!state) return;
+  // atalhos de teclado
+  React.useEffect(() => {
+    if (!open) return;
     const onKey = (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close(false);
-      }
-      if (e.key === "Enter") {
-        e.preventDefault();
-        close(true);
-      }
-      // focus trap básico
-      if (e.key === "Tab") {
-        const focusables = [cancelRef.current, confirmRef.current].filter(
-          Boolean
-        );
-        if (focusables.length < 2) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      if (e.key === "Escape") onCancel();
+      if (e.key === "Enter") onConfirm();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [state, close]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, mode, value]);
+
+  const primaryBase =
+    opts?.tone === "danger"
+      ? "bg-red-600 hover:bg-red-700 focus:ring-red-500"
+      : "bg-[#f77904] hover:bg-[#e86e02] focus:ring-[#f77904]";
 
   return (
-    <ConfirmCtx.Provider value={confirm}>
+    <ConfirmCtx.Provider value={{ confirm, prompt }}>
       {children}
-      {state &&
-        createPortal(
+
+      {/* Modal */}
+      {open && (
+        <div className="fixed inset-0 z-[100]">
+          {/* overlay */}
           <div
-            className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4"
-            aria-hidden="false"
-          >
+            className="absolute inset-0 bg-black/60 backdrop-blur-[1px] opacity-100 transition-opacity"
+            onClick={onCancel}
+          />
+          {/* dialog */}
+          <div className="absolute inset-0 flex items-center justify-center p-4">
             <div
-              className="w-full max-w-md rounded-xl border shadow-xl
-                       border-slate-200 bg-white text-slate-900
-                       dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
-              role="alertdialog"
+              role="dialog"
               aria-modal="true"
-              aria-labelledby="confirm-title"
-              aria-describedby="confirm-desc"
-              onClick={(e) => e.stopPropagation()} // não fecha ao clicar fora
+              className="w-full max-w-md origin-center rounded-2xl bg-slate-900 text-slate-100 shadow-xl outline outline-1 outline-white/10 transition-all
+                        data-[state=open]:scale-100 data-[state=open]:opacity-100 scale-95 opacity-0"
+              data-state="open"
             >
-              <div className="p-4">
-                <h2 id="confirm-title" className="text-lg font-semibold">
-                  {state.title}
-                </h2>
-                {(state.message || state.description) && (
-                  <p id="confirm-desc" className="mt-1 text-sm opacity-80">
-                    {state.message || state.description}
-                  </p>
-                )}
+              <div className="px-5 pt-5">
+                <h3 className="text-base font-semibold">{opts?.title}</h3>
+                {opts?.description ? (
+                  <p className="mt-1 text-sm text-slate-300">{opts.description}</p>
+                ) : null}
               </div>
-              <div
-                className="flex items-center justify-end gap-2 border-t p-3
-                            border-slate-200 dark:border-slate-800"
-              >
+
+              {mode === "prompt" && (
+                <div className="px-5 pt-3">
+                  {opts?.label ? (
+                    <label className="mb-1 block text-xs font-medium text-slate-300">
+                      {opts.label}
+                    </label>
+                  ) : null}
+                  <input
+                    autoFocus
+                    value={value}
+                    onChange={(e) => {
+                      setValue(e.target.value);
+                      if (error) setError("");
+                    }}
+                    placeholder={opts?.placeholder || ""}
+                    className="w-full rounded-md border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white
+                               outline-none focus:ring-2 focus:ring-[#f77904]"
+                  />
+                  {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+                </div>
+              )}
+
+              <div className="mt-5 flex items-center justify-end gap-2 border-t border-white/10 px-5 py-4">
                 <button
-                  type="button"
-                  ref={cancelRef}
-                  onClick={() => {
-                    playSfx("cancel");
-                    close(false);
-                  }}
-                  className="rounded-md border px-3 py-2 text-sm
-                           border-slate-300 hover:bg-slate-100
-                           dark:border-slate-700 dark:hover:bg-slate-800"
+                  className="inline-flex h-9 items-center rounded-md bg-slate-700 px-3 text-sm hover:bg-slate-600"
+                  onClick={onCancel}
                 >
-                  {state.cancelText}
+                  {opts?.cancelText || "Cancelar"}
                 </button>
                 <button
-                  type="button"
-                  ref={confirmRef}
-                  onClick={() => {
-                    playSfx("success");
-                    close(true);
-                  }}
-                  className={`rounded-md border px-3 py-2 text-sm
-                           dark:border-slate-700
-                           ${
-                             state.variant === "danger"
-                               ? "bg-red-600 text-white border-red-700 hover:opacity-90"
-                               : "bg-slate-900 text-white border-slate-700 hover:opacity-90"
-                           }`}
+                  className={`inline-flex h-9 items-center rounded-md px-3 text-sm text-white focus:outline-none focus:ring-2 ${primaryBase}`}
+                  onClick={onConfirm}
                 >
-                  {state.confirmText}
+                  {opts?.confirmText || "Confirmar"}
                 </button>
               </div>
             </div>
-          </div>,
-          document.body
-        )}
+          </div>
+        </div>
+      )}
     </ConfirmCtx.Provider>
   );
-}
-
-export function useConfirm() {
-  const ctx = useContext(ConfirmCtx);
-  if (!ctx) throw new Error("useConfirm must be used within <ConfirmProvider>");
-  return ctx;
 }

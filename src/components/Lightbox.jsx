@@ -1,90 +1,85 @@
 // src/components/Lightbox.jsx
-import React, { useEffect, useState } from "react";
-import { X, ChevronLeft, ChevronRight, Download, Share2 } from "lucide-react";
+import React from "react";
+import YaLightbox from "yet-another-react-lightbox";
+import Captions from "yet-another-react-lightbox/plugins/captions";
+import "yet-another-react-lightbox/styles.css";
+import "yet-another-react-lightbox/plugins/captions.css";
 
-export default function Lightbox({ images = [], index = 0, onClose }) {
-  const [i, setI] = useState(index);
-  const canPrev = i > 0;
-  const canNext = i < images.length - 1;
-
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape") onClose?.();
-      if (e.key === "ArrowLeft" && canPrev) setI((v) => v - 1);
-      if (e.key === "ArrowRight" && canNext) setI((v) => v + 1);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [canPrev, canNext, onClose]);
-
-  const src = images[i]?.url || images[i];
-
-  async function doShare() {
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Foto", url: src });
-      } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(src);
-        alert("Link copiado!");
-      }
-    } catch {}
-  }
-
-  function doDownload() {
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = `foto-${i + 1}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
+/**
+ * slides: [{ id, url, title }]
+ * open, index, onClose, onIndexChange
+ * onSetCover(item), onEditTitle(item), onRemove(item)
+ */
+export default function Lightbox({
+  slides = [],
+  open = false,
+  index = 0,
+  onClose,
+  onIndexChange,
+  onSetCover,
+  onEditTitle,
+  onRemove,
+}) {
+  // Map para o formato exigido pela lib
+  const lbSlides = slides.map((s) => ({ src: s.url, title: s.title ?? "", id: s.id }));
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
-      onClick={(e) => e.target === e.currentTarget && onClose?.()}
-    >
-      {/* toolbar */}
-      <div className="absolute right-4 top-4 flex gap-2">
-        <button className="rounded-md bg-white/10 p-2 text-white hover:bg-white/20" onClick={doShare} title="Compartilhar">
-          <Share2 className="h-5 w-5" />
-        </button>
-        <button className="rounded-md bg-white/10 p-2 text-white hover:bg-white/20" onClick={doDownload} title="Baixar">
-          <Download className="h-5 w-5" />
-        </button>
-        <button className="rounded-md bg-white/10 p-2 text-white hover:bg-white/20" onClick={onClose} title="Fechar">
-          <X className="h-5 w-5" />
-        </button>
-      </div>
+    <YaLightbox
+      open={open}
+      index={index}
+      close={onClose}
+      slides={lbSlides}
+      plugins={[Captions]}
+      // animação mais suave ao navegar
+      animation={{ fade: 280, swipe: 380 }}
+      carousel={{ finite: false }}
+      controller={{ closeOnBackdropClick: true }}
+      on={{
+        view: ({ index: i }) => onIndexChange?.(i),
+      }}
+      // barra de ações renderizada DENTRO do lightbox (fica sempre por cima)
+      render={{
+        toolbar: ({ index: i }) => {
+          const current = slides[i];
+          if (!current) return null;
 
-      {/* setas */}
-      {canPrev && (
-        <button
-          className="absolute left-4 rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
-          onClick={() => setI(i - 1)}
-          title="Anterior"
-        >
-          <ChevronLeft className="h-6 w-6" />
-        </button>
-      )}
-      {canNext && (
-        <button
-          className="absolute right-4 rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
-          onClick={() => setI(i + 1)}
-          title="Próxima"
-        >
-          <ChevronRight className="h-6 w-6" />
-        </button>
-      )}
+          const Btn = ({ children, onClick, variant = "neutral" }) => {
+            const base =
+              "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors";
+            const styles =
+              variant === "danger"
+                ? "bg-red-600/90 border-red-500 text-white hover:bg-red-600"
+                : variant === "primary"
+                ? "bg-amber-600/95 border-amber-500 text-white hover:bg-amber-600"
+                : "bg-slate-800/80 border-slate-700 text-slate-100 hover:bg-slate-800";
+            return (
+              <button onClick={onClick} className={`${base} ${styles}`}>
+                {children}
+              </button>
+            );
+          };
 
-      {/* imagem com fade */}
-      <img
-        key={src}
-        src={src}
-        alt=""
-        className="max-h-[85vh] max-w-[92vw] rounded-lg object-contain opacity-0 transition-opacity duration-300"
-        onLoad={(e) => (e.currentTarget.style.opacity = 1)}
-      />
-    </div>
+          return (
+            <div
+              className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-6
+                         flex items-center gap-2 rounded-xl border border-slate-700
+                         bg-slate-900/85 backdrop-blur px-3 py-2"
+              style={{ zIndex: 1000000000 }}
+            >
+              <span className="text-slate-200 text-sm max-w-[40vw] truncate">
+                {current.title || ""}
+              </span>
+              <div className="w-px h-5 bg-slate-700 mx-2" />
+              <Btn variant="primary" onClick={() => onSetCover?.(current)}>⭐ Capa</Btn>
+              <Btn onClick={() => onEditTitle?.(current)}>✏️ Título</Btn>
+              <Btn variant="danger" onClick={() => onRemove?.(current)}>🗑️ Remover</Btn>
+            </div>
+          );
+        },
+      }}
+      styles={{
+        container: { backgroundColor: "rgba(0,0,0,0.85)" }, // backdrop
+      }}
+    />
   );
 }

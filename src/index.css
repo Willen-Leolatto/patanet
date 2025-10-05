@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+/* --------- Modo escuro por classe .dark --------- */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* layout base */
+html, body, #root { height: 100%; }
+body { margin: 0; }
+.app-shell { min-height: 100vh; }
+
+/* --------- PataNet – tokens --------- */
+:root{
+  /* sidebar sempre escura no visual final */
+  --sidebar-bg: #2a3240;
+  --sidebar-fg: #f7fafc;
+
+  /* conteúdo (muda conforme tema) */
+  --content-bg: #ffffff;
+  --content-fg: #111827;
+
+  /* ações */
+  --action-bg: #f77904;
+  --action-fg: #ffffff;
+
+  /* larguras do sidebar */
+  --sb-open: 280px;
+  --sb-closed: 72px;
+}
+
+html.dark{
+  /* sidebar permanece escura; só o conteúdo troca */
+  --sidebar-bg: #101113;
+  --sidebar-fg: #f7fafc;
+
+  --content-bg: #2a3240;
+  --content-fg: #ffffff;
+}
+
+/* transições de tema/superfícies */
+html, body, #root,
+.card, .content-area, .sidebar-surface{
+  transition: background-color .25s ease, color .25s ease, border-color .25s ease;
+}
+
+/* --------- Sidebar --------- */
+.sidebar-surface{
+  background: var(--sidebar-bg);
+  color: var(--sidebar-fg);
+  /* animações do abrir/fechar */
+  transition:
+    width .30s ease,
+    transform .30s ease,
+    background-color .25s ease,
+    color .25s ease,
+    border-color .25s ease;
+}
+
+/* --------- Área central --------- */
+.content-area{
+  background: var(--content-bg);
+  color: var(--content-fg);
+  /* anima a margem que “acompanha” a largura do sidebar */
+  transition: margin-left .30s ease, background-color .25s ease, color .25s ease, border-color .25s ease;
+}
+
+/* --------- Botão de ação padrão --------- */
+.btn-action{ background: var(--action-bg); color: var(--action-fg); }
+.btn-action:hover{ filter: brightness(.95); }
+
+/* --------- Cards --------- */
+.card{
+  background: var(--content-bg);
+  color: var(--content-fg);
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: .75rem;
+}
+html.dark .card{ border-color: rgba(255,255,255,.06); }
+
+/* --------- Utilitários visuais usados no projeto --------- */
+.content-container{
+  margin-inline: auto; width: 100%;
+  max-width: 72rem; /* confortável no desktop */
+  padding-inline: 1rem;
+}
+
+.elevated-card{
+  background: var(--content-bg);
+  color: var(--content-fg);
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .04);
+}
+
+/* skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton{
+  position: relative; overflow: hidden;
+  background: color-mix(in oklab, var(--content-fg) 10%, transparent);
+  border-radius: .5rem;
+}
+.skeleton::after{
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--content-fg) 16%, transparent) 50%, transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite; opacity: .45;
+}
+
+/* helpers de transição finos (opcionalmente usados nos elementos) */
+.transition-width   { transition-property: width;   transition-duration: .30s; }
+.transition-margin  { transition-property: margin;  transition-duration: .30s; }
+.transition-transform{ transition-property: transform; transition-duration: .30s; }
+
+
+:root {
+  --content-bg: #ffffff;
+  --content-soft: #f8fafc;
+  --content-bd: #e5e7eb;
+  --chip-bg: #eef2f7;
+  --text-strong: #0f172a;
+  --text-weak: #334155;
+}
+
+html.dark {
+  --content-bg: #2a3240;   /* bg dos cards no escuro */
+  --content-soft: #26303f; /* faixas internas (headers, linhas) */
+  --content-bd: #3b4453;   /* divisórias */
+  --chip-bg: #3b4453;
+  --text-strong: #f7fafc;
+  --text-weak: #cbd5e1;
+}
+
+/* opcional: suaviza transições de superfícies quando alterna tema */
+*,
+*:before,
+*:after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
+}
