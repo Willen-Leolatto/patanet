@@ -1,184 +1,223 @@
-// src/components/ConfirmProvider.jsx
-import React from "react";
+// src/components/ui/ConfirmProvider.jsx
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-const ConfirmCtx = React.createContext(null);
-
+const ConfirmCtx = createContext(null);
 export function useConfirm() {
-  const ctx = React.useContext(ConfirmCtx);
-  if (!ctx) throw new Error("useConfirm deve ser usado dentro de <ConfirmProvider/>");
-  return ctx.confirm;
+  const ctx = useContext(ConfirmCtx);
+  if (!ctx) throw new Error("ConfirmProvider ausente");
+  const callable = ctx.confirm;
+  callable.prompt = ctx.prompt;
+  callable.select = ctx.select;
+  return callable;
 }
 
 export function usePrompt() {
   const ctx = React.useContext(ConfirmCtx);
-  if (!ctx) throw new Error("usePrompt deve ser usado dentro de <ConfirmProvider/>");
+  if (!ctx)
+    throw new Error("usePrompt deve ser usado dentro de <ConfirmProvider/>");
   return ctx.prompt;
 }
 
 export default function ConfirmProvider({ children }) {
-  const [open, setOpen] = React.useState(false);
-  const [mode, setMode] = React.useState("confirm"); // "confirm" | "prompt"
-  const [opts, setOpts] = React.useState(null);
-  const resolverRef = React.useRef(null);
+  const [state, setState] = useState({
+    open: false,
+    mode: "confirm", // 'confirm' | 'prompt' | 'select'
+    options: {},
+    resolve: null,
+  });
+  const panelRef = useRef(null);
 
-  // para prompt
-  const [value, setValue] = React.useState("");
-  const [error, setError] = React.useState("");
+  const close = useCallback(() => setState((s) => ({ ...s, open: false })), []);
 
-  const close = React.useCallback(() => {
-    setOpen(false);
-    setTimeout(() => {
-      setOpts(null);
-      setValue("");
-      setError("");
-      setMode("confirm");
-      resolverRef.current = null;
-    }, 150);
-  }, []);
-
-  const confirm = React.useCallback((options = {}) => {
+  const confirm = useCallback((options = {}) => {
     return new Promise((resolve) => {
-      resolverRef.current = (ok) => resolve(!!ok);
-      setMode("confirm");
-      setOpts({
-        title: "Confirmar ação",
-        description: "",
-        confirmText: "Confirmar",
-        cancelText: "Cancelar",
-        tone: "default", // "default" | "danger"
-        ...options,
-      });
-      setOpen(true);
+      setState({ open: true, mode: "confirm", options, resolve });
+    });
+  }, []);
+  const prompt = useCallback((options = {}) => {
+    return new Promise((resolve) => {
+      setState({ open: true, mode: "prompt", options, resolve });
+    });
+  }, []);
+  const select = useCallback((options = {}) => {
+    return new Promise((resolve) => {
+      setState({ open: true, mode: "select", options, resolve });
     });
   }, []);
 
-  const prompt = React.useCallback((options = {}) => {
-    return new Promise((resolve) => {
-      resolverRef.current = (result) => resolve(result);
-      const merged = {
-        title: "Editar",
-        description: "",
-        label: "Valor",
-        initialValue: "",
-        placeholder: "",
-        confirmText: "Salvar",
-        cancelText: "Cancelar",
-        validate: null, // (val) => true|false
-        ...options,
-      };
-      setMode("prompt");
-      setOpts(merged);
-      setValue(merged.initialValue || "");
-      setOpen(true);
-    });
-  }, []);
-
-  const onCancel = () => {
-    if (!resolverRef.current) return;
-    if (mode === "confirm") resolverRef.current(false);
-    else resolverRef.current(null);
-    close();
-  };
-
-  const onConfirm = () => {
-    if (!resolverRef.current) return;
-    if (mode === "confirm") {
-      resolverRef.current(true);
-      close();
-    } else {
-      if (opts?.validate && !opts.validate(value)) {
-        setError(typeof opts.validateError === "string" ? opts.validateError : "Valor inválido.");
-        return;
+  useEffect(() => {
+    function onKey(e) {
+      if (!state.open) return;
+      if (e.key === "Escape") {
+        // cancel
+        if (state.mode === "prompt") state.resolve && state.resolve("");
+        else if (state.mode === "select") state.resolve && state.resolve(null);
+        else state.resolve && state.resolve(false);
+        close();
       }
-      resolverRef.current(value);
-      close();
     }
-  };
-
-  // atalhos de teclado
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") onCancel();
-      if (e.key === "Enter") onConfirm();
-    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, mode, value]);
+  }, [state, close]);
 
-  const primaryBase =
-    opts?.tone === "danger"
-      ? "bg-red-600 hover:bg-red-700 focus:ring-red-500"
-      : "bg-[#f77904] hover:bg-[#e86e02] focus:ring-[#f77904]";
+  const value = useMemo(() => ({ confirm, prompt, select }), [confirm, prompt, select]);
+
+  const { open, mode, options, resolve } = state;
+  const tone = options.tone === "danger" ? "danger" : "default";
 
   return (
-    <ConfirmCtx.Provider value={{ confirm, prompt }}>
+    <ConfirmCtx.Provider value={value}>
       {children}
 
-      {/* Modal */}
       {open && (
-        <div className="fixed inset-0 z-[100]">
-          {/* overlay */}
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 p-4"
+          onMouseDown={(e) => {
+            // clique no backdrop cancela
+            if (e.target === e.currentTarget) {
+              if (mode === "prompt") resolve && resolve("");
+              else if (mode === "select") resolve && resolve(null);
+              else resolve && resolve(false);
+              close();
+            }
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-[1px] opacity-100 transition-opacity"
-            onClick={onCancel}
-          />
-          {/* dialog */}
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div
-              role="dialog"
-              aria-modal="true"
-              className="w-full max-w-md origin-center rounded-2xl bg-slate-900 text-slate-100 shadow-xl outline outline-1 outline-white/10 transition-all
-                        data-[state=open]:scale-100 data-[state=open]:opacity-100 scale-95 opacity-0"
-              data-state="open"
-            >
-              <div className="px-5 pt-5">
-                <h3 className="text-base font-semibold">{opts?.title}</h3>
-                {opts?.description ? (
-                  <p className="mt-1 text-sm text-slate-300">{opts.description}</p>
-                ) : null}
-              </div>
+            ref={panelRef}
+            className="w-full max-w-md overflow-hidden rounded-xl border border-slate-700/40 bg-slate-900 text-slate-100 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-700/40 px-5 py-3">
+              <h3 className="text-base font-semibold">
+                {options.title || (mode === "prompt" ? "Digite um valor" : "Confirmação")}
+              </h3>
+              <button
+                className="rounded p-1 hover:bg-white/10"
+                onClick={() => {
+                  if (mode === "prompt") resolve && resolve("");
+                  else if (mode === "select") resolve && resolve(null);
+                  else resolve && resolve(false);
+                  close();
+                }}
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
 
-              {mode === "prompt" && (
-                <div className="px-5 pt-3">
-                  {opts?.label ? (
-                    <label className="mb-1 block text-xs font-medium text-slate-300">
-                      {opts.label}
-                    </label>
-                  ) : null}
-                  <input
-                    autoFocus
-                    value={value}
-                    onChange={(e) => {
-                      setValue(e.target.value);
-                      if (error) setError("");
-                    }}
-                    placeholder={opts?.placeholder || ""}
-                    className="w-full rounded-md border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white
-                               outline-none focus:ring-2 focus:ring-[#f77904]"
-                  />
-                  {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
-                </div>
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4">
+              {options.description && (
+                <p className="text-sm opacity-80 whitespace-pre-wrap">{options.description}</p>
               )}
 
-              <div className="mt-5 flex items-center justify-end gap-2 border-t border-white/10 px-5 py-4">
+              {mode === "prompt" && (
+                <PromptInput
+                  defaultValue={options.defaultValue || ""}
+                  placeholder={options.placeholder || ""}
+                  confirmText={options.confirmText || "OK"}
+                  onSubmit={(val) => {
+                    resolve && resolve(val);
+                    close();
+                  }}
+                  onCancel={() => {
+                    resolve && resolve("");
+                    close();
+                  }}
+                />
+              )}
+
+              {mode === "select" && (
+                <div className="grid gap-2">
+                  {(options.options || []).map((opt) => (
+                    <button
+                      key={opt.id}
+                      className={`w-full rounded-md border px-3 py-2 text-left transition
+                        ${
+                          opt.tone === "danger"
+                            ? "border-red-500/40 hover:bg-red-500/10 text-red-300"
+                            : "border-slate-700 hover:bg-white/5"
+                        }`}
+                      onClick={() => {
+                        resolve && resolve(opt);
+                        close();
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer (confirm) */}
+            {mode === "confirm" && (
+              <div className="flex justify-end gap-2 border-t border-slate-700/40 px-5 py-3">
                 <button
-                  className="inline-flex h-9 items-center rounded-md bg-slate-700 px-3 text-sm hover:bg-slate-600"
-                  onClick={onCancel}
+                  className="rounded-md border border-slate-700 px-3 py-1.5 text-sm hover:bg-white/5"
+                  onClick={() => {
+                    resolve && resolve(false);
+                    close();
+                  }}
                 >
-                  {opts?.cancelText || "Cancelar"}
+                  {options.cancelText || "Cancelar"}
                 </button>
                 <button
-                  className={`inline-flex h-9 items-center rounded-md px-3 text-sm text-white focus:outline-none focus:ring-2 ${primaryBase}`}
-                  onClick={onConfirm}
+                  className={`rounded-md px-3 py-1.5 text-sm text-white ${
+                    tone === "danger"
+                      ? "bg-red-600 hover:bg-red-500"
+                      : "bg-slate-600 hover:bg-slate-500"
+                  }`}
+                  onClick={() => {
+                    resolve && resolve(true);
+                    close();
+                  }}
                 >
-                  {opts?.confirmText || "Confirmar"}
+                  {options.confirmText || "Confirmar"}
                 </button>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
     </ConfirmCtx.Provider>
+  );
+}
+
+function PromptInput({ defaultValue, placeholder, confirmText, onSubmit, onCancel }) {
+  const [val, setVal] = useState(defaultValue);
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit(val);
+      }}
+      className="grid gap-3"
+    >
+      <input
+        className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm outline-none focus:border-slate-500"
+        placeholder={placeholder}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        autoFocus
+      />
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm hover:bg-white/5"
+          onClick={onCancel}
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          className="rounded-md bg-slate-600 px-3 py-1.5 text-sm text-white hover:bg-slate-500"
+        >
+          {confirmText}
+        </button>
+      </div>
+    </form>
   );
 }

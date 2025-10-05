@@ -252,6 +252,8 @@ export default function PetDetail() {
     id: m.id,
     url: m.url,
     title: m.title || "",
+    alt: m.title || "",
+    description: m.title || "",
   }));
 
   if (!pet) {

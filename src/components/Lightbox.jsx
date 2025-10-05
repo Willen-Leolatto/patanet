@@ -1,5 +1,5 @@
 // src/components/Lightbox.jsx
-import React from "react";
+import React, { useMemo } from "react";
 import YaLightbox from "yet-another-react-lightbox";
 import Captions from "yet-another-react-lightbox/plugins/captions";
 import "yet-another-react-lightbox/styles.css";
@@ -12,6 +12,7 @@ import "yet-another-react-lightbox/plugins/captions.css";
  */
 export default function Lightbox({
   slides = [],
+  assets = [],
   open = false,
   index = 0,
   onClose,
@@ -21,7 +22,18 @@ export default function Lightbox({
   onRemove,
 }) {
   // Map para o formato exigido pela lib
-  const lbSlides = slides.map((s) => ({ src: s.url, title: s.title ?? "", id: s.id }));
+  const lbSlides = useMemo(() => {
+    const base = (slides && slides.length ? slides : assets || []);
+    return base
+      .map((s) => ({
+        // aceita tanto {src} quanto {url}
+        src: s.src ?? s.url,
+        description: s.description ?? s.title ?? s.caption ?? "",
+        alt: s.alt ?? s.title ?? "",
+        id: s.id ?? s.src ?? s.url,
+      }))
+      .filter((s) => !!s.src); // garante que só vai o que tem src
+  }, [slides, assets]);
 
   return (
     <YaLightbox
