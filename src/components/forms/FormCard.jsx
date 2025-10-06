@@ -43,7 +43,7 @@ export default function FormCard({
         className="flex items-center justify-end gap-2 p-3 border-t
                       border-slate-200 dark:border-slate-800"
       >
-        {footer ?? (
+        {/* {footer ?? (
           <>
             <button
               type="button"
@@ -63,7 +63,7 @@ export default function FormCard({
               Salvar
             </button>
           </>
-        )}
+        )} */}
       </div>
     </form>
   );

@@ -8,7 +8,6 @@ import {
   Syringe,
   CalendarDays,
   Ruler,
-  Scale,
   Search,
   ChevronRight,
   Weight,
@@ -19,6 +18,7 @@ import {
   loadPets as storageListPets,
   removePet as storageRemovePet,
 } from "@/features/pets/services/petsStorage";
+import { useAuth } from "@/store/auth"; // <-- NOVO
 
 /* -------------------- helpers -------------------- */
 const fmtKg = (n) => (n ? `${n} kg` : "—");
@@ -100,9 +100,13 @@ const EXAMPLES = [
 /* -------------------- componente -------------------- */
 export default function PetList() {
   const nav = useNavigate();
+  const { user } = useAuth(); // <-- NOVO
   const [pets, setPets] = useState([]);
   const [q, setQ] = useState("");
   const [species, setSpecies] = useState("todas");
+
+  // só pode editar se for o dono do pet; exemplos (sem ownerId) ficam read-only
+  const canEdit = (p) => !!user && p?.ownerId && p.ownerId === user.id; // <-- NOVO
 
   useEffect(() => {
     // carrega do storage; fallback para exemplos
@@ -245,7 +249,7 @@ export default function PetList() {
                       <h3 className="truncate text-base font-semibold leading-5 group-hover:underline">
                         {p.name || "Sem nome"}
                       </h3>
-                      {p.gender == "macho" ? (
+                      {p.gender === "macho" ? (
                         <Mars className="h-4 w-4 opacity-60" />
                       ) : (
                         <Venus className="h-4 w-4 opacity-60" />
@@ -297,22 +301,25 @@ export default function PetList() {
                     <span>{p.vaccines ?? 0} registros</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to={`/pets/${p.id}/editar`}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
-                      title="Editar"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </Link>
-                    <button
-                      onClick={() => onRemove(p)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
-                      title="Remover"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  {/* ações só para o dono do pet */}
+                  {canEdit(p) && (
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={`/pets/${p.id}/editar`}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
+                        title="Editar"
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </Link>
+                      <button
+                        onClick={() => onRemove(p)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
+                        title="Remover"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </li>

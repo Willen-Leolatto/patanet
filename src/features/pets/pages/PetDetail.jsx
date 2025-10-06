@@ -20,6 +20,8 @@ import {
   updatePet as storageUpdatePet,
 } from "@/features/pets/services/petsStorage";
 import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
+// ⬇️ pega usuário logado (ajuste o caminho se o seu hook estiver em outro local)
+import { useAuth } from "@/store/auth";
 
 /* --------------------------- EXEMPLOS (ex-1..3) --------------------------- */
 const EXAMPLES = [
@@ -113,6 +115,7 @@ export default function PetDetail() {
   const toast = useToast();
   const confirm = useConfirm();
   const askInput = usePrompt();
+  const { user, isAuthenticated } = useAuth?.() || { user: null, isAuthenticated: false };
 
   const isExample = id?.startsWith("ex-");
   const [pet, setPet] = useState(null);
@@ -143,6 +146,11 @@ export default function PetDetail() {
     if (!isExample) storageUpdatePet?.(next.id, patch);
   };
 
+  // ⬇️ Só o tutor logado pode editar
+  const ownerId = pet?.ownerId || pet?.userId || pet?.createdBy || null;
+  const canEdit =
+    !isExample && isAuthenticated && (ownerId ? user?.id === ownerId : true);
+
   /* --------------------------- GALERIA / LIGHTBOX -------------------------- */
   const imagesOnly = useMemo(
     () =>
@@ -158,7 +166,16 @@ export default function PetDetail() {
     setLbOpen(true);
   };
 
+  const guard = () => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return false;
+    }
+    return true;
+  };
+
   const handleAddMedia = (ev) => {
+    if (!guard()) return;
     const file = ev.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -184,7 +201,7 @@ export default function PetDetail() {
   };
 
   const handleSetCover = async (item) => {
-    if (!item || pet?.avatar === item.url) return;
+    if (!guard() || !item || pet?.avatar === item.url) return;
     const ok = await confirm({
       title: "Definir como capa?",
       description: "Esta imagem será usada como foto de capa do pet.",
@@ -196,7 +213,7 @@ export default function PetDetail() {
   };
 
   const handleEditTitle = async (item) => {
-    if (!item) return;
+    if (!guard() || !item) return;
 
     const newTitle = await askInput({
       title: "Editar título",
@@ -220,7 +237,7 @@ export default function PetDetail() {
   };
 
   const handleDelete = async (item) => {
-    if (!item) return;
+    if (!guard() || !item) return;
     const ok = await confirm({
       title: "Remover imagem?",
       description: "Esta ação não pode ser desfeita.",
@@ -317,18 +334,15 @@ export default function PetDetail() {
           </div>
         </section>
 
-        {/* DIVISOR (xl+) */}
-        {/* <div className="hidden xl:block xl:col-span-0 relative">
-          <div className="absolute inset-y-0 -left-3 w-px bg-black/10 dark:bg-white/10" />
-        </div> */}
-
         {/* DIREITA */}
         <section className="relative col-span-12 xl:col-span-7 rounded-2xl bg-[var(--content-bg)] text-[var(--content-fg)] shadow-sm ring-1 ring-black/5 dark:ring-white/5">
+          {/* divisória vertical no xl+ */}
           <span
             aria-hidden="true"
             className="pointer-events-none absolute -left-3 top-0 hidden h-full w-px bg-black/10 dark:bg-white/10 xl:block"
           />
-          {/* Pills (sem botão de upload aqui para não quebrar no mobile) */}
+
+          {/* Pills */}
           <div className="flex items-center gap-2 p-4">
             <Tab
               active={tab === "health"}
@@ -350,7 +364,7 @@ export default function PetDetail() {
           <div className="px-4 pb-5">
             {tab === "health" ? (
               <div className="space-y-3">
-                {/* VACINAS (accordion com transição suave) */}
+                {/* VACINAS */}
                 <Accordion
                   open={vaccinesOpen}
                   onToggle={() => setVaccinesOpen((v) => !v)}
@@ -365,18 +379,20 @@ export default function PetDetail() {
                   </div>
                 </Accordion>
 
-                {/* outros cards “placeholder” com ícones – já no mesmo estilo */}
                 <StaticItem
                   icon={<Pill className="h-4 w-4 opacity-70" />}
                   title="Tratamentos antiparasitários"
+                  showPlus={canEdit}
                 />
                 <StaticItem
                   icon={<Stethoscope className="h-4 w-4 opacity-70" />}
                   title="Intervenções médicas"
+                  showPlus={canEdit}
                 />
                 <StaticItem
                   icon={<Bandage className="h-4 w-4 opacity-70" />}
                   title="Outros tratamentos"
+                  showPlus={canEdit}
                 />
               </div>
             ) : (
@@ -388,29 +404,39 @@ export default function PetDetail() {
                       <Images className="h-4 w-4" />
                       Mídias do pet
                     </div>
-                    <label className="inline-flex items-center gap-2 rounded-md bg-[#f77904] px-3 py-1.5 text-white text-sm cursor-pointer hover:opacity-90">
-                      <Plus className="h-4 w-4" />
-                      Adicionar mídia
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleAddMedia}
-                      />
-                    </label>
+
+                    {canEdit && (
+                      <label className="inline-flex items-center gap-2 rounded-md bg-[#f77904] px-3 py-1.5 text-white text-sm cursor-pointer hover:opacity-90">
+                        <Plus className="h-4 w-4" />
+                        Adicionar mídia
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleAddMedia}
+                        />
+                      </label>
+                    )}
                   </div>
 
                   {imagesOnly.length === 0 ? (
                     <div className="rounded-lg border border-black/10 dark:border-white/10 p-6 text-sm opacity-70">
-                      Nenhuma mídia ainda. Use “Adicionar mídia”.
+                      Nenhuma mídia ainda. {canEdit ? "Use “Adicionar mídia”." : "—"}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {imagesOnly.map((m, idx) => (
-                        <button
+                        // ⬇️ div com role=button para não aninhar <button> dentro de <button>
+                        <div
                           key={m.id}
+                          role="button"
+                          tabIndex={0}
                           onClick={() => openLightbox(idx)}
-                          className="group relative overflow-hidden rounded-lg"
+                          onKeyDown={(e) =>
+                            (e.key === "Enter" || e.key === " ") &&
+                            openLightbox(idx)
+                          }
+                          className="group relative overflow-hidden rounded-lg cursor-pointer"
                           title={m.title}
                         >
                           <img
@@ -426,48 +452,50 @@ export default function PetDetail() {
                             </span>
                           )}
 
-                          {/* barra de ações – sempre visível em telas pequenas; no desktop aparece no hover */}
-                          <div
-                            className="
-          absolute inset-x-0 bottom-0 flex items-center justify-between gap-2
-          bg-gradient-to-t from-black/60 to-black/0 p-2
-          text-white transition-opacity
-          opacity-100 md:opacity-0 md:group-hover:opacity-100
-        "
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span className="max-w-[60%] truncate text-xs">
-                              {m.title || "Sem título"}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                title="Definir como capa"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                onClick={() => handleSetCover(m)}
-                              >
-                                <Star
-                                  className={`h-4 w-4 ${
-                                    pet.avatar === m.url ? "fill-white" : ""
-                                  }`}
-                                />
-                              </button>
-                              <button
-                                title="Editar título"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                onClick={() => handleEditTitle(m)}
-                              >
-                                <Edit3 className="h-4 w-4" />
-                              </button>
-                              <button
-                                title="Remover"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                onClick={() => handleDelete(m)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                          {/* barra de ações (só para o tutor) */}
+                          {canEdit && (
+                            <div
+                              className="
+                                absolute inset-x-0 bottom-0 flex items-center justify-between gap-2
+                                bg-gradient-to-t from-black/60 to-black/0 p-2
+                                text-white transition-opacity
+                                opacity-100 md:opacity-0 md:group-hover:opacity-100
+                              "
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="max-w-[60%] truncate text-xs">
+                                {m.title || "Sem título"}
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  title="Definir como capa"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                  onClick={() => handleSetCover(m)}
+                                >
+                                  <Star
+                                    className={`h-4 w-4 ${
+                                      pet.avatar === m.url ? "fill-white" : ""
+                                    }`}
+                                  />
+                                </button>
+                                <button
+                                  title="Editar título"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                  onClick={() => handleEditTitle(m)}
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  title="Remover"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                  onClick={() => handleDelete(m)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -480,19 +508,17 @@ export default function PetDetail() {
 
       {/* LIGHTBOX + ações */}
       {lbOpen && (
-        <>
-          <Lightbox
-            open={lbOpen}
-            images={lbImages}
-            index={lbIndex}
-            slides={slides}
-            onClose={() => setLbOpen(false)}
-            onPrev={() =>
-              setLbIndex((i) => (i - 1 + lbImages.length) % lbImages.length)
-            }
-            onNext={() => setLbIndex((i) => (i + 1) % lbImages.length)}
-          />
-        </>
+        <Lightbox
+          open={lbOpen}
+          images={lbImages}
+          index={lbIndex}
+          slides={slides}
+          onClose={() => setLbOpen(false)}
+          onPrev={() =>
+            setLbIndex((i) => (i - 1 + lbImages.length) % lbImages.length)
+          }
+          onNext={() => setLbIndex((i) => (i + 1) % lbImages.length)}
+        />
       )}
     </div>
   );
@@ -537,28 +563,21 @@ function InfoRow({ label, value, right }) {
   );
 }
 
-/** Item estático “card” com ícone, para manter o layout da carteira */
-function StaticItem({ icon, title }) {
+/** Card estático com ícone; o “+” só aparece se showPlus=true */
+function StaticItem({ icon, title, showPlus = false }) {
   return (
     <div className="flex items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 ring-1 ring-black/5 dark:ring-white/5">
       <span className="inline-flex items-center gap-2">
         {icon}
         {title}
       </span>
-      <span className="text-lg opacity-50">+</span>
+      {showPlus ? <span className="text-lg opacity-50">+</span> : <span />}
     </div>
   );
 }
 
 /* --------- Accordion com transição suave (altura animada) --------- */
-function Accordion({
-  title,
-  open,
-  onToggle,
-  leftIcon,
-  rightActions,
-  children,
-}) {
+function Accordion({ title, open, onToggle, leftIcon, rightActions, children }) {
   const ref = useRef(null);
   const [height, setHeight] = useState(0);
 
@@ -566,14 +585,12 @@ function Accordion({
     const el = ref.current;
     if (!el) return;
     if (open) {
-      // abre suavemente: mede e anima até a altura do conteúdo
       const h = el.scrollHeight;
       setHeight(h);
       const id = setTimeout(() => setHeight("auto"), 300);
       return () => clearTimeout(id);
     } else {
       if (height === "auto") {
-        // se estava aberto, volta para a altura atual antes de colapsar
         setHeight(ref.current.scrollHeight);
         requestAnimationFrame(() => setHeight(0));
       } else {

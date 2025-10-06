@@ -140,3 +140,45 @@ html.dark {
   transition-duration: 200ms;
   transition-timing-function: ease;
 }
+
+/* glow suave dos botões “ativos” (pills) — já está aplicado via classes */
+.pc-pill[data-active="true"] {
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, rgb(255 147 62) 35%, transparent),
+    0 6px 16px color-mix(in oklab, rgb(255 147 62) 15%, transparent);
+}
+
+/* cards sem borda "dura", com leve transparência e sombra */
+.pc-card {
+  transition: box-shadow .25s ease, background-color .25s ease, transform .25s ease;
+}
+
+/* range estilizado (peso) */
+.pc-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: color-mix(in oklab, currentColor 8%, transparent);
+  border-radius: 999px;
+  outline: none;
+}
+.pc-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  background: #f97316; /* orange-500 */
+  box-shadow: 0 0 0 3px color-mix(in oklab, #f97316 30%, transparent);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.pc-range::-webkit-slider-thumb:hover { transform: scale(1.06); }
+.pc-range::-moz-range-thumb {
+  height: 18px; width: 18px; border: none; border-radius: 50%;
+  background: #f97316; cursor: pointer;
+}
+.pc-range::-moz-range-track {
+  height: 6px; border-radius: 999px;
+  background: color-mix(in oklab, currentColor 8%, transparent);
+}
