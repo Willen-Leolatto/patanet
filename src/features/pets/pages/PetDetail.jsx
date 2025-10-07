@@ -149,7 +149,7 @@ export default function PetDetail() {
   // ⬇️ Só o tutor logado pode editar
   const ownerId = pet?.ownerId || pet?.userId || pet?.createdBy || null;
   const canEdit =
-    !isExample && isAuthenticated && (ownerId ? user?.id === ownerId : true);
+    !isExample && isAuthenticated && (ownerId ? user.user?.id === ownerId : true);
 
   /* --------------------------- GALERIA / LIGHTBOX -------------------------- */
   const imagesOnly = useMemo(

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { useTheme } from "@/store/theme";
 import {
@@ -15,6 +15,8 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { loadPets } from "@/features/pets/services/petsStorage";
+import AvatarCircle from "@/components/AvatarCircle";
 
 const SIDEBAR_W = 280;
 
@@ -27,6 +29,12 @@ export default function Sidebar() {
 
   const [open, setOpen] = useState(true);
   const [isMdUp, setIsMdUp] = useState(false);
+  const [myPets, setMyPets] = useState([]);
+  const railRef = useRef(null);
+  const [overflow, setOverflow] = useState(false);
+
+  const currentUserId =
+    user.user?.id || user.user?.uid || user.user?.email || user.user?.username || null;
 
   // aplica/atualiza a margem do conteúdo no desktop via CSS var
   function applyContentSpacing(nextOpen, mdUp) {
@@ -69,6 +77,30 @@ export default function Sidebar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
+  // useEffect(() => {
+  //   // carrega e filtra por dono logado
+  //   const all = loadPets();
+  //   const mine = user ? all.filter((p) => p.ownerId === user.user.id) : [];
+  //   console.log(mine);
+  //   setMyPets(mine);
+  // }, [user]);
+
+  useEffect(() => {
+    const refresh = () => {
+      const all = loadPets();
+      const mine = currentUserId
+        ? all.filter((p) => p.ownerId === currentUserId)
+        : [];
+      setMyPets(mine);
+    };
+
+    refresh();
+
+    // atualiza quando o storage mudar
+    window.addEventListener("patanet:pets-updated", refresh);
+    return () => window.removeEventListener("patanet:pets-updated", refresh);
+  }, [currentUserId]);
+
   const NavItem = ({ to, icon: Ico, label }) => {
     const active =
       to === "/"
@@ -89,6 +121,20 @@ export default function Sidebar() {
       </Link>
     );
   };
+
+  useLayoutEffect(() => {
+    const el = railRef.current;
+    if (!el) return;
+    const check = () => setOverflow(el.scrollWidth > el.clientWidth);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    window.addEventListener("resize", check);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", check);
+    };
+  }, [myPets.length]);
 
   return (
     <>
@@ -117,28 +163,59 @@ export default function Sidebar() {
           {/* Logo / título */}
           <div className="px-1 text-lg font-semibold text-white">PataNet</div>
 
-          {/* “Seus Pets” – thumbnails com scroll horizontal */}
-          <section>
-            <div className="px-1 text-xs uppercase tracking-wide text-white/70">
-              Seus Pets
-            </div>
-            <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-2">
-              <Link
-                to="/pets/novo"
-                title="Novo pet"
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f77904] text-white"
-              >
-                <Plus className="h-4 w-4" />
-              </Link>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-9 w-9 shrink-0 rounded-full bg-white/10 ring-2 ring-white/10"
-                  title={`pet ${i + 1}`}
-                />
-              ))}
-            </div>
-          </section>
+          {/* ===== Seus pets ===== */}
+          {user && (
+            <section className="mt-4">
+              <div className="mb-2 text-xs font-semibold tracking-wide text-[var(--sidebar-fg)]/70">
+                Seus pets
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Botão Novo Pet */}
+                <Link
+                  to="/pets/novo"
+                  className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white hover:opacity-90"
+                  title="Adicionar pet"
+                >
+                  <Plus size={18} />
+                </Link>
+
+                {/* Trilho de avatares (scroll só quando precisar) */}
+                <div className="flex-1 overflow-hidden">
+                  <div
+                    ref={railRef}
+                    className="hide-scrollbar flex gap-3 overflow-x-auto pr-1"
+                    data-overflow={overflow ? "true" : "false"}
+                  >
+                    {myPets.map((p) => (
+                      <Link
+                        key={p.id}
+                        to={`/pets/${p.id}`}
+                        className="group relative shrink-0"
+                        title={p.name}
+                      >
+                        <AvatarCircle
+                          src={p.avatar || ""}
+                          alt={p.name}
+                          size={40}
+                          className="ring-1 ring-white/10 group-hover:ring-[#f77904]/60 transition"
+                        />
+                        {/* label flutuante no hover */}
+                        <span className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1.5 py-[2px] text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
+                          {p.name}
+                        </span>
+                      </Link>
+                    ))}
+                    {myPets.length === 0 && (
+                      <span className="text-[11px] text-[var(--sidebar-fg)]/60">
+                        Nenhum pet ainda
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Navegação principal */}
           <nav className="flex flex-col gap-1">

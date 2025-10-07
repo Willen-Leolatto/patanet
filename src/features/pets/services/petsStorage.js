@@ -15,13 +15,12 @@ export function loadPets() {
     return [];
   }
 }
-export function savePets() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY)) || [];
-  } catch {
-    return [];
-  }
+
+export function savePets(arr) {
+  localStorage.setItem(KEY, JSON.stringify(arr));
+  window.dispatchEvent(new Event("patanet:pets-updated")); // ⬅️ importante
 }
+
 export function getPet(id) {
   return loadPets().find((p) => p.id === id) || null;
 }
@@ -41,6 +40,8 @@ export function addPet(input) {
   const id = crypto?.randomUUID?.() || Date.now().toString();
   const now = Date.now();
 
+  console.log(input);
+
   const pet = {
     id,
     name: (input.name || "").trim() || "Sem nome",
@@ -55,7 +56,7 @@ export function addPet(input) {
     avatar: input.avatar || "", // <---
     media: Array.isArray(input.media) ? input.media : [], // <---
     createdAt: now,
-    ownerId: input.ownerId || null,
+    ownerId: input.ownerId ?? input.userId ?? input.createdBy ?? null, 
   };
 
   pets.push(pet);
@@ -64,33 +65,14 @@ export function addPet(input) {
 }
 
 export function updatePet(id, patch) {
-  const pets = loadPets();
-  const idx = pets.findIndex((p) => p.id === id);
+  const all = loadPets();
+  const idx = all.findIndex((p) => p.id === id);
   if (idx === -1) return null;
-
-  const allowed = [
-    "name",
-    "species",
-    "breed",
-    "gender",
-    "size",
-    "weight",
-    "birthday",
-    "adoption",
-    "description",
-    "avatar",
-    "media", // <---
-  ];
-
-  const clean = {};
-  for (const k of allowed) {
-    if (k in patch) clean[k] = patch[k];
-  }
-
-  pets[idx] = { ...pets[idx], ...clean };
-  localStorage.setItem(KEY, JSON.stringify(pets));
-  return pets[idx];
+  all[idx] = { ...all[idx], ...patch };
+  savePets(all);
+  return all[idx];
 }
+
 export function removePet(id) {
   const list = loadPets().filter((p) => p.id !== id);
   savePets(list);

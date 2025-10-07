@@ -182,3 +182,17 @@ html.dark {
   height: 6px; border-radius: 999px;
   background: color-mix(in oklab, currentColor 8%, transparent);
 }
+
+
+/* esconde a barra quando não tiver overflow */
+.hide-scrollbar[data-overflow="false"]::-webkit-scrollbar { display: none; }
+.hide-scrollbar[data-overflow="false"] { scrollbar-width: none; }
+
+/* quando houver overflow, mantém a barra discreta */
+.hide-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.hide-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.15);
+  border-radius: 999px;
+}

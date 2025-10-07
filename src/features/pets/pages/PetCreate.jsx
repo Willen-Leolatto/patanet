@@ -5,6 +5,7 @@ import {
   getBreedById,
   addPet,
 } from "@/features/pets/services/petsStorage";
+import { useAuth } from "@/store/auth.jsx";
 
 /* ----------------------------- estilos locais ---------------------------- */
 const Styles = () => (
@@ -117,6 +118,9 @@ export default function PetCreate() {
   const [adoption, setAdoption] = useState("");
 
   const [query, setQuery] = useState("");
+  const me = useAuth();
+  const currentUserId = 
+  me?.id || me?.uid || me?.email || me?.username || "me";
 
   const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
 
@@ -220,6 +224,8 @@ export default function PetCreate() {
       avatar: avatar || breed?.image || "",
       description: desc || "", // <- idem
       media: [], // inicia vazio (galeria depois)
+      ownerId: currentUserId,   // ⬅️ garante o dono
+      createdAt: Date.now(),
     };
 
     addPet(payload);

@@ -100,14 +100,14 @@ const EXAMPLES = [
 /* -------------------- componente -------------------- */
 export default function PetList() {
   const nav = useNavigate();
-  const { user } = useAuth(); // <-- NOVO
+  const me = useAuth((s) => s.user); // <-- NOVO
   const [pets, setPets] = useState([]);
   const [q, setQ] = useState("");
   const [species, setSpecies] = useState("todas");
 
   // só pode editar se for o dono do pet; exemplos (sem ownerId) ficam read-only
-  const canEdit = (p) => !!user && p?.ownerId && p.ownerId === user.id; // <-- NOVO
-
+  const canEdit = (p) => p.ownerId ? p.ownerId === me.user?.id : !!me.user; ; 
+  
   useEffect(() => {
     // carrega do storage; fallback para exemplos
     try {
