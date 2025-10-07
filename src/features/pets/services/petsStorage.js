@@ -15,45 +15,81 @@ export function loadPets() {
     return [];
   }
 }
-export function savePets(list) {
-  localStorage.setItem(KEY, JSON.stringify(list));
-  window.dispatchEvent(new Event("patanet:pets-updated"));
+export function savePets() {
+  try {
+    return JSON.parse(localStorage.getItem(KEY)) || [];
+  } catch {
+    return [];
+  }
 }
 export function getPet(id) {
   return loadPets().find((p) => p.id === id) || null;
 }
+
+function getLoggedUserIdOrNull() {
+  try {
+    const raw = localStorage.getItem("auth:user");
+    return raw ? JSON.parse(raw)?.id || null : null;
+  } catch {
+    return null;
+  }
+}
+
+// petsStorage.js
 export function addPet(input) {
+  const pets = loadPets();
+  const id = crypto?.randomUUID?.() || Date.now().toString();
   const now = Date.now();
+
   const pet = {
-    id: uid(),
+    id,
+    name: (input.name || "").trim() || "Sem nome",
+    species: input.species || "Cachorro",
+    breed: input.breed || "",
+    gender: input.gender || "fêmea",
+    size: input.size || "médio",
+    weight: typeof input.weight === "number" ? input.weight : 0,
+    birthday: input.birthday || "",
+    adoption: input.adoption || "",
+    description: input.description || "",
+    avatar: input.avatar || "", // <---
+    media: Array.isArray(input.media) ? input.media : [], // <---
     createdAt: now,
-    updatedAt: now,
-    name: "",
-    species: "Cachorro",
-    breed: "",
-    gender: "Macho",
-    size: "Médio",
-    weight: "",
-    birthdate: "",
-    adoptionDate: "",
-    notes: "",
-    avatar: "",
-    gallery: [],
-    vaccines: [],
-    ...input,
+    ownerId: input.ownerId || null,
   };
-  const list = loadPets();
-  list.push(pet);
-  savePets(list);
+
+  pets.push(pet);
+  localStorage.setItem(KEY, JSON.stringify(pets));
   return pet;
 }
+
 export function updatePet(id, patch) {
-  const list = loadPets();
-  const i = list.findIndex((p) => p.id === id);
-  if (i === -1) return null;
-  list[i] = { ...list[i], ...patch, updatedAt: Date.now() };
-  savePets(list);
-  return list[i];
+  const pets = loadPets();
+  const idx = pets.findIndex((p) => p.id === id);
+  if (idx === -1) return null;
+
+  const allowed = [
+    "name",
+    "species",
+    "breed",
+    "gender",
+    "size",
+    "weight",
+    "birthday",
+    "adoption",
+    "description",
+    "avatar",
+    "media", // <---
+  ];
+
+  const clean = {};
+  for (const k of allowed) {
+    if (k in patch) clean[k] = patch[k];
+  }
+
+  pets[idx] = { ...pets[idx], ...clean };
+  localStorage.setItem(KEY, JSON.stringify(pets));
+  return pets[idx];
 }
 export function removePet(id) {
   const list = loadPets().filter((p) => p.id !== id);
@@ -136,9 +172,10 @@ export const BREEDS = {
       temperament:
         "Muito sociável, paciente com crianças, costuma gostar de água.",
       trainability: "Alta — aprende comandos com facilidade.",
-      exercise: "Alto — precisa de caminhadas, natação ou brincadeiras diárias.",
+      exercise:
+        "Alto — precisa de caminhadas, natação ou brincadeiras diárias.",
       grooming: "Baixo a médio — escovação semanal.",
-      healthNotes: "Atenção a displasia e controle de peso."
+      healthNotes: "Atenção a displasia e controle de peso.",
     },
     {
       id: "dog-border-collie",
@@ -158,7 +195,7 @@ export const BREEDS = {
       exercise:
         "Muito alto — precisa de atividade mental e física (agility, pastoreio).",
       grooming: "Médio — escovação frequente.",
-      healthNotes: "Propensão a displasia, sensibilidade a estímulos."
+      healthNotes: "Propensão a displasia, sensibilidade a estímulos.",
     },
     {
       id: "dog-golden",
@@ -170,13 +207,12 @@ export const BREEDS = {
       image:
         "https://images.unsplash.com/photo-1507149833265-60c372daea22?w=800&q=80&auto=format&fit=crop",
       description: "Companheiro dócil, carinhoso e brincalhão.",
-      appearance:
-        "Pelagem densa e dourada; orelhas médias; expressão doce.",
+      appearance: "Pelagem densa e dourada; orelhas médias; expressão doce.",
       temperament: "Extrovertido, apegado, paciente.",
       trainability: "Alta — colabora bem em treinos positivos.",
       exercise: "Alto — caminhadas e natação ajudam muito.",
       grooming: "Médio — solta pelos; escovar 2–3x/semana.",
-      healthNotes: "Atenção a quadril/cotovelo; tendência à obesidade."
+      healthNotes: "Atenção a quadril/cotovelo; tendência à obesidade.",
     },
     {
       id: "dog-pug",
@@ -189,13 +225,12 @@ export const BREEDS = {
         "https://images.unsplash.com/photo-1507149833265-3a541e6f1b99?w=800&q=80&auto=format&fit=crop",
       description:
         "Simpático e carismático; braquicefálico (cuidados com calor).",
-      appearance:
-        "Focinho curto, enrugado; olhos grandes; pelagem curta.",
+      appearance: "Focinho curto, enrugado; olhos grandes; pelagem curta.",
       temperament: "Companheiro, brincalhão, adora colo.",
       trainability: "Média — respostas curtas e positivas funcionam melhor.",
       exercise: "Baixo a médio — passeios curtos e regulares.",
       grooming: "Baixo — escovação leve; limpar dobras faciais.",
-      healthNotes: "Sensível a calor; atenção a respiração/olhos."
+      healthNotes: "Sensível a calor; atenção a respiração/olhos.",
     },
     {
       id: "dog-srd",
@@ -212,7 +247,7 @@ export const BREEDS = {
       trainability: "Média a alta — varia do indivíduo.",
       exercise: "Variável — acompanhe nível de energia do cão.",
       grooming: "Variável — conforme o tipo de pelagem.",
-      healthNotes: "Em geral saudáveis; vacinação e checkups são essenciais."
+      healthNotes: "Em geral saudáveis; vacinação e checkups são essenciais.",
     },
     {
       id: "dog-husky",
@@ -230,7 +265,7 @@ export const BREEDS = {
       trainability: "Média — exige consistência.",
       exercise: "Muito alto — precisa correr e gastar energia.",
       grooming: "Alto em troca de pelos — escovação frequente.",
-      healthNotes: "Tolerante a frio; cuidado com calor."
+      healthNotes: "Tolerante a frio; cuidado com calor.",
     },
     {
       id: "dog-german-shepherd",
@@ -247,7 +282,7 @@ export const BREEDS = {
       trainability: "Muito alta — excelente para trabalhos.",
       exercise: "Alto — precisa de tarefas e treinos.",
       grooming: "Médio/alto — solta bastante pelo.",
-      healthNotes: "Atenção a displasia e coluna."
+      healthNotes: "Atenção a displasia e coluna.",
     },
     {
       id: "dog-dachshund",
@@ -259,13 +294,12 @@ export const BREEDS = {
       image:
         "https://images.unsplash.com/photo-1537151625747-768eb6cf92b6?w=800&q=80&auto=format&fit=crop",
       description: "Curioso e valente; costas exigem cuidados.",
-      appearance:
-        "Corpo longo, pernas curtas; versões pelo curto/duro/longo.",
+      appearance: "Corpo longo, pernas curtas; versões pelo curto/duro/longo.",
       temperament: "Vivaz, alerta, às vezes teimoso.",
       trainability: "Média — sessões curtas e positivas.",
       exercise: "Médio — passeios e brincadeiras controladas.",
       grooming: "Baixo a médio — depende do tipo de pelagem.",
-      healthNotes: "Evitar saltos para proteger a coluna."
+      healthNotes: "Evitar saltos para proteger a coluna.",
     },
     {
       id: "dog-shih-tzu",
@@ -282,7 +316,7 @@ export const BREEDS = {
       trainability: "Média — respostas suaves funcionam melhor.",
       exercise: "Baixo a médio.",
       grooming: "Alto se mantiver pelagem longa — tosas frequentes.",
-      healthNotes: "Atenção a olhos e vias aéreas."
+      healthNotes: "Atenção a olhos e vias aéreas.",
     },
     {
       id: "dog-poodle",
@@ -299,7 +333,7 @@ export const BREEDS = {
       trainability: "Muito alta.",
       exercise: "Médio a alto — depende do porte.",
       grooming: "Alto — manutenção de pelagem/tosa.",
-      healthNotes: "Atenção a ouvidos e pele."
+      healthNotes: "Atenção a ouvidos e pele.",
     },
     {
       id: "dog-yorkshire",
@@ -316,7 +350,7 @@ export const BREEDS = {
       trainability: "Média.",
       exercise: "Médio — passeios curtos diários.",
       grooming: "Médio/alto — escovar com frequência.",
-      healthNotes: "Fragilidade dentária; cuidado com quedas."
+      healthNotes: "Fragilidade dentária; cuidado com quedas.",
     },
     {
       id: "dog-bulldog",
@@ -333,7 +367,7 @@ export const BREEDS = {
       trainability: "Média/baixa — pode ser teimoso.",
       exercise: "Baixo a médio — evitar calor.",
       grooming: "Baixo — higiene das dobras é essencial.",
-      healthNotes: "Atenção a respiração e temperatura."
+      healthNotes: "Atenção a respiração e temperatura.",
     },
     {
       id: "dog-rott",
@@ -350,7 +384,7 @@ export const BREEDS = {
       trainability: "Alta com liderança consistente.",
       exercise: "Alto — treinos e atividades estruturadas.",
       grooming: "Baixo — escovação semanal.",
-      healthNotes: "Quadril/cotovelo; atenção a peso."
+      healthNotes: "Quadril/cotovelo; atenção a peso.",
     },
     {
       id: "dog-beagle",
@@ -367,7 +401,7 @@ export const BREEDS = {
       trainability: "Média — nariz manda!",
       exercise: "Médio — caminhadas e jogos de faro.",
       grooming: "Baixo — fácil manutenção.",
-      healthNotes: "Controle de peso; ouvido sensível."
+      healthNotes: "Controle de peso; ouvido sensível.",
     },
     {
       id: "dog-schnauzer",
@@ -384,7 +418,7 @@ export const BREEDS = {
       trainability: "Alta.",
       exercise: "Médio a alto.",
       grooming: "Médio — manutenção da barba/pelos.",
-      healthNotes: "Atenção a pele e olhos."
+      healthNotes: "Atenção a pele e olhos.",
     },
     // + algumas escolhas populares
     {
@@ -402,7 +436,7 @@ export const BREEDS = {
       trainability: "Alta com reforço positivo.",
       exercise: "Alto.",
       grooming: "Baixo.",
-      healthNotes: "Atenção a calor e articulações."
+      healthNotes: "Atenção a calor e articulações.",
     },
     {
       id: "dog-corgi",
@@ -419,8 +453,8 @@ export const BREEDS = {
       trainability: "Alta.",
       exercise: "Médio — precisa gastar energia mental.",
       grooming: "Médio — solta bastante pelo.",
-      healthNotes: "Atenção a coluna e peso."
-    }
+      healthNotes: "Atenção a coluna e peso.",
+    },
   ],
   Gato: [
     {
@@ -438,7 +472,7 @@ export const BREEDS = {
       trainability: "Média — respondem a brincadeiras/recompensas.",
       exercise: "Médio — ambientes enriquecidos ajudam.",
       grooming: "Baixo a médio — conforme pelagem.",
-      healthNotes: "Checkups regulares e enriquecimento ambiental."
+      healthNotes: "Checkups regulares e enriquecimento ambiental.",
     },
     {
       id: "cat-siamese",
@@ -455,7 +489,7 @@ export const BREEDS = {
       trainability: "Alta — aprende truques/brinquedos interativos.",
       exercise: "Médio — gosta de brincar.",
       grooming: "Baixo — pelagem curta.",
-      healthNotes: "Atenção a problemas dentários."
+      healthNotes: "Atenção a problemas dentários.",
     },
     {
       id: "cat-persian",
@@ -472,7 +506,7 @@ export const BREEDS = {
       trainability: "Média.",
       exercise: "Baixo a médio.",
       grooming: "Alto — escovação diária e cuidados oculares.",
-      healthNotes: "Atenção a vias aéreas/olhos."
+      healthNotes: "Atenção a vias aéreas/olhos.",
     },
     {
       id: "cat-maine",
@@ -489,7 +523,7 @@ export const BREEDS = {
       trainability: "Alta — gosta de jogos.",
       exercise: "Médio.",
       grooming: "Médio/alto — escovar com frequência.",
-      healthNotes: "Atenção a cardiopatias hereditárias."
+      healthNotes: "Atenção a cardiopatias hereditárias.",
     },
     {
       id: "cat-bengal",
@@ -506,7 +540,7 @@ export const BREEDS = {
       trainability: "Alta — precisa de estímulos.",
       exercise: "Alto — arranhadores, prateleiras, brinquedos.",
       grooming: "Baixo.",
-      healthNotes: "Necessita enriquecimento para evitar tédio."
+      healthNotes: "Necessita enriquecimento para evitar tédio.",
     },
     {
       id: "cat-ragdoll",
@@ -523,7 +557,7 @@ export const BREEDS = {
       trainability: "Média/alta.",
       exercise: "Médio.",
       grooming: "Médio — escovação regular.",
-      healthNotes: "Atenção a peso (tendem a ser gulosos)."
+      healthNotes: "Atenção a peso (tendem a ser gulosos).",
     },
     {
       id: "cat-british",
@@ -540,7 +574,7 @@ export const BREEDS = {
       trainability: "Média.",
       exercise: "Médio — brincadeiras curtas.",
       grooming: "Baixo/médio.",
-      healthNotes: "Cuidado com sobrepeso."
+      healthNotes: "Cuidado com sobrepeso.",
     },
     {
       id: "cat-sphynx",
@@ -557,7 +591,7 @@ export const BREEDS = {
       trainability: "Média/alta.",
       exercise: "Médio.",
       grooming: "Especial — banhos/limpeza da pele rotineiros.",
-      healthNotes: "Sensível a frio/sol; atenção a pele/oleosidade."
+      healthNotes: "Sensível a frio/sol; atenção a pele/oleosidade.",
     },
     {
       id: "cat-abyssinian",
@@ -574,7 +608,7 @@ export const BREEDS = {
       trainability: "Alta — adora desafios.",
       exercise: "Alto.",
       grooming: "Baixo.",
-      healthNotes: "Precisa de estímulos diários."
+      healthNotes: "Precisa de estímulos diários.",
     },
     {
       id: "cat-norwegian",
@@ -591,7 +625,7 @@ export const BREEDS = {
       trainability: "Média/alta.",
       exercise: "Médio.",
       grooming: "Médio/alto — escovação frequente.",
-      healthNotes: "Atenção a bolas de pelos e peso."
+      healthNotes: "Atenção a bolas de pelos e peso.",
     },
     {
       id: "cat-russian",
@@ -608,8 +642,8 @@ export const BREEDS = {
       trainability: "Média.",
       exercise: "Médio.",
       grooming: "Baixo — pelagem curta.",
-      healthNotes: "Geralmente saudáveis; atenção a estresse."
-    }
+      healthNotes: "Geralmente saudáveis; atenção a estresse.",
+    },
   ],
 };
 

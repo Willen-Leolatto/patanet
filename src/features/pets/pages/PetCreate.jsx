@@ -1,5 +1,5 @@
-// PetCreate.jsx — drop-in
-import React, { useMemo, useState, useEffect } from "react";
+// PetCreate.jsx — atualizado (upload de foto + busca de raça dentro do card)
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   getBreedsBySpecies,
   getBreedById,
@@ -85,7 +85,6 @@ const BreedTile = ({ breed, active, onClick }) => {
           "
         />
       )}
-
       {/* gradiente + rótulo */}
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
       <div className="absolute left-0 right-0 bottom-0 px-3 pb-2 flex items-end justify-between">
@@ -104,10 +103,10 @@ const BreedTile = ({ breed, active, onClick }) => {
 
 /* --------------------------------- Page --------------------------------- */
 export default function PetCreate() {
-  // mantive valores “amigáveis” e mapeio para o storage
-  const [species, setSpecies] = useState("cão");     // cão | gato
-  const [sex, setSex] = useState("fêmea");           // macho | fêmea
-  const [size, setSize] = useState("médio");         // pequeno | médio | grande
+  // estados “amigáveis” e compatíveis com o storage
+  const [species, setSpecies] = useState("cão"); // cão | gato
+  const [sex, setSex] = useState("fêmea"); // macho | fêmea
+  const [size, setSize] = useState("médio"); // pequeno | médio | grande
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState("");
   const [desc, setDesc] = useState("");
@@ -119,7 +118,6 @@ export default function PetCreate() {
 
   const [query, setQuery] = useState("");
 
-  // mapeia para as chaves do storage
   const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
 
   const breeds = useMemo(
@@ -131,11 +129,30 @@ export default function PetCreate() {
   );
 
   const [breed, setBreed] = useState(null);
-  useEffect(() => {
-    if (breeds?.length && !breed) setBreed(breeds[0]);
-  }, [breeds]); // eslint-disable-line
 
-  // infos ricas da raça (peso/altura/vida + descrições)
+  // useEffect(() => {
+  //   if (isExample) {
+  //     setPet(exampleById(id));
+  //     return;
+  //   }
+
+  //   const data = storageGetPet?.(id);
+  //   if (!data) {
+  //     setPet(null);
+  //     return;
+  //   }
+
+  //   // migração: blob URL não persiste entre reloads
+  //   if (data.avatar?.startsWith("blob:")) {
+  //     data.avatar = "";
+  //     storageUpdatePet?.(id, { avatar: "" });
+  //   }
+
+  //   data.media = Array.isArray(data.media) ? data.media : [];
+  //   setPet({ ...data });
+  // }, [id, isExample]);
+
+  // infos ricas da raça
   const breedInfo = useMemo(() => {
     if (!breed) return null;
     const b = getBreedById(breed.id);
@@ -155,37 +172,65 @@ export default function PetCreate() {
     };
   }, [breed]);
 
-  // conversão no slider
+  // valor mostrado no “display” do slider
   const sliderValue = useMemo(() => {
     if (weightUnit === "kg") return weight;
     return Math.round(weight * 2.20462 * 10) / 10;
   }, [weight, weightUnit]);
 
-  const onPickAvatar = async () => {
-    const url = prompt("Colar URL da foto de perfil:")?.trim();
-    if (url) setAvatar(url);
+  // upload/preview do avatar
+  const avatarInputRef = useRef(null);
+
+  // --- antes: onPickAvatar criava URL.createObjectURL(blob) ---
+  // --- depois: salva como data URL (base64) ---
+  const onPickAvatar = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+
+    const reader = new FileReader();
+    reader.onload = () => setAvatar(String(reader.result)); // <-- data URL
+    reader.readAsDataURL(file);
   };
 
+  // limpeza no unmount
+  // useEffect(() => {
+  //   return () => {
+  //     if (avatar?.startsWith("blob:")) {
+  //       try {
+  //         URL.revokeObjectURL(avatar);
+  //       } catch {}
+  //     }
+  //   };
+  // }, [avatar]);
+
+  // dentro do PetCreate.jsx
   const onSubmit = (e) => {
     e.preventDefault();
+
     const payload = {
       name,
-      species: storageSpecies,               // compatível com storage
+      species: storageSpecies, // "Cachorro" | "Gato"
       breed: breed?.name || "",
-      gender: sex,
+      gender: sex, // "macho" | "fêmea"
       size,
       weight: Number(weight),
-      birthdate: birth || "",
-      adoptionDate: adoption || "",
+      birthday: birth || "", // <- nome que o PetDetail espera
+      adoption: adoption || "", // <- idem
       avatar: avatar || breed?.image || "",
-      notes: desc || "",
+      description: desc || "", // <- idem
+      media: [], // inicia vazio (galeria depois)
     };
+
     addPet(payload);
     history.back();
   };
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto max-w-[1200px] px-4 py-8 space-y-8">
+    <form
+      onSubmit={onSubmit}
+      className="mx-auto max-w-[1200px] px-4 py-8 space-y-8"
+    >
       <Styles />
 
       <header className="flex items-center justify-between">
@@ -199,51 +244,87 @@ export default function PetCreate() {
 
       {/* Identificação */}
       <Card className="p-4 sm:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-4">
-          <button
-            type="button"
-            onClick={onPickAvatar}
-            className="relative h-20 w-20 rounded-full overflow-hidden ring-2 ring-black/5 dark:ring-white/10 bg-neutral-100 dark:bg-neutral-900"
-            title="Trocar foto"
-          >
-            {avatar ? (
-              <img className="h-full w-full object-cover" src={avatar} alt="avatar" />
-            ) : (
-              <div className="h-full w-full grid place-items-center text-xs opacity-60">
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-center gap-4">
+          <div className="flex items-center gap-4">
+            <div className="relative w-24 h-24 rounded-full overflow-hidden ring-2 ring-white/10 shadow-md">
+              {avatar ? (
+                <img
+                  src={avatar}
+                  alt="avatar"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem foto
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar foto"
+              >
                 trocar foto
-              </div>
-            )}
-          </button>
+              </button>
+            </div>
+
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPickAvatar}
+            />
+          </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-medium opacity-70">Nome do pet</label>
+            <label className="text-xs font-medium opacity-70">
+              Nome do pet
+            </label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex.: Max, Nina, Mimi…"
               className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
             />
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Pill active={species === "cão"} onClick={() => setSpecies("cão")}>Cão</Pill>
-              <Pill active={species === "gato"} onClick={() => setSpecies("gato")}>Gato</Pill>
-              <span className="mx-1 opacity-30">|</span>
-              <Pill active={sex === "fêmea"} onClick={() => setSex("fêmea")}>Fêmea</Pill>
-              <Pill active={sex === "macho"} onClick={() => setSex("macho")}>Macho</Pill>
-              <span className="mx-1 opacity-30">|</span>
-              <Pill active={size === "pequeno"} onClick={() => setSize("pequeno")}>Pequeno</Pill>
-              <Pill active={size === "médio"} onClick={() => setSize("médio")}>Médio</Pill>
-              <Pill active={size === "grande"} onClick={() => setSize("grande")}>Grande</Pill>
-            </div>
-          </div>
 
-          <div className="w-full md:w-64">
-            <label className="text-xs font-medium opacity-70">Buscar raça</label>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Buscar raça de ${species}…`}
-              className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-            />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Pill
+                active={species === "cão"}
+                onClick={() => setSpecies("cão")}
+              >
+                Cão
+              </Pill>
+              <Pill
+                active={species === "gato"}
+                onClick={() => setSpecies("gato")}
+              >
+                Gato
+              </Pill>
+              <span className="mx-1 opacity-30">|</span>
+              <Pill active={sex === "fêmea"} onClick={() => setSex("fêmea")}>
+                Fêmea
+              </Pill>
+              <Pill active={sex === "macho"} onClick={() => setSex("macho")}>
+                Macho
+              </Pill>
+              <span className="mx-1 opacity-30">|</span>
+              <Pill
+                active={size === "pequeno"}
+                onClick={() => setSize("pequeno")}
+              >
+                Pequeno
+              </Pill>
+              <Pill active={size === "médio"} onClick={() => setSize("médio")}>
+                Médio
+              </Pill>
+              <Pill
+                active={size === "grande"}
+                onClick={() => setSize("grande")}
+              >
+                Grande
+              </Pill>
+            </div>
           </div>
         </div>
       </Card>
@@ -251,8 +332,23 @@ export default function PetCreate() {
       {/* Raça + Sobre a raça */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="p-4 sm:p-6 lg:col-span-2">
-          <h3 className="font-semibold mb-4">Raça</h3>
-          {/* tiles um pouco menores (mais colunas em telas grandes) */}
+          <div className="mb-4">
+            <h3 className="font-semibold">Raça</h3>
+            {/* BUSCAR RAÇA — agora fica aqui dentro */}
+            <div className="mt-3">
+              <label className="text-xs font-medium opacity-70">
+                Buscar raça
+              </label>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Buscar raça de ${species}…`}
+                className="mt-1 h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+          </div>
+
+          {/* tiles menores / responsivo */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {breeds.map((b) => (
               <BreedTile
@@ -304,7 +400,9 @@ export default function PetCreate() {
               </div>
             </div>
           ) : (
-            <p className="opacity-60 text-sm">Selecione uma raça para ver detalhes.</p>
+            <p className="opacity-60 text-sm">
+              Selecione uma raça para ver detalhes.
+            </p>
           )}
         </Card>
       </div>
@@ -322,14 +420,22 @@ export default function PetCreate() {
                 <button
                   type="button"
                   onClick={() => setWeightUnit("kg")}
-                  className={`px-2 py-1 text-sm ${weightUnit === "kg" ? "bg-orange-500 text-white" : "hover:bg-black/5 dark:hover:bg-white/5"}`}
+                  className={`px-2 py-1 text-sm ${
+                    weightUnit === "kg"
+                      ? "bg-orange-500 text-white"
+                      : "hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
                 >
                   kg
                 </button>
                 <button
                   type="button"
                   onClick={() => setWeightUnit("lb")}
-                  className={`px-2 py-1 text-sm ${weightUnit === "lb" ? "bg-orange-500 text-white" : "hover:bg-black/5 dark:hover:bg-white/5"}`}
+                  className={`px-2 py-1 text-sm ${
+                    weightUnit === "lb"
+                      ? "bg-orange-500 text-white"
+                      : "hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
                 >
                   lb
                 </button>
@@ -339,7 +445,9 @@ export default function PetCreate() {
             <div className="mt-3 rounded-xl p-4 bg-black/5 dark:bg-white/5">
               <div className="text-4xl font-semibold">
                 {sliderValue}
-                <span className="text-lg font-normal opacity-70 ml-1">{weightUnit}</span>
+                <span className="text-lg font-normal opacity-70 ml-1">
+                  {weightUnit}
+                </span>
               </div>
 
               <input
@@ -361,7 +469,9 @@ export default function PetCreate() {
           {/* Datas */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-medium opacity-70">Data de nascimento</label>
+              <label className="text-xs font-medium opacity-70">
+                Data de nascimento
+              </label>
               <input
                 type="date"
                 value={birth}
@@ -370,7 +480,9 @@ export default function PetCreate() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium opacity-70">Data de adoção</label>
+              <label className="text-xs font-medium opacity-70">
+                Data de adoção
+              </label>
               <input
                 type="date"
                 value={adoption}
