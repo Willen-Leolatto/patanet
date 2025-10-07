@@ -70,6 +70,7 @@ export function updatePet(id, patch) {
   if (idx === -1) return null;
   all[idx] = { ...all[idx], ...patch };
   savePets(all);
+  window.dispatchEvent(new Event('patanet:pets-updated'));
   return all[idx];
 }
 

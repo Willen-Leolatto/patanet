@@ -1,7 +1,10 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+
+// compatível com Context ou Zustand
 import { useAuth } from "@/store/auth";
 import { useTheme } from "@/store/theme";
+
 import {
   Home as HomeIcon,
   PawPrint,
@@ -15,39 +18,53 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+
 import { loadPets } from "@/features/pets/services/petsStorage";
 import AvatarCircle from "@/components/AvatarCircle";
 
 const SIDEBAR_W = 280;
 
 export default function Sidebar() {
+  const { pathname } = useLocation();
+
+  // não renderiza em rotas de auth
+  if (/^\/(login|signup|auth)\b/.test(pathname)) return null;
+
+  // pega o slice de auth (funciona com Context e com Zustand)
+  const authSlice =
+    typeof useAuth === "function" && useAuth.length > 0
+      ? useAuth((s) => s)
+      : useAuth();
+
+  // ——— usuario “defensivo” (cobre diferentes formatos)
+  const rawUser =
+    authSlice?.user ?? authSlice?.currentUser ?? authSlice?.me ?? null;
+
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
+
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
-  const { pathname } = useLocation();
 
   const [open, setOpen] = useState(true);
   const [isMdUp, setIsMdUp] = useState(false);
   const [myPets, setMyPets] = useState([]);
-  const railRef = useRef(null);
   const [overflow, setOverflow] = useState(false);
+  const railRef = useRef(null);
 
   const currentUserId =
-    user.user?.id || user.user?.uid || user.user?.email || user.user?.username || null;
+    user?.id || user?.uid || user?.email || user?.username || null;
 
-  // aplica/atualiza a margem do conteúdo no desktop via CSS var
   function applyContentSpacing(nextOpen, mdUp) {
     const ml = nextOpen && mdUp ? `${SIDEBAR_W}px` : "0px";
     document.documentElement.style.setProperty("--sidebar-ml", ml);
   }
 
-  // define estado inicial com base no tamanho da tela
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
     const handle = () => {
       setIsMdUp(mq.matches);
-      setOpen(mq.matches); // aberto por padrão no desktop
+      setOpen(mq.matches);
       applyContentSpacing(mq.matches, mq.matches);
     };
     handle();
@@ -55,7 +72,6 @@ export default function Sidebar() {
     return () => mq.removeEventListener("change", handle);
   }, []);
 
-  // ouve o botão hambúrguer (fora do aside)
   useEffect(() => {
     const onToggle = () => {
       setOpen((v) => {
@@ -68,22 +84,12 @@ export default function Sidebar() {
     return () => window.removeEventListener("patanet:sidebar-toggle", onToggle);
   }, [isMdUp]);
 
-  // fecha ao trocar de rota em telas pequenas
   useEffect(() => {
     if (!isMdUp) {
       setOpen(true);
       applyContentSpacing(true, true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
-
-  // useEffect(() => {
-  //   // carrega e filtra por dono logado
-  //   const all = loadPets();
-  //   const mine = user ? all.filter((p) => p.ownerId === user.user.id) : [];
-  //   console.log(mine);
-  //   setMyPets(mine);
-  // }, [user]);
+  }, [pathname, isMdUp]);
 
   useEffect(() => {
     const refresh = () => {
@@ -93,10 +99,7 @@ export default function Sidebar() {
         : [];
       setMyPets(mine);
     };
-
     refresh();
-
-    // atualiza quando o storage mudar
     window.addEventListener("patanet:pets-updated", refresh);
     return () => window.removeEventListener("patanet:pets-updated", refresh);
   }, [currentUserId]);
@@ -109,8 +112,7 @@ export default function Sidebar() {
     return (
       <Link
         to={to}
-        className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors
-        ${
+        className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
           active
             ? "bg-white/10 text-white"
             : "text-[var(--sidebar-fg)] hover:bg-white/10"
@@ -136,6 +138,16 @@ export default function Sidebar() {
     };
   }, [myPets.length]);
 
+  // avatar do usuário logado
+  const userAvatar = user?.image || user?.photoURL || user?.avatar || "";
+
+  const userName =
+    user?.displayName ||
+    user?.name ||
+    user?.username ||
+    user?.email ||
+    "Usuário";
+
   return (
     <>
       {/* Backdrop para mobile */}
@@ -155,9 +167,7 @@ export default function Sidebar() {
           transform-gpu transition-transform duration-300 ease-out
           md:translate-x-0
         "
-        style={{
-          transform: open ? "translateX(0)" : "translateX(-280px)",
-        }}
+        style={{ transform: open ? "translateX(0)" : "translateX(-280px)" }}
       >
         <div className="flex h-full flex-col gap-6 p-4">
           {/* Logo / título */}
@@ -180,11 +190,11 @@ export default function Sidebar() {
                   <Plus size={18} />
                 </Link>
 
-                {/* Trilho de avatares (scroll só quando precisar) */}
+                {/* Trilho de avatares */}
                 <div className="flex-1 overflow-hidden">
                   <div
                     ref={railRef}
-                    className="hide-scrollbar flex gap-3 overflow-x-auto pr-1"
+                    className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-white/20"
                     data-overflow={overflow ? "true" : "false"}
                   >
                     {myPets.map((p) => (
@@ -200,7 +210,6 @@ export default function Sidebar() {
                           size={40}
                           className="ring-1 ring-white/10 group-hover:ring-[#f77904]/60 transition"
                         />
-                        {/* label flutuante no hover */}
                         <span className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1.5 py-[2px] text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
                           {p.name}
                         </span>
@@ -240,11 +249,18 @@ export default function Sidebar() {
           {/* Rodapé da sidebar */}
           <div className="rounded-xl bg-[#606873] p-3 text-white">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-black/20" />
+              {/* Avatar do usuário (ou placeholder) */}
+              <AvatarCircle
+                src={user ? userAvatar : ""}
+                alt={userName}
+                size={36}
+                className="ring-1 ring-white/10"
+              />
+
               <div className="flex-1">
                 <div className="text-xs opacity-80">Olá</div>
                 <div className="text-sm font-medium">
-                  {user ? user.displayName || "Usuário" : "Visitante"}
+                  {user ? userName : "Visitante"}
                 </div>
               </div>
 

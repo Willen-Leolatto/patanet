@@ -120,7 +120,7 @@ export default function PetCreate() {
   const [query, setQuery] = useState("");
   const me = useAuth();
   const currentUserId = 
-  me?.id || me?.uid || me?.email || me?.username || "me";
+  me.user?.id || me.user?.uid || me.user?.email || me.user?.username || "me";
 
   const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
 

@@ -18,7 +18,7 @@ import {
   loadPets as storageListPets,
   removePet as storageRemovePet,
 } from "@/features/pets/services/petsStorage";
-import { useAuth } from "@/store/auth"; // <-- NOVO
+import { useAuth } from "@/store/auth"; // <-- mantém
 
 /* -------------------- helpers -------------------- */
 const fmtKg = (n) => (n ? `${n} kg` : "—");
@@ -100,14 +100,29 @@ const EXAMPLES = [
 /* -------------------- componente -------------------- */
 export default function PetList() {
   const nav = useNavigate();
-  const me = useAuth((s) => s.user); // <-- NOVO
+
+  // O hook retorna o objeto de usuário (ou null). Evita acessar "user" de null.
+  const authUser = useAuth((s) => s.user); // pode ser null no very first render
+  const currentUserId =
+    authUser?.id ||
+    authUser?.uid ||
+    authUser?.email ||
+    authUser?.username ||
+    null;
+
+  const isOwner = currentUserId && pet?.ownerId === currentUserId;
+
   const [pets, setPets] = useState([]);
   const [q, setQ] = useState("");
   const [species, setSpecies] = useState("todas");
 
-  // só pode editar se for o dono do pet; exemplos (sem ownerId) ficam read-only
-  const canEdit = (p) => p.ownerId ? p.ownerId === me.user?.id : !!me.user; ; 
-  
+  // Só o dono pode editar; cards de exemplo (sem ownerId) ficam somente leitura
+  const canEdit = (p) =>
+    !!authUser &&
+    !!p?.ownerId &&
+    !!currentUserId &&
+    p.ownerId === currentUserId;
+
   useEffect(() => {
     // carrega do storage; fallback para exemplos
     try {

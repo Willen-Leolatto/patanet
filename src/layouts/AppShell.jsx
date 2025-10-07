@@ -1,12 +1,32 @@
-import React from "react";
-import { Outlet } from "react-router-dom";
+import React, { useEffect } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import SideBar from "@/components/nav/SideBar";
 
-const SIDEBAR_W = 280;
-
 export default function AppShell() {
-  // botão hambúrguer fica FORA do <aside> para não “sumir” quando o aside está
-  // em transform/translate. Ele apenas dispara um evento para o SideBar alternar.
+  const { pathname } = useLocation();
+
+  // Detecta se estamos em páginas de autenticação
+  const isAuth = pathname === "/auth" || pathname.startsWith("/auth/");
+
+  // Em telas de auth, garante que nenhuma margem herdada do sidebar permaneça
+  useEffect(() => {
+    if (isAuth) {
+      document.documentElement.style.setProperty("--sidebar-ml", "0px");
+    }
+  }, [isAuth]);
+
+  if (isAuth) {
+    // Layout exclusivo para Login / Cadastro (sem sidebar)
+    return (
+      <div className="min-h-dvh w-full">
+        <main className="min-h-dvh w-full grid place-items-center px-4 md:px-6">
+          <Outlet />
+        </main>
+      </div>
+    );
+  }
+
+  // Layout padrão com Sidebar
   function toggleSidebar() {
     window.dispatchEvent(new CustomEvent("patanet:sidebar-toggle"));
   }
@@ -27,9 +47,7 @@ export default function AppShell() {
       {/* Sidebar fixa à esquerda */}
       <SideBar />
 
-      {/* Área de conteúdo.
-          A margem à esquerda no desktop é controlada por uma CSS var
-          que o SideBar atualiza conforme abre/fecha. */}
+      {/* Área de conteúdo (recebe deslocamento do sidebar via CSS var) */}
       <main
         className="
           transition-[margin] duration-300

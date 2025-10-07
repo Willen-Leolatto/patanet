@@ -126,6 +126,7 @@ export default function PetDetail() {
   // Lightbox
   const [lbOpen, setLbOpen] = useState(false);
   const [lbIndex, setLbIndex] = useState(0);
+  const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
 
   // Carregar pet
   useEffect(() => {
