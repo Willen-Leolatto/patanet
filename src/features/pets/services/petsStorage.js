@@ -46,6 +46,19 @@ function normalizeMediaArray(raw) {
   return out;
 }
 
+/** Normaliza/compatibiliza um registro de vacina */
+function normalizeVaccine(v) {
+  const obj = v && typeof v === "object" ? v : {};
+  return {
+    id: String(obj.id || uid()),
+    name: String(obj.name || ""),
+    date: obj.date || "", // YYYY-MM-DD
+    nextDoseDate: obj.nextDoseDate || "", // YYYY-MM-DD
+    clinic: String(obj.clinic || ""),
+    notes: String(obj.notes || ""),
+  };
+}
+
 function normalizePet(p) {
   const copy = { ...(p || {}) };
 
@@ -68,6 +81,10 @@ function normalizePet(p) {
 
   // Owner
   copy.ownerId = copy.ownerId ?? copy.userId ?? copy.createdBy ?? null;
+
+  // Vacinas (novo: normalização robusta)
+  const rawVaccines = Array.isArray(copy.vaccines) ? copy.vaccines : [];
+  copy.vaccines = rawVaccines.map(normalizeVaccine);
 
   return copy;
 }
@@ -145,6 +162,9 @@ export function addPet(input) {
     media: normalizeMediaArray(input.media),
     createdAt: now,
     ownerId: input.ownerId ?? input.userId ?? input.createdBy ?? null,
+
+    // Vacinas (se vier algo no create)
+    vaccines: Array.isArray(input.vaccines) ? input.vaccines.map(normalizeVaccine) : [],
   });
 
   list.push(pet);
@@ -174,6 +194,12 @@ export function updatePet(id, patch) {
   }
   for (const k of ["avatarId", "coverId"]) {
     if (k in normPatch && typeof normPatch[k] !== "string") normPatch[k] = "";
+  }
+
+  // normaliza vacinas se vierem no patch
+  if ("vaccines" in normPatch) {
+    const arr = Array.isArray(normPatch.vaccines) ? normPatch.vaccines : [];
+    normPatch.vaccines = arr.map(normalizeVaccine);
   }
 
   const merged = normalizePet({ ...list[idx], ...normPatch });
@@ -216,28 +242,49 @@ export function removePetPhoto(id, photoId) {
 }
 
 /* ------------------------------- Vacinas ---------------------------------- */
+/** Lista de vacinas do pet (normalizada). */
+export function listVaccines(petId) {
+  const pet = getPet(petId);
+  return pet ? (pet.vaccines || []).map(normalizeVaccine) : [];
+}
+
+/** Cria uma vacina e retorna o item criado. */
 export function addVaccine(id, v) {
   const pet = getPet(id);
   if (!pet) return;
-  const item = { id: uid(), ...v };
+  const item = normalizeVaccine({ ...v, id: uid() });
   const vaccines = [...(pet.vaccines || []), item];
   updatePet(id, { vaccines });
   return item;
 }
+
+/** Atualiza uma vacina existente. */
 export function updateVaccine(id, vaccineId, patch) {
   const pet = getPet(id);
   if (!pet) return;
   const vaccines = (pet.vaccines || []).map((x) =>
-    x.id === vaccineId ? { ...x, ...patch } : x
+    x.id === vaccineId ? normalizeVaccine({ ...x, ...patch, id: x.id }) : x
   );
   updatePet(id, { vaccines });
 }
+
+/** Remove uma vacina. */
 export function removeVaccine(id, vaccineId) {
   const pet = getPet(id);
   if (!pet) return;
   const vaccines = (pet.vaccines || []).filter((x) => x.id !== vaccineId);
   updatePet(id, { vaccines });
 }
+
+/** Marca a vacina como aplicada hoje (altera o campo `date` para hoje). */
+export function markVaccineToday(id, vaccineId) {
+  const today = new Date();
+  const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+    today.getDate()
+  ).padStart(2, "0")}`;
+  return updateVaccine(id, vaccineId, { date: iso });
+}
+
 export function getPetById(id) {
   return getPet(id);
 }
@@ -316,8 +363,6 @@ export async function mediaDelete(id) {
 }
 
 /* =================== Raças (dados ricos, compatíveis) =================== */
-// ... (BREEDS e utilitários abaixo permanecem exatamente como já estavam)
-
 export function getBreedsBySpecies(species = "Cachorro") {
   return BREEDS[species] || [];
 }

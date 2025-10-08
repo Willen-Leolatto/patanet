@@ -1,6 +1,6 @@
 // src/features/pets/pages/PetDetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import {
   Shield,
   Images,
@@ -13,6 +13,11 @@ import {
   Edit3,
   Trash2,
   ChevronDown,
+  Check,
+  CalendarDays,
+  MapPin,
+  NotebookText,
+  X,
 } from "lucide-react";
 import Lightbox from "@/components/Lightbox";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -22,9 +27,17 @@ import {
   mediaSaveBlob,
   mediaGetUrl,
   mediaDelete,
+  addVaccine as addPetVaccine,
+  updateVaccine as updatePetVaccine,
+  removeVaccine as removePetVaccine,
 } from "@/features/pets/services/petsStorage";
 import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
 import { useAuth } from "@/store/auth";
+
+/* -------------------------------------------------------------
+ *  Config local (futuro: puxar de user settings)
+ * ------------------------------------------------------------- */
+const DUE_SOON_DAYS = 7;
 
 /* --------------------------- EXEMPLOS (ex-1..3) --------------------------- */
 const EXAMPLES = [
@@ -136,6 +149,25 @@ async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
   return blob;
 }
 
+/* ----------------------- datas p/ vacinas (utils leves) ------------------- */
+function parseISODateLocal(s) {
+  if (!s) return null;
+  const [y, m, d] = String(s).split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+function formatPt(dateStr) {
+  const d = parseISODateLocal(dateStr);
+  return d ? d.toLocaleDateString("pt-BR") : "—";
+}
+function daysUntil(dateStr) {
+  const d = parseISODateLocal(dateStr);
+  if (!d) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.floor((d - today) / 86400000);
+}
+
 /* -------------------------------- COMPONENTE ------------------------------- */
 export default function PetDetail() {
   const { id } = useParams();
@@ -161,6 +193,17 @@ export default function PetDetail() {
   // URLs resolvidas para avatar/capa (avatarId/coverId)
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
+
+  // Modal de Vacina (create/edit)
+  const [vacModalOpen, setVacModalOpen] = useState(false);
+  const [vacEditId, setVacEditId] = useState(null);
+  const [vacForm, setVacForm] = useState({
+    name: "",
+    date: "",
+    nextDoseDate: "",
+    clinic: "",
+    notes: "",
+  });
 
   // Função para carregar do storage
   const loadFromStorage = () => {
@@ -227,7 +270,6 @@ export default function PetDetail() {
         return;
       }
       try {
-        // avatar
         let aUrl = pet.avatar || "";
         if (!aUrl && pet.avatarId) {
           try {
@@ -236,7 +278,6 @@ export default function PetDetail() {
             aUrl = "";
           }
         }
-        // capa
         let cUrl = pet.cover || "";
         if (!cUrl && pet.coverId) {
           try {
@@ -259,7 +300,6 @@ export default function PetDetail() {
     resolveHeaderImages();
     return () => {
       cancelled = true;
-      // revoga blobs
       [avatarUrl, coverUrl].forEach((u) => {
         if (u && u.startsWith("blob:")) {
           try {
@@ -502,6 +542,141 @@ export default function PetDetail() {
   const headerAvatarSrc =
     avatarUrl || coverUrl || undefined; // evita string vazia no src
 
+  /* --------------------------- VACINAS (UI + ações) ------------------------ */
+  const vaccines = Array.isArray(pet?.vaccines) ? pet.vaccines : [];
+  const vaccinesCount = vaccines.length;
+
+  const vaccineBadge = (nextDoseDate) => {
+    if (!nextDoseDate) return null;
+    const d = daysUntil(nextDoseDate);
+    if (d < 0) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium border-red-200 bg-red-100 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+          <CalendarDays className="h-3.5 w-3.5" />
+          Atrasada
+        </span>
+      );
+    }
+    if (d === 0) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium border-sky-200 bg-sky-100 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+          <CalendarDays className="h-3.5 w-3.5" />
+          Hoje
+        </span>
+      );
+    }
+    if (d <= DUE_SOON_DAYS) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <CalendarDays className="h-3.5 w-3.5" />
+          Próxima em {d}d
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <CalendarDays className="h-3.5 w-3.5" />
+        Agendada
+      </span>
+    );
+  };
+
+  const openVacCreate = () => {
+    if (!guard()) return;
+    setVacEditId(null);
+    setVacForm({ name: "", date: "", nextDoseDate: "", clinic: "", notes: "" });
+    setVacModalOpen(true);
+  };
+
+  const openVacEdit = (vx) => {
+    if (!guard()) return;
+    setVacEditId(vx.id);
+    setVacForm({
+      name: vx.name || "",
+      date: vx.date || "",
+      nextDoseDate: vx.nextDoseDate || "",
+      clinic: vx.clinic || "",
+      notes: vx.notes || "",
+    });
+    setVacModalOpen(true);
+  };
+
+  const submitVaccine = async () => {
+    if (!guard()) return;
+    const name = String(vacForm.name || "").trim();
+    const date = String(vacForm.date || "");
+    if (!name || !date) {
+      toast.error("Informe ao menos a vacina e a data.");
+      return;
+    }
+    try {
+      const payload = {
+        name,
+        date,
+        nextDoseDate: vacForm.nextDoseDate || undefined,
+        clinic: String(vacForm.clinic || "").trim(),
+        notes: String(vacForm.notes || "").trim(),
+      };
+
+      if (!vacEditId) {
+        const created = addPetVaccine(pet.id, payload);
+        const next = [...(pet.vaccines || []), created];
+        persist({ vaccines: next });
+        toast.success("Vacina registrada.");
+      } else {
+        updatePetVaccine(pet.id, vacEditId, payload);
+        const next = (pet.vaccines || []).map((v) =>
+          v.id === vacEditId ? { ...v, ...payload } : v
+        );
+        persist({ vaccines: next });
+        toast.success("Vacina atualizada.");
+      }
+
+      setVacModalOpen(false);
+      setVacEditId(null);
+    } catch {
+      toast.error("Não foi possível salvar (armazenamento local cheio).");
+    }
+  };
+
+  const markAsToday = async (vx) => {
+    if (!guard()) return;
+    const ok = await confirm({
+      title: "Marcar como aplicada hoje?",
+      description:
+        "A data de aplicação será atualizada para hoje. A próxima dose (se houver) permanece.",
+      confirmText: "Marcar",
+      tone: "confirm",
+    });
+    if (!ok) return;
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(today.getDate()).padStart(2, "0")}`;
+    updatePetVaccine(pet.id, vx.id, { date: iso });
+    const next = (pet.vaccines || []).map((v) =>
+      v.id === vx.id ? { ...v, date: iso } : v
+    );
+    persist({ vaccines: next });
+    toast.success("Aplicação marcada para hoje.");
+  };
+
+  const removeVaccine = async (vx) => {
+    if (!guard()) return;
+    const ok = await confirm({
+      title: "Excluir registro?",
+      description: "Esta ação não pode ser desfeita.",
+      confirmText: "Excluir",
+      tone: "danger",
+    });
+    if (!ok) return;
+    removePetVaccine(pet.id, vx.id);
+    const next = (pet.vaccines || []).filter((v) => v.id !== vx.id);
+    persist({ vaccines: next });
+    toast.success("Registro removido.");
+  };
+
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       {/* GRID: esquerda / divisor (>=xl) / direita */}
@@ -511,7 +686,7 @@ export default function PetDetail() {
           {/* Header do pet */}
           <div className="flex items-start gap-4">
             <img
-              src={headerAvatarSrc}
+              src={headerAvatarSrc || undefined}
               alt={pet.name}
               className="h-16 w-16 md:h-20 md:w-20 rounded-full object-cover ring-4 ring-black/10 dark:ring-white/10"
             />
@@ -559,7 +734,6 @@ export default function PetDetail() {
 
         {/* DIREITA */}
         <section className="relative col-span-12 xl:col-span-7 rounded-2xl bg-[var(--content-bg)] text-[var(--content-fg)] shadow-sm ring-1 ring-black/5 dark:ring-white/5">
-          {/* divisória vertical no xl+ */}
           <span
             aria-hidden="true"
             className="pointer-events-none absolute -left-3 top-0 hidden h-full w-px bg-black/10 dark:bg-white/10 xl:block"
@@ -593,11 +767,108 @@ export default function PetDetail() {
                   onToggle={() => setVaccinesOpen((v) => !v)}
                   leftIcon={<Syringe className="h-4 w-4 opacity-70" />}
                   title="Vacinas"
-                  rightActions={<span className="text-xs opacity-60">0 registro(s)</span>}
+                  rightActions={
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs opacity-60">
+                        {vaccinesCount} registro(s)
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={openVacCreate}
+                          className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                          title="Adicionar vacina"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Adicionar
+                        </button>
+                      )}
+                    </div>
+                  }
                 >
-                  <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
-                    Nenhuma vacina registrada para este pet.
-                  </div>
+                  {vaccinesCount === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Nenhuma vacina registrada para este pet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {vaccines
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            (parseISODateLocal(b.date)?.getTime() || 0) -
+                            (parseISODateLocal(a.date)?.getTime() || 0)
+                        )
+                        .map((v) => (
+                          <li
+                            key={v.id}
+                            className="flex items-start justify-between gap-3 rounded-lg border border-black/10 p-3 text-sm dark:border-white/10"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium inline-flex items-center gap-2">
+                                  <Syringe className="h-4 w-4 opacity-70" />
+                                  {v.name}
+                                </span>
+                                {!!v.nextDoseDate && vaccineBadge(v.nextDoseDate)}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-80">
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarDays className="h-3.5 w-3.5" />
+                                  Aplicada em: <strong>{formatPt(v.date)}</strong>
+                                </span>
+                                {v.nextDoseDate && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    Próxima dose:{" "}
+                                    <strong>{formatPt(v.nextDoseDate)}</strong>
+                                  </span>
+                                )}
+                                {v.clinic && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    {v.clinic}
+                                  </span>
+                                )}
+                              </div>
+                              {v.notes && (
+                                <div className="mt-1 text-xs opacity-80 inline-flex items-start gap-2">
+                                  <NotebookText className="mt-[2px] h-3.5 w-3.5" />
+                                  <span className="whitespace-pre-wrap">{v.notes}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {canEdit ? (
+                              <div className="flex shrink-0 items-center gap-1">
+                                <button
+                                  title="Marcar aplicação hoje"
+                                  className="inline-flex h-8 items-center gap-1 rounded-md border border-black/10 px-2 text-xs hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10"
+                                  onClick={() => markAsToday(v)}
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Hoje
+                                </button>
+                                <button
+                                  title="Editar"
+                                  className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-300 px-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/40"
+                                  onClick={() => openVacEdit(v)}
+                                >
+                                  <Edit3 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  title="Excluir"
+                                  className="inline-flex h-8 items-center justify-center rounded-md border border-red-300 px-2 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/20"
+                                  onClick={() => removeVaccine(v)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span />
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
                 </Accordion>
 
                 <StaticItem
@@ -739,6 +1010,123 @@ export default function PetDetail() {
           onNext={() => setLbIndex((i) => (i + 1) % lbSlides.length)}
         />
       )}
+
+      {/* MODAL: Create/Edit Vacina */}
+      {vacModalOpen && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-xl dark:bg-zinc-900">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Syringe className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">
+                  {vacEditId ? "Editar vacina" : "Registrar vacina"}
+                </h3>
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  setVacModalOpen(false);
+                  setVacEditId(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <Syringe className="h-4 w-4" />
+                  Vacina *
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={vacForm.name}
+                  onChange={(e) =>
+                    setVacForm((s) => ({ ...s, name: e.target.value }))
+                  }
+                  placeholder="Ex.: V8, Antirrábica"
+                />
+              </div>
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Aplicada em *
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={vacForm.date}
+                  onChange={(e) =>
+                    setVacForm((s) => ({ ...s, date: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Próxima dose
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={vacForm.nextDoseDate}
+                  onChange={(e) =>
+                    setVacForm((s) => ({ ...s, nextDoseDate: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <MapPin className="h-4 w-4" />
+                  Clínica
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={vacForm.clinic}
+                  onChange={(e) =>
+                    setVacForm((s) => ({ ...s, clinic: e.target.value }))
+                  }
+                  placeholder="Opcional"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <NotebookText className="h-4 w-4" />
+                  Observações
+                </label>
+                <textarea
+                  rows={4}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={vacForm.notes}
+                  onChange={(e) =>
+                    setVacForm((s) => ({ ...s, notes: e.target.value }))
+                  }
+                  placeholder="Opcional"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
+                onClick={() => {
+                  setVacModalOpen(false);
+                  setVacEditId(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                onClick={submitVaccine}
+              >
+                {vacEditId ? "Salvar alterações" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -795,7 +1183,7 @@ function StaticItem({ icon, title, showPlus = false }) {
   );
 }
 
-/* --------- Accordion com transição suave (altura animada) --------- */
+/* --------- Accordion com header clicável e ações separadas (sem nested buttons) --------- */
 function Accordion({ title, open, onToggle, leftIcon, rightActions, children }) {
   const ref = useRef(null);
   const [height, setHeight] = useState(0);
@@ -821,24 +1209,26 @@ function Accordion({ title, open, onToggle, leftIcon, rightActions, children }) 
 
   return (
     <div className="rounded-xl ring-1 ring-black/5 dark:ring-white/5">
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 text-left text-sm font-medium"
-        aria-expanded={open}
-      >
-        <span className="inline-flex items-center gap-2">
+      {/* Cabeçalho: botão de toggle à esquerda, ações à direita */}
+      <div className="flex w-full items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 text-sm font-medium">
+        <button
+          onClick={onToggle}
+          className="inline-flex items-center gap-2 text-left"
+          aria-expanded={open}
+          type="button"
+        >
           {leftIcon}
           {title}
-        </span>
-        <div className="flex items-center gap-3">
-          {rightActions}
           <ChevronDown
-            className={`h-4 w-4 transition-transform duration-300 ${
+            className={`ml-2 h-4 w-4 transition-transform duration-300 ${
               open ? "rotate-180" : ""
             }`}
           />
-        </div>
-      </button>
+        </button>
+
+        {/* rightActions fora do botão para evitar nested buttons */}
+        <div className="flex items-center gap-3">{rightActions}</div>
+      </div>
 
       <div
         style={{
