@@ -10,6 +10,7 @@ import {
 import AppShell from "@layouts/AppShell.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import { PetList, PetCreate, PetDetail, PetEdit } from "@/features/pets";
+import UserProfile from "@/features/users/pages/UserProfile";
 
 // Lazy pages
 const Feed = lazy(() => import("@features/feed/pages/Feed.jsx"));
@@ -34,7 +35,8 @@ export const router = createBrowserRouter(
         {/* "/" -> Feed */}
         <Route index element={withSuspense(<Feed />)} />
         <Route path="feed" element={withSuspense(<Feed />)} />
-        <Route path="dashboard" element={withSuspense(<DashboardHome />)} />
+        <Route path="perfil" element={withSuspense(<UserProfile />)} />
+        <Route path="perfil/:userId" element={withSuspense(<UserProfile />)} />
 
         {/* Pets */}
         <Route path="pets" element={<PetList />} />

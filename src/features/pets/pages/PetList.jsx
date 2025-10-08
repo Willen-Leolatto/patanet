@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Plus,
   Edit,
@@ -18,7 +18,7 @@ import {
   loadPets as storageListPets,
   removePet as storageRemovePet,
 } from "@/features/pets/services/petsStorage";
-import { useAuth } from "@/store/auth"; // <-- mantém
+import { useAuth } from "@/store/auth";
 
 /* -------------------- helpers -------------------- */
 const fmtKg = (n) => (n ? `${n} kg` : "—");
@@ -35,18 +35,6 @@ const ageFrom = (iso) => {
   if (years <= 0) return `${months}m`;
   return `${years}a ${months}m`;
 };
-
-const Badge = ({ children, className = "" }) => (
-  <span
-    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs
-      bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] 
-      text-[var(--card-fg)]
-      dark:text-[var(--card-fg)]
-      ${className}`}
-  >
-    {children}
-  </span>
-);
 
 /* -------------------- exemplos quando storage estiver vazio -------------------- */
 const EXAMPLES = [
@@ -100,9 +88,11 @@ const EXAMPLES = [
 /* -------------------- componente -------------------- */
 export default function PetList() {
   const nav = useNavigate();
+  const params = useParams(); // para suportar /perfil/:userId/pets
+  const viewingUserId = params.userId || null;
 
-  // O hook retorna o objeto de usuário (ou null). Evita acessar "user" de null.
-  const authUser = useAuth((s) => s.user); // pode ser null no very first render
+  // usuário logado (pode ser null no primeiro render)
+  const authUser = useAuth((s) => s.user);
   const currentUserId =
     authUser?.id ||
     authUser?.uid ||
@@ -110,28 +100,46 @@ export default function PetList() {
     authUser?.username ||
     null;
 
-  const isOwner = currentUserId && pet?.ownerId === currentUserId;
+  // se estou vendo meus pets (rota /pets) ou os de outro usuário (/perfil/:userId/pets)
+  const isOwnList = !viewingUserId || viewingUserId === String(currentUserId);
+  const readOnly = !isOwnList; // em perfil de outro usuário, sem editar/remover
 
   const [pets, setPets] = useState([]);
   const [q, setQ] = useState("");
   const [species, setSpecies] = useState("todas");
 
-  // Só o dono pode editar; cards de exemplo (sem ownerId) ficam somente leitura
+  // Só o dono pode editar/remover (cards de exemplo e perfis alheios ficam somente leitura)
   const canEdit = (p) =>
+    isOwnList &&
     !!authUser &&
     !!p?.ownerId &&
     !!currentUserId &&
     p.ownerId === currentUserId;
 
   useEffect(() => {
-    // carrega do storage; fallback para exemplos
+    // carrega do storage e filtra por owner conforme a rota
     try {
       const data = storageListPets?.() || [];
-      setPets(Array.isArray(data) && data.length ? data : EXAMPLES);
+      const list = Array.isArray(data) ? data : [];
+      let mine = list;
+
+      if (isOwnList && currentUserId) {
+        mine = list.filter((p) => p.ownerId === currentUserId);
+      } else if (viewingUserId) {
+        mine = list.filter((p) => p.ownerId === viewingUserId);
+      }
+
+      // fallback para exemplos se vazio (apenas na própria lista)
+      if ((!mine || mine.length === 0) && isOwnList) {
+        setPets(EXAMPLES);
+      } else {
+        setPets(mine);
+      }
     } catch {
-      setPets(EXAMPLES);
+      // erro de storage -> mostra exemplos apenas no próprio contexto
+      setPets(isOwnList ? EXAMPLES : []);
     }
-  }, []);
+  }, [currentUserId, viewingUserId, isOwnList]);
 
   const speciesOptions = useMemo(() => {
     const set = new Set(
@@ -168,20 +176,13 @@ export default function PetList() {
     setPets((prev) => prev.filter((x) => x.id !== p.id));
   }
 
-  function Stat({ icon: Ico, children }) {
-    return (
-      <div className="flex items-center gap-1.5 text-[11px] leading-none text-white/90">
-        <Ico className="h-3.5 w-3.5 opacity-90" />
-        <span>{children}</span>
-      </div>
-    );
-  }
-
   return (
     <div className="w-full">
       {/* Toolbar */}
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <h1 className="mr-auto text-lg font-semibold">Meus Pets</h1>
+        <h1 className="mr-auto text-lg font-semibold">
+          {isOwnList ? "Meus Pets" : "Pets"}
+        </h1>
 
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -203,13 +204,15 @@ export default function PetList() {
           <option value="gato">Gato</option>
         </select>
 
-        <Link
-          to="/pets/novo"
-          title="Novo pet"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
-        >
-          +
-        </Link>
+        {isOwnList && (
+          <Link
+            to="/pets/novo"
+            title="Novo pet"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
+          >
+            <Plus className="h-4 w-4" />
+          </Link>
+        )}
       </div>
 
       {/* Grid */}
@@ -220,14 +223,18 @@ export default function PetList() {
           </div>
           <h2 className="mb-1 text-lg font-semibold">Nenhum pet encontrado</h2>
           <p className="mb-4 text-sm opacity-70">
-            Ajuste os filtros ou cadastre seu primeiro pet.
+            {isOwnList
+              ? "Ajuste os filtros ou cadastre seu primeiro pet."
+              : "Ajuste os filtros para localizar um pet."}
           </p>
-          <Link
-            to="/pets/novo"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
-          >
-            <Plus className="h-4 w-4" />
-          </Link>
+          {isOwnList && (
+            <Link
+              to="/pets/novo"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
+            >
+              <Plus className="h-4 w-4" />
+            </Link>
+          )}
         </div>
       ) : (
         <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -316,8 +323,8 @@ export default function PetList() {
                     <span>{p.vaccines ?? 0} registros</span>
                   </div>
 
-                  {/* ações só para o dono do pet */}
-                  {canEdit(p) && (
+                  {/* ações só para o dono do pet (na própria lista) */}
+                  {canEdit(p) && !readOnly && (
                     <div className="flex items-center gap-2">
                       <Link
                         to={`/pets/${p.id}/editar`}

@@ -5,12 +5,17 @@ const USERS_KEY = "pe_users";
 const SESSION_KEY = "pe_session";
 
 const read = (k) => {
-  try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; }
+  try {
+    return JSON.parse(localStorage.getItem(k) || "null");
+  } catch {
+    return null;
+  }
 };
 const write = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const uid = () => "u_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const uid = () =>
+  "u_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-const normalizeEmail = (v="") => v.trim().toLowerCase();
+const normalizeEmail = (v = "") => v.trim().toLowerCase();
 const normalizeUser = (u) => ({
   id: u.id || uid(),
   name: (u.name || "").trim(),
@@ -22,16 +27,22 @@ const normalizeUser = (u) => ({
 });
 
 export function listUsers() {
-  return read(USERS_KEY) || [];
+  try {
+    return JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 
 export function findUserByEmailOrUsername(login) {
   const users = listUsers();
   const key = (login || "").trim();
   const email = normalizeEmail(key);
-  return users.find(
-    (u) => normalizeEmail(u.email) === email || u.username === key
-  ) || null;
+  return (
+    users.find(
+      (u) => normalizeEmail(u.email) === email || u.username === key
+    ) || null
+  );
 }
 
 export function registerUser({ name, image, username, email, password }) {
@@ -81,4 +92,17 @@ export function updateUser(partial) {
   write(USERS_KEY, users);
   // mantém a sessão apontando pro mesmo id
   return users[idx];
+}
+
+export function getUserById(id) {
+  const all = listUsers();
+  return (
+    all.find(
+      (u) =>
+        u.id === id ||
+        u.uid === id ||
+        u.email === id ||
+        u.username === id
+    ) || null
+  );
 }

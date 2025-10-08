@@ -1,0 +1,527 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import { useAuth } from "@/store/auth";
+import { getUserById } from "@/features/auth/services/authStorage";
+import { loadPets, removePet } from "@/features/pets/services/petsStorage";
+import Lightbox from "@/components/Lightbox";
+import {
+  Camera,
+  Edit3,
+  Trash2,
+  Link as LinkIcon,
+  MapPin,
+  CalendarDays,
+  PawPrint,
+  ImagePlus,
+} from "lucide-react";
+
+/* ------------------------- storage simples do perfil ------------------------- */
+// Guarda infos visuais do perfil que não são da conta (capa, bio, site, localização)
+const PROFILE_KEY = "patanet_user_profiles";
+function readProfiles() {
+  try {
+    return JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+function writeProfiles(map) {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(map || {}));
+}
+function getProfile(uid) {
+  const map = readProfiles();
+  return map[uid] || { cover: "", bio: "", website: "", location: "" };
+}
+function patchProfile(uid, patch) {
+  const map = readProfiles();
+  map[uid] = { ...(map[uid] || {}), ...(patch || {}) };
+  writeProfiles(map);
+}
+
+/* --------------------------------- utils UI -------------------------------- */
+function Avatar({ src, alt, size = 88, className = "" }) {
+  if (!src) {
+    return (
+      <div
+        className={`rounded-full bg-zinc-300 dark:bg-zinc-700 ring-4 ring-black/10 dark:ring-white/10 ${className}`}
+        style={{ width: size, height: size }}
+        title={alt}
+      />
+    );
+  }
+  return (
+    <img
+      src={src || null}
+      alt={alt}
+      className={`rounded-full object-cover ring-4 ring-black/10 dark:ring-white/10 ${className}`}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "—");
+const fmtDate = (iso) =>
+  iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
+
+/* ---------------------------------- página --------------------------------- */
+export default function UserProfile() {
+  const { userId } = useParams(); // /perfil/:userId? — se vazio: perfil próprio
+  const nav = useNavigate();
+
+  const authUser = useAuth((s) => s.user);
+  const currentId =
+    authUser?.id ||
+    authUser?.uid ||
+    authUser?.email ||
+    authUser?.username ||
+    null;
+  const viewedId = userId || currentId;
+
+  // permissões: só pode editar se for o próprio perfil
+  const isOwn = !!currentId && viewedId === String(currentId);
+
+  // dados “fixos” vindos do auth (avatar/nome/username/email)
+  const [viewedUser, setViewedUser] = useState(null);
+
+  useEffect(() => {
+    if (isOwn) {
+      setViewedUser({
+        id: currentId,
+        name: authUser?.name || authUser?.displayName || "",
+        username: authUser?.username || "",
+        email: authUser?.email || "",
+        image: authUser?.image || authUser?.avatar || authUser?.photoURL || "",
+        createdAt: authUser?.createdAt || Date.now(),
+      });
+    } else {
+      const u = getUserById?.(viewedId);
+      // fallback defensivo: se não vier nada, mostra ao menos o id
+      setViewedUser(
+        u || {
+          id: viewedId,
+          name: "",
+          username: viewedId,
+          email: "",
+          image: "",
+          createdAt: Date.now(),
+        }
+      );
+    }
+  }, [isOwn, viewedId, currentId, authUser]);
+
+  const fixedUser = viewedUser || { id: viewedId, username: viewedId };
+
+  // perfil “visual” (capa/bio/site/local)
+  const [profile, setProfile] = useState(getProfile(viewedId));
+  useEffect(() => {
+    setProfile(getProfile(viewedId));
+  }, [viewedId]);
+
+  // pets do usuário
+  const [pets, setPets] = useState([]);
+  useEffect(() => {
+    const all = loadPets() || [];
+    const mine = all.filter((p) => p.ownerId === viewedId);
+    setPets(mine);
+  }, [viewedId]);
+
+  // lightbox para capa (caso clique) e para imagens de pets (covers/avatars)
+  const [lb, setLb] = useState({ open: false, slides: [], index: 0 });
+
+  // editar capa
+  const fileRef = useRef(null);
+  const onPickCover = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const dataUrl = await readAsDataURL(f);
+    setProfile((p) => ({ ...p, cover: dataUrl }));
+    patchProfile(viewedId, { cover: dataUrl });
+    e.target.value = "";
+  };
+
+  // editar bio/site/local
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(profile);
+  useEffect(() => setDraft(profile), [profile]);
+  const saveProfile = () => {
+    setEditing(false);
+    setProfile(draft);
+    patchProfile(viewedId, draft);
+  };
+
+  // métricas simples
+  const metrics = useMemo(() => {
+    const totalPets = pets.length;
+    const totalMedia = pets.reduce(
+      (acc, p) => acc + (Array.isArray(p.media) ? p.media.length : 0),
+      0
+    );
+    return { totalPets, totalMedia };
+  }, [pets]);
+
+  // ações de pet (apenas se isOwn)
+  const handleRemovePet = (pet) => {
+    if (!isOwn) return;
+    if (!pet?.id) return;
+    const ok = window.confirm(`Remover "${pet.name}"?`);
+    if (!ok) return;
+    removePet(pet.id);
+    setPets((list) => list.filter((x) => x.id !== pet.id));
+  };
+
+  // open lightbox helper
+  const openLightbox = (slides, index = 0) =>
+    setLb({ open: true, slides, index });
+
+  return (
+    <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
+      {/* HEADER */}
+      <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        {/* capa */}
+        <div className="relative h-40 w-full bg-gradient-to-r from-orange-300 to-rose-300 dark:from-orange-800 dark:to-rose-800">
+          {profile.cover && (
+            <img
+              src={profile.cover}
+              alt="Capa do perfil"
+              className="h-full w-full object-cover"
+              onClick={() =>
+                openLightbox(
+                  [
+                    {
+                      id: "cover",
+                      url: profile.cover,
+                      title: fixedUser.username || fixedUser.name,
+                    },
+                  ],
+                  0
+                )
+              }
+            />
+          )}
+
+          {isOwn && (
+            <button
+              className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-md bg-black/50 px-2 py-1 text-xs text-white backdrop-blur hover:bg-black/60"
+              onClick={() => fileRef.current?.click()}
+              title="Alterar capa do perfil"
+            >
+              <Camera className="h-4 w-4" /> Alterar capa
+            </button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={onPickCover}
+          />
+        </div>
+
+        {/* avatar + infos */}
+        <div className="flex flex-col gap-3 p-4 md:flex-row md:items-end md:gap-4">
+          <Avatar
+            src={fixedUser.image}
+            alt={fixedUser.username || fixedUser.name || "Usuário"}
+            className="-mt-12 md:-mt-10"
+          />
+          <div className="flex-1">
+            <div className="text-lg font-semibold">
+              {fixedUser.name || fixedUser.username || "Usuário"}
+            </div>
+            <div className="text-xs text-zinc-500">
+              {fixedUser.username ? `@${fixedUser.username}` : fixedUser.email}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* métricas */}
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-center text-xs dark:border-zinc-700 dark:bg-zinc-800">
+              <div className="font-semibold">{metrics.totalPets}</div>
+              <div className="opacity-70">Pets</div>
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-center text-xs dark:border-zinc-700 dark:bg-zinc-800">
+              <div className="font-semibold">{metrics.totalMedia}</div>
+              <div className="opacity-70">Mídias</div>
+            </div>
+
+            {isOwn && (
+              <Link
+                to="/dashboard/configuracoes"
+                className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                Configurar conta
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {/* bio / website / location */}
+        <div className="border-t border-zinc-200 p-4 text-sm dark:border-zinc-800">
+          {!editing ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="md:col-span-2">
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Sobre
+                </div>
+                <p className="whitespace-pre-wrap">
+                  {profile.bio?.trim() ? profile.bio : "Sem descrição."}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                  <MapPin className="h-4 w-4 opacity-70" />
+                  <span className="truncate">{profile.location || "—"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                  <LinkIcon className="h-4 w-4 opacity-70" />
+                  {profile.website ? (
+                    <a
+                      href={profile.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {profile.website}
+                    </a>
+                  ) : (
+                    <span>—</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                  <CalendarDays className="h-4 w-4 opacity-70" />
+                  <span>Membro desde {fmtMemberSince(fixedUser)}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <form
+              className="grid gap-3 md:grid-cols-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveProfile();
+              }}
+            >
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Sobre
+                </label>
+                <textarea
+                  className="w-full rounded-lg border border-zinc-200 bg-white p-2 outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
+                  rows={3}
+                  maxLength={280}
+                  value={draft.bio}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, bio: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Localização
+                </label>
+                <input
+                  type="text"
+                  className="mb-2 w-full rounded-lg border border-zinc-200 bg-white p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
+                  value={draft.location}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, location: e.target.value }))
+                  }
+                />
+                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Website
+                </label>
+                <input
+                  type="url"
+                  className="w-full rounded-lg border border-zinc-200 bg-white p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
+                  placeholder="https://…"
+                  value={draft.website}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, website: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="md:col-span-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
+                  onClick={() => {
+                    setEditing(false);
+                    setDraft(profile);
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Salvar
+                </button>
+              </div>
+            </form>
+          )}
+
+          {isOwn && !editing && (
+            <div className="mt-3 flex justify-end">
+              <button
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
+                onClick={() => setEditing(true)}
+              >
+                <Edit3 className="h-4 w-4" /> Editar perfil
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* PETS desse usuário */}
+      <section className="mt-6">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="inline-flex items-center gap-2 text-sm font-medium opacity-80">
+            <PawPrint className="h-4 w-4" />
+            Pets de {isOwn ? "você" : fixedUser.username || "usuário"}
+          </div>
+          {isOwn && (
+            <Link
+              to="/pets/novo"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              <ImagePlus className="h-4 w-4" /> Adicionar pet
+            </Link>
+          )}
+        </div>
+
+        {pets.length === 0 ? (
+          <div className="rounded-lg border border-zinc-200 bg-white p-6 text-sm opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+            Nenhum pet encontrado.
+          </div>
+        ) : (
+          <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {pets.map((p) => (
+              <li
+                key={p.id}
+                className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <Link to={`/pets/${p.id}`} className="block">
+                  <div className="relative aspect-[4/3] overflow-hidden">
+                    <img
+                      src={p.cover || p.avatar}
+                      alt={p.name}
+                      className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openLightbox(
+                          [
+                            {
+                              id: p.id + "-cover",
+                              url: p.cover || p.avatar,
+                              title: p.name,
+                            },
+                          ],
+                          0
+                        );
+                      }}
+                    />
+                  </div>
+                </Link>
+
+                <div className="space-y-3 p-4">
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={p.avatar || p.cover}
+                      alt=""
+                      className="h-12 w-12 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900"
+                      onClick={() =>
+                        openLightbox(
+                          [
+                            {
+                              id: p.id + "-avatar",
+                              url: p.avatar || p.cover,
+                              title: p.name,
+                            },
+                          ],
+                          0
+                        )
+                      }
+                    />
+                    <div className="min-w-0">
+                      <Link
+                        to={`/pets/${p.id}`}
+                        className="group inline-flex items-center gap-1"
+                      >
+                        <h3 className="truncate text-base font-semibold leading-5 group-hover:underline">
+                          {p.name || "Sem nome"}
+                        </h3>
+                      </Link>
+                      <p className="truncate text-xs opacity-70">
+                        {title(p.species)} • {title(p.breed)} •{" "}
+                        {title(p.gender)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs opacity-70">
+                      Nasc. {fmtDate(p.birthday)} • {p.weight || 0} kg
+                    </div>
+
+                    {isOwn && (
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/pets/${p.id}/editar`}
+                          title="Editar"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </Link>
+                        <button
+                          onClick={() => handleRemovePet(p)}
+                          title="Remover"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* LIGHTBOX */}
+      {lb.open && (
+        <Lightbox
+          open={lb.open}
+          slides={lb.slides}
+          index={lb.index}
+          onIndexChange={(i) => setLb((s) => ({ ...s, index: i }))}
+          onClose={() => setLb({ open: false, slides: [], index: 0 })}
+        />
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------- helpers --------------------------------- */
+function fmtMemberSince(u) {
+  const ts = u?.createdAt;
+  try {
+    const d = ts ? new Date(ts) : new Date();
+    return d.getFullYear();
+  } catch {
+    return "—";
+  }
+}
+function readAsDataURL(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+}

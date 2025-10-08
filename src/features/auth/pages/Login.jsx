@@ -1,7 +1,7 @@
 // src/features/auth/pages/Login.jsx
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/store/auth";
 import { useTheme } from "@/store/theme";
 import { Sun, Moon } from "lucide-react";
 import dogImg from "@/assets/dog.png";
@@ -63,7 +63,7 @@ export default function Login() {
     return name && email && password && terms;
   }, [mode, name, email, password, terms]);
 
-  function readAsDataURL(file) {
+  async function readAsDataURL(file) {
     return new Promise((resolve, reject) => {
       const fr = new FileReader();
       fr.onload = () => resolve(fr.result);
@@ -85,17 +85,52 @@ export default function Login() {
   }
 
   async function onSubmit(e) {
+    const fileInput = e.currentTarget?.imageFile;
+    const pickedFile = fileInput?.files?.[0] || null;
+    const imageDataURL = pickedFile ? await readAsDataURL(pickedFile) : "";
     e.preventDefault();
-    const payload = {
-      name,
-      username,
-      email,
-      password, // ok ficar aqui; não persiste
-      image, // base64 / URL do avatar
-    };
-    const user = await login(payload); // ← salva normalizado {id,name,username,email,image}
-    // redireciona para feed
-    navigate("/feed");
+    setError("");
+    try {
+      const basePayload = {
+        name: (name || "").trim(),
+        username: (username || "").trim(),
+        email: (email || "").trim().toLowerCase(),
+        password: password || "",
+        image: imageDataURL || image || "", // prioriza o arquivo escolhido no form
+      };
+
+      let user;
+
+      if (mode === "signup") {
+        if (
+          !basePayload.name ||
+          !(basePayload.email || basePayload.username) ||
+          !basePayload.password ||
+          !terms
+        ) {
+          setError("Preencha nome, email/usuário, senha e aceite os termos.");
+          return;
+        }
+        user = await register(basePayload); // zustand -> authStorage
+      } else {
+        if (
+          !(basePayload.email || basePayload.username) ||
+          !basePayload.password
+        ) {
+          setError("Informe email/usuário e senha.");
+          return;
+        }
+        const loginField = basePayload.email || basePayload.username;
+        user = await login({
+          login: loginField,
+          password: basePayload.password,
+        });
+      }
+
+      navigate("/feed", { replace: true });
+    } catch (err) {
+      setError(err?.message || "Não foi possível autenticar.");
+    }
   }
 
   return (

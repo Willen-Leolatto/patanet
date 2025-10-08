@@ -33,7 +33,7 @@ async function compressImage(file, maxSide = 1280, quality = 0.78) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-export default function FeedComposer() {
+export default function FeedComposer({ user }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState([]); // [{ preview, dataUrl }]
   const [busy, setBusy] = useState(false);
@@ -60,23 +60,35 @@ export default function FeedComposer() {
   function removeImage(i) {
     setImages((prev) => {
       const next = [...prev];
-      URL.revokeObjectURL(next[i]?.preview);
+      if (next[i]?.preview) URL.revokeObjectURL(next[i].preview);
       next.splice(i, 1);
       return next;
     });
   }
 
   async function publish() {
-    if (!text.trim() && images.length === 0) return;
+    const t = (text || "").trim();
+    const imgs = images.map((i) => i.dataUrl).filter(Boolean);
+
+    // exige estar logado e ter conteúdo (texto ou imagem)
+    if (!user || !user.id || (!t && imgs.length === 0)) return;
+
     setBusy(true);
     try {
-      const post = {
-        text: text.trim(),
-        images: images.map((i) => ({ url: i.dataUrl })), // compatível com o Feed
+      const author = {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        email: user.email,
+        avatar: user.image,
       };
-      addPost(post);
+
+      // API nova: addPost(author, text, images[])
+      await addPost(author, t, imgs);
+
+      // limpar campos/URLs de preview
       setText("");
-      images.forEach((i) => URL.revokeObjectURL(i.preview));
+      images.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
       setImages([]);
     } catch (e) {
       console.error(e);
@@ -108,7 +120,7 @@ export default function FeedComposer() {
               key={i}
               className="relative h-24 w-24 overflow-hidden rounded-md border border-slate-200 dark:border-slate-700"
             >
-              <img src={img.preview} alt="" className="h-full w-full object-cover" />
+              <img src={img.preview || null} alt="" className="h-full w-full object-cover" />
               <button
                 type="button"
                 onClick={() => removeImage(i)}
@@ -145,7 +157,7 @@ export default function FeedComposer() {
           label="Publicar"
           variant="primary"
           onClick={publish}
-          disabled={busy || (!text.trim() && images.length === 0)}
+          disabled={busy || (!text.trim() && images.length === 0) || !user?.id}
           className="ml-auto"
         />
       </div>

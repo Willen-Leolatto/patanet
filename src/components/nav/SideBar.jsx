@@ -142,9 +142,9 @@ export default function Sidebar() {
   const userAvatar = user?.image || user?.photoURL || user?.avatar || "";
 
   const userName =
-    user?.displayName ||
-    user?.name ||
     user?.username ||
+    user?.displayName  ||
+    user?.name ||
     user?.email ||
     "Usuário";
 
@@ -190,24 +190,24 @@ export default function Sidebar() {
                   <Plus size={18} />
                 </Link>
 
-                {/* Trilho de avatares */}
+                {/* Trilho de avatares — HORIZONTAL */}
                 <div className="flex-1 overflow-hidden">
                   <div
                     ref={railRef}
-                    className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-white/20"
+                    className="flex gap-3 overflow-x-auto overflow-y-hidden snap-x snap-mandatory scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-white/20"
                     data-overflow={overflow ? "true" : "false"}
                   >
                     {myPets.map((p) => (
                       <Link
                         key={p.id}
                         to={`/pets/${p.id}`}
-                        className="group relative shrink-0"
+                        className="group relative shrink-0 snap-start"
                         title={p.name}
                       >
                         <AvatarCircle
                           src={p.avatar || ""}
                           alt={p.name}
-                          size={40}
+                          size={48}
                           className="ring-1 ring-white/10 group-hover:ring-[#f77904]/60 transition"
                         />
                         <span className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1.5 py-[2px] text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
@@ -236,7 +236,7 @@ export default function Sidebar() {
 
           {/* Navegação secundária */}
           <nav className="flex flex-col gap-1">
-            <NavItem to="/dashboard/perfil" icon={User} label="Perfil" />
+            <NavItem to="/perfil" icon={User} label="Perfil" />
             <NavItem
               to="/dashboard/configuracoes"
               icon={Settings}

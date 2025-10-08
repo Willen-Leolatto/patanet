@@ -1,4 +1,4 @@
-// petsStorage.js — drop-in
+// src/features/pets/services/petsStorage.js
 
 const KEY = "patanet_pets";
 
@@ -7,45 +7,109 @@ function uid() {
   return "id-" + Math.random().toString(36).slice(2, 10);
 }
 
-/* ======================= CRUD de Pets (inalterado) ======================= */
-export function loadPets() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
-  } catch {
-    return [];
+/* ------------------------ Normalização / Migração ------------------------ */
+
+function isMediaObject(m) {
+  return m && typeof m === "object" && typeof m.url === "string";
+}
+
+function normalizeMediaArray(raw) {
+  if (!raw) return [];
+  // aceita formatos: [{url,...}], ["dataurl"...], { id: {url}, ... }
+  const arr = Array.isArray(raw) ? raw : Object.values(raw || {});
+  const out = [];
+  for (const item of arr) {
+    if (isMediaObject(item)) {
+      out.push({
+        id: item.id || uid(),
+        url: item.url,
+        title: typeof item.title === "string" ? item.title : "",
+        kind: (item.kind || "image"),
+        createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+      });
+    } else if (typeof item === "string" && item) {
+      out.push({
+        id: uid(),
+        url: item,
+        title: "",
+        kind: "image",
+        createdAt: Date.now(),
+      });
+    }
   }
+  return out;
+}
+
+function normalizePet(p) {
+  const copy = { ...(p || {}) };
+
+  // Migra gallery -> media
+  if (!copy.media && copy.gallery) {
+    copy.media = normalizeMediaArray(copy.gallery);
+    delete copy.gallery;
+    copy.__migrated = true;
+  } else {
+    copy.media = normalizeMediaArray(copy.media);
+  }
+
+  // Campos padrão
+  copy.cover = typeof copy.cover === "string" ? copy.cover : (copy.avatar || "");
+  copy.ownerId = copy.ownerId ?? copy.userId ?? copy.createdBy ?? null;
+
+  return copy;
+}
+
+function saveAll(list) {
+  localStorage.setItem(KEY, JSON.stringify(list || []));
+  window.dispatchEvent(new Event("patanet:pets-updated"));
+}
+
+/* ------------------------------- API Pública ------------------------------ */
+
+export function loadPets() {
+  let list;
+  try {
+    list = JSON.parse(localStorage.getItem(KEY) || "[]");
+  } catch {
+    list = [];
+  }
+
+  let migrated = false;
+  const normalized = (Array.isArray(list) ? list : []).map((p) => {
+    const n = normalizePet(p);
+    if (n.__migrated) migrated = true;
+    delete n.__migrated;
+    return n;
+  });
+
+  if (migrated) saveAll(normalized); // persiste migração
+  return normalized;
 }
 
 export function savePets(arr) {
-  localStorage.setItem(KEY, JSON.stringify(arr));
-  window.dispatchEvent(new Event("patanet:pets-updated")); // ⬅️ importante
+  // garanta que salva já normalizado
+  const normalized = (Array.isArray(arr) ? arr : []).map((p) => {
+    const n = normalizePet(p);
+    delete n.__migrated;
+    return n;
+  });
+  saveAll(normalized);
 }
 
 export function getPet(id) {
-  return loadPets().find((p) => p.id === id) || null;
+  const p = loadPets().find((x) => x.id === id) || null;
+  return p ? normalizePet(p) : null;
 }
 
-function getLoggedUserIdOrNull() {
-  try {
-    const raw = localStorage.getItem("auth:user");
-    return raw ? JSON.parse(raw)?.id || null : null;
-  } catch {
-    return null;
-  }
-}
-
-// petsStorage.js
 export function addPet(input) {
-  const pets = loadPets();
+  const list = loadPets();
   const id = crypto?.randomUUID?.() || Date.now().toString();
   const now = Date.now();
 
-  console.log(input);
-
-  const pet = {
+  const pet = normalizePet({
     id,
     name: (input.name || "").trim() || "Sem nome",
-    species: input.species || "Cachorro",
+    species: input.species || "cão",
     breed: input.breed || "",
     gender: input.gender || "fêmea",
     size: input.size || "médio",
@@ -53,81 +117,97 @@ export function addPet(input) {
     birthday: input.birthday || "",
     adoption: input.adoption || "",
     description: input.description || "",
-    avatar: input.avatar || "", // <---
-    media: Array.isArray(input.media) ? input.media : [], // <---
+    avatar: input.avatar || "",
+    cover: input.cover || input.avatar || "",
+    media: normalizeMediaArray(input.media),
     createdAt: now,
-    ownerId: input.ownerId ?? input.userId ?? input.createdBy ?? null, 
-  };
+    ownerId: input.ownerId ?? input.userId ?? input.createdBy ?? null,
+  });
 
-  pets.push(pet);
-  localStorage.setItem(KEY, JSON.stringify(pets));
+  list.push(pet);
+  saveAll(list);
   return pet;
 }
 
 export function updatePet(id, patch) {
-  const all = loadPets();
-  const idx = all.findIndex((p) => p.id === id);
+  const list = loadPets();
+  const idx = list.findIndex((p) => p.id === id);
   if (idx === -1) return null;
-  all[idx] = { ...all[idx], ...patch };
-  savePets(all);
-  window.dispatchEvent(new Event('patanet:pets-updated'));
-  return all[idx];
+
+  // normaliza patch (especialmente media/gallery)
+  const normPatch = { ...(patch || {}) };
+  if ("gallery" in normPatch && !("media" in normPatch)) {
+    normPatch.media = normalizeMediaArray(normPatch.gallery);
+    delete normPatch.gallery;
+  }
+  if ("media" in normPatch) {
+    normPatch.media = normalizeMediaArray(normPatch.media);
+  }
+
+  const merged = normalizePet({ ...list[idx], ...normPatch });
+  delete merged.__migrated;
+
+  list[idx] = merged;
+  saveAll(list);
+  return merged;
 }
 
 export function removePet(id) {
-  const list = loadPets().filter((p) => p.id !== id);
-  savePets(list);
+  const next = loadPets().filter((p) => p.id !== id);
+  saveAll(next);
 }
+
+/* ------- Helpers legados mantidos (convertendo para media) ------- */
 export function addPetPhoto(id, { src, caption = "" }) {
-  const pet = getPet(id);
-  if (!pet) return;
-  const photo = { id: uid(), src, caption };
-  pet.gallery = pet.gallery || [];
-  pet.gallery.push(photo);
-  updatePet(id, { gallery: pet.gallery });
-  return photo;
-}
-export function removePetPhoto(id, photoId) {
-  const pet = getPet(id);
-  if (!pet) return;
-  pet.gallery = (pet.gallery || []).filter((ph) => ph.id !== photoId);
-  updatePet(id, { gallery: pet.gallery });
-}
-export function addVaccine(id, v) {
   const pet = getPet(id);
   if (!pet) return;
   const item = {
     id: uid(),
-    name: "",
-    date: "",
-    lot: "",
-    vet: "",
-    nextDose: "",
-    notes: "",
-    ...v,
+    url: src,
+    title: caption,
+    kind: "image",
+    createdAt: Date.now(),
   };
-  pet.vaccines = pet.vaccines || [];
-  pet.vaccines.push(item);
-  updatePet(id, { vaccines: pet.vaccines });
+  const media = [...(pet.media || []), item];
+  updatePet(id, { media });
+  return item;
+}
+
+export function removePetPhoto(id, photoId) {
+  const pet = getPet(id);
+  if (!pet) return;
+  const media = (pet.media || []).filter((m) => m.id !== photoId);
+  updatePet(id, { media });
+}
+
+/* Vacinas (inalterado) */
+export function addVaccine(id, v) {
+  const pet = getPet(id);
+  if (!pet) return;
+  const item = { id: uid(), ...v };
+  const vaccines = [...(pet.vaccines || []), item];
+  updatePet(id, { vaccines });
   return item;
 }
 export function updateVaccine(id, vaccineId, patch) {
   const pet = getPet(id);
   if (!pet) return;
-  pet.vaccines = (pet.vaccines || []).map((x) =>
+  const vaccines = (pet.vaccines || []).map((x) =>
     x.id === vaccineId ? { ...x, ...patch } : x
   );
-  updatePet(id, { vaccines: pet.vaccines });
+  updatePet(id, { vaccines });
 }
 export function removeVaccine(id, vaccineId) {
   const pet = getPet(id);
   if (!pet) return;
-  pet.vaccines = (pet.vaccines || []).filter((x) => x.id !== vaccineId);
-  updatePet(id, { vaccines: pet.vaccines });
+  const vaccines = (pet.vaccines || []).filter((x) => x.id !== vaccineId);
+  updatePet(id, { vaccines });
 }
+
 export function getPetById(id) {
-  return loadPets().find((p) => p.id === id) || null;
+  return getPet(id);
 }
+
 
 /* =================== Raças (dados ricos, compatíveis) =================== */
 /**

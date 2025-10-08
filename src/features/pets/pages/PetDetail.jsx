@@ -20,7 +20,6 @@ import {
   updatePet as storageUpdatePet,
 } from "@/features/pets/services/petsStorage";
 import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
-// ⬇️ pega usuário logado (ajuste o caminho se o seu hook estiver em outro local)
 import { useAuth } from "@/store/auth";
 
 /* --------------------------- EXEMPLOS (ex-1..3) --------------------------- */
@@ -115,7 +114,10 @@ export default function PetDetail() {
   const toast = useToast();
   const confirm = useConfirm();
   const askInput = usePrompt();
-  const { user, isAuthenticated } = useAuth?.() || { user: null, isAuthenticated: false };
+
+  // usuário logado
+  const authUser = useAuth((s) => s.user);
+  const isAuthenticated = !!authUser?.id;
 
   const isExample = id?.startsWith("ex-");
   const [pet, setPet] = useState(null);
@@ -126,7 +128,6 @@ export default function PetDetail() {
   // Lightbox
   const [lbOpen, setLbOpen] = useState(false);
   const [lbIndex, setLbIndex] = useState(0);
-  const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
 
   // Carregar pet
   useEffect(() => {
@@ -134,8 +135,33 @@ export default function PetDetail() {
     else {
       const data = storageGetPet?.(id);
       if (!data) return setPet(null);
-      data.media = Array.isArray(data.media) ? data.media : [];
-      setPet({ ...data });
+      const media = Array.isArray(data.media)
+        ? data.media
+        : Array.isArray(data.gallery)
+        ? data.gallery.map((g) =>
+            typeof g === "string"
+              ? {
+                  id:
+                    crypto?.randomUUID?.() ||
+                    String(Date.now() + Math.random()),
+                  url: g,
+                  title: "",
+                  kind: "image",
+                  createdAt: Date.now(),
+                }
+              : {
+                  id:
+                    g.id ||
+                    crypto?.randomUUID?.() ||
+                    String(Date.now() + Math.random()),
+                  url: g.url,
+                  title: g.title || "",
+                  kind: g.kind || "image",
+                  createdAt: g.createdAt || Date.now(),
+                }
+          )
+        : [];
+      setPet({ ...data, media });
     }
   }, [id, isExample]);
 
@@ -147,10 +173,10 @@ export default function PetDetail() {
     if (!isExample) storageUpdatePet?.(next.id, patch);
   };
 
-  // ⬇️ Só o tutor logado pode editar
+  // Tutor do pet
   const ownerId = pet?.ownerId || pet?.userId || pet?.createdBy || null;
   const canEdit =
-    !isExample && isAuthenticated && (ownerId ? user.user?.id === ownerId : true);
+    !isExample && isAuthenticated && ownerId && authUser.id === ownerId;
 
   /* --------------------------- GALERIA / LIGHTBOX -------------------------- */
   const imagesOnly = useMemo(
@@ -167,6 +193,8 @@ export default function PetDetail() {
     setLbOpen(true);
   };
 
+  const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("pt-BR") : "—");
+
   const guard = () => {
     if (!canEdit) {
       toast.error("Apenas o tutor do pet pode realizar esta ação.");
@@ -175,44 +203,58 @@ export default function PetDetail() {
     return true;
   };
 
+  // Adicionar uma ou mais imagens
   const handleAddMedia = (ev) => {
     if (!guard()) return;
-    const file = ev.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Apenas imagens por enquanto.");
-      ev.target.value = "";
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const item = {
-        id: crypto?.randomUUID?.() || String(Date.now()),
-        url: reader.result,
-        title: file.name.replace(/\.[^.]+$/, ""),
-        kind: "image",
-        createdAt: Date.now(),
-      };
-      persist({ media: [...(pet?.media || []), item] });
-      toast.success("Imagem adicionada!");
-      ev.target.value = "";
-    };
-    reader.onerror = () => toast.error("Falha ao ler a imagem.");
-    reader.readAsDataURL(file);
+    const files = Array.from(ev.target.files || []);
+    if (!files.length) return;
+
+    const readerFor = (file) =>
+      new Promise((resolve, reject) => {
+        if (!file.type.startsWith("image/")) return resolve(null);
+        const fr = new FileReader();
+        fr.onload = () =>
+          resolve({
+            id: crypto?.randomUUID?.() || String(Date.now() + Math.random()),
+            url: fr.result,
+            title: file.name.replace(/\.[^.]+$/, ""),
+            kind: "image",
+            createdAt: Date.now(),
+          });
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+
+    Promise.all(files.map(readerFor))
+      .then((items) => items.filter(Boolean))
+      .then((items) => {
+        if (!items.length) {
+          toast.error("Apenas imagens são aceitas.");
+          return;
+        }
+        persist({ media: [...(pet?.media || []), ...items] });
+        toast.success(
+          items.length > 1 ? "Imagens adicionadas!" : "Imagem adicionada!"
+        );
+        ev.target.value = "";
+      })
+      .catch(() => toast.error("Falha ao ler as imagens."));
   };
 
+  // Definir capa da GALERIA (não altera avatar)
   const handleSetCover = async (item) => {
-    if (!guard() || !item || pet?.avatar === item.url) return;
+    if (!guard() || !item || pet?.cover === item.url) return;
     const ok = await confirm({
-      title: "Definir como capa?",
-      description: "Esta imagem será usada como foto de capa do pet.",
+      title: "Definir como capa da galeria?",
+      description: "Esta imagem será usada como capa da galeria do pet.",
       confirmText: "Definir capa",
     });
     if (!ok) return;
-    persist({ avatar: item.url });
-    toast.success("Imagem definida como capa.");
+    persist({ cover: item.url });
+    toast.success("Imagem definida como capa da galeria.");
   };
 
+  // Editar título
   const handleEditTitle = async (item) => {
     if (!guard() || !item) return;
 
@@ -237,6 +279,7 @@ export default function PetDetail() {
     toast.success("Título atualizado.");
   };
 
+  // Remover imagem
   const handleDelete = async (item) => {
     if (!guard() || !item) return;
     const ok = await confirm({
@@ -249,19 +292,16 @@ export default function PetDetail() {
 
     const next = (pet?.media || []).filter((m) => m.id !== item.id);
     const patch = { media: next };
-    if (pet?.avatar === item.url) patch.avatar = "";
+    if (pet?.cover === item.url) patch.cover = "";
     persist(patch);
     toast.success("Imagem removida.");
 
-    // se o lightbox estiver aberto nessa imagem, ajusta o índice/fecha
+    // se o lightbox estiver aberto nessa imagem, ajusta índice/fecha
+    // (imagensOnly é derivado de pet, então após persist() ele muda)
     if (lbOpen) {
-      const idx = imagesOnly.findIndex((m) => m.id === item.id);
-      if (idx === lbIndex) {
-        if (next.filter((m) => (m.kind || "image") === "image").length === 0) {
-          setLbOpen(false);
-        } else {
-          setLbIndex((i) => Math.max(0, i - 1));
-        }
+      setLbIndex((i) => Math.max(0, i - 1));
+      if (next.filter((m) => (m.kind || "image") === "image").length === 0) {
+        setLbOpen(false);
       }
     }
   };
@@ -413,6 +453,7 @@ export default function PetDetail() {
                         <input
                           type="file"
                           accept="image/*"
+                          multiple
                           className="hidden"
                           onChange={handleAddMedia}
                         />
@@ -422,12 +463,12 @@ export default function PetDetail() {
 
                   {imagesOnly.length === 0 ? (
                     <div className="rounded-lg border border-black/10 dark:border-white/10 p-6 text-sm opacity-70">
-                      Nenhuma mídia ainda. {canEdit ? "Use “Adicionar mídia”." : "—"}
+                      Nenhuma mídia ainda.{" "}
+                      {canEdit ? "Use “Adicionar mídia”." : "—"}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {imagesOnly.map((m, idx) => (
-                        // ⬇️ div com role=button para não aninhar <button> dentro de <button>
                         <div
                           key={m.id}
                           role="button"
@@ -446,8 +487,8 @@ export default function PetDetail() {
                             className="aspect-[4/3] w-full object-cover"
                           />
 
-                          {/* badge de capa */}
-                          {pet.avatar === m.url && (
+                          {/* badge de capa da GALERIA */}
+                          {pet.cover === m.url && (
                             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
                               <Star className="h-3 w-3 fill-white" /> capa
                             </span>
@@ -469,13 +510,13 @@ export default function PetDetail() {
                               </span>
                               <div className="flex items-center gap-1">
                                 <button
-                                  title="Definir como capa"
+                                  title="Definir como capa da galeria"
                                   className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
                                   onClick={() => handleSetCover(m)}
                                 >
                                   <Star
                                     className={`h-4 w-4 ${
-                                      pet.avatar === m.url ? "fill-white" : ""
+                                      pet.cover === m.url ? "fill-white" : ""
                                     }`}
                                   />
                                 </button>
@@ -578,7 +619,14 @@ function StaticItem({ icon, title, showPlus = false }) {
 }
 
 /* --------- Accordion com transição suave (altura animada) --------- */
-function Accordion({ title, open, onToggle, leftIcon, rightActions, children }) {
+function Accordion({
+  title,
+  open,
+  onToggle,
+  leftIcon,
+  rightActions,
+  children,
+}) {
   const ref = useRef(null);
   const [height, setHeight] = useState(0);
 
