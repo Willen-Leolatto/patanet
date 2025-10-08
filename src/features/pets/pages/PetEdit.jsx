@@ -1,46 +1,45 @@
 // src/features/pets/pages/PetEdit.jsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
+  getPetById,
+  updatePet,
   getBreedsBySpecies,
   getBreedById,
-  getPet,
-  updatePet,
+  mediaSaveBlob,
+  mediaGetUrl,
 } from "@/features/pets/services/petsStorage";
-import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/store/auth.jsx";
 
-/* ----------------------------- estilos locais ---------------------------- */
+/* --------------------------------- estilo -------------------------------- */
 const Styles = () => (
   <style>{`
-    /* brilho bonito no pill ativo */
-    .pc-pill[data-active="true"]{
+    .pe-pill[data-active="true"]{
       box-shadow: 0 0 0 6px rgba(255,147,62,.28), 0 6px 18px rgba(255,147,62,.30);
     }
-    /* range estilizado (claro/escuro) */
-    .pc-range{ -webkit-appearance:none; width:100%; height:6px; border-radius:9999px;
+    .pe-range{ -webkit-appearance:none; width:100%; height:6px; border-radius:9999px;
       background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5)); outline:none }
-    .pc-range::-webkit-slider-thumb{ -webkit-appearance:none; height:22px; width:22px; border-radius:50%;
+    .pe-range::-webkit-slider-thumb{ -webkit-appearance:none; height:22px; width:22px; border-radius:50%;
       background:#fff; border:none; cursor:pointer;
       box-shadow:0 2px 8px rgba(0,0,0,.25), 0 0 0 3px rgba(255,147,62,.55) }
-    .dark .pc-range::-webkit-slider-thumb{ background:#0a0a0a;
+    .dark .pe-range::-webkit-slider-thumb{ background:#0a0a0a;
       box-shadow:0 2px 8px rgba(0,0,0,.45), 0 0 0 3px rgba(255,147,62,.6) }
-    .pc-range::-moz-range-track{ height:6px; background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5));
+    .pe-range::-moz-range-track{ height:6px; background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5));
       border-radius:9999px }
-    .pc-range::-moz-range-thumb{ height:22px; width:22px; border:none; border-radius:50%; background:#fff;
+    .pe-range::-moz-range-thumb{ height:22px; width:22px; border:none; border-radius:50%; background:#fff;
       box-shadow:0 2px 8px rgba(0,0,0,.25), 0 0 0 3px rgba(255,147,62,.55) }
   `}</style>
 );
 
-/* --------------------------------- UI ----------------------------------- */
+/* --------------------------------- UI ------------------------------------ */
 const Pill = ({ active, children, onClick }) => (
   <button
     type="button"
     onClick={onClick}
     data-active={active ? "true" : "false"}
     className="
-      pc-pill inline-flex items-center gap-2 rounded-full px-4 h-9 text-sm font-medium
-      transition-all duration-300
-      bg-orange-500 text-white shadow-sm hover:bg-orange-600
+      pe-pill inline-flex items-center gap-2 rounded-full px-4 h-9 text-sm font-medium
+      transition-all duration-300 bg-orange-500 text-white shadow-sm hover:bg-orange-600
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400
     "
   >
@@ -88,7 +87,6 @@ const BreedTile = ({ breed, active, onClick }) => {
           "
         />
       )}
-      {/* gradiente + rótulo */}
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
       <div className="absolute left-0 right-0 bottom-0 px-3 pb-2 flex items-end justify-between">
         <span className="text-white/95 font-semibold drop-shadow-sm">
@@ -104,60 +102,39 @@ const BreedTile = ({ breed, active, onClick }) => {
   );
 };
 
-/* --------------------------------- Page --------------------------------- */
+/* --------------------------------- Página --------------------------------- */
 export default function PetEdit() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const me = useAuth();
+  const auth = useAuth();
 
-  // carrega o pet
-  const existing = useMemo(() => getPet(id), [id]);
+  const [loading, setLoading] = useState(true);
+  const [pet, setPet] = useState(null);
 
-  // se não existir, feedback simples
-  if (!existing) {
-    return (
-      <div className="mx-auto max-w-[900px] px-4 py-12">
-        <h1 className="text-xl font-semibold">Pet não encontrado</h1>
-        <p className="opacity-70 mt-1">
-          Verifique o endereço ou volte para a lista de pets.
-        </p>
-        <div className="mt-6">
-          <button
-            onClick={() => history.back()}
-            className="rounded-lg ring-1 ring-black/10 dark:ring-white/10 px-4 py-2 hover:bg-black/5 dark:hover:bg-white/5"
-          >
-            Voltar
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // mapeia espécie armazenada => UI
-  const initialSpecies = existing.species === "Gato" ? "gato" : "cão";
-
-  // estados iguais ao PetCreate, porém preenchidos
-  const [species, setSpecies] = useState(initialSpecies); // "cão" | "gato"
-  const [sex, setSex] = useState(existing.gender || "fêmea");
-  const [size, setSize] = useState(existing.size || "médio");
-  const [name, setName] = useState(existing.name || "");
-  const [avatar, setAvatar] = useState(existing.avatar || "");
-  const [desc, setDesc] = useState(existing.description || "");
-
+  // campos editáveis
+  const [species, setSpecies] = useState("cão"); // UI label
+  const [sex, setSex] = useState("fêmea");
+  const [size, setSize] = useState("médio");
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
   const [weightUnit, setWeightUnit] = useState("kg");
-  const [weight, setWeight] = useState(
-    typeof existing.weight === "number" ? existing.weight : 22.2
-  );
-  const [birth, setBirth] = useState(existing.birthday || "");
-  const [adoption, setAdoption] = useState(existing.adoption || "");
+  const [weight, setWeight] = useState(0);
+  const [birth, setBirth] = useState("");
+  const [adoption, setAdoption] = useState("");
+  const [breed, setBreed] = useState(null);
 
-  // raça selecionada
+  // avatar/capa
+  const avatarInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [coverPreview, setCoverPreview] = useState("");
+  const [avatarId, setAvatarId] = useState("");
+  const [coverId, setCoverId] = useState("");
+  const [avatarChanged, setAvatarChanged] = useState(false);
+  const [coverChanged, setCoverChanged] = useState(false);
+
+  // raça listagem
   const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
-  const [breed, setBreed] = useState(
-    existing.breed ? { id: null, name: existing.breed, image: existing.avatar || "" } : null
-  );
-
-  // busca/fitro das raças
   const [query, setQuery] = useState("");
   const breeds = useMemo(
     () =>
@@ -167,22 +144,54 @@ export default function PetEdit() {
     [storageSpecies, query]
   );
 
-  // infos ricas da raça
-  const breedInfo = useMemo(() => {
-    if (!breed?.id) {
-      // tentativa de achar uma raça cadastrada com o mesmo nome
-      const match =
-        (getBreedsBySpecies(storageSpecies) || []).find(
-          (b) => b.name.toLowerCase() === (existing.breed || "").toLowerCase()
-        ) || null;
-      if (match) return asBreedInfo(match);
-      return null;
-    }
-    const b = getBreedById(breed.id);
-    return b ? asBreedInfo(b) : null;
-  }, [breed, storageSpecies, existing.breed]);
+  // carregar dados
+  useEffect(() => {
+    async function load() {
+      const data = getPetById(id);
+      if (!data) {
+        navigate("/pets");
+        return;
+      }
+      setPet(data);
 
-  function asBreedInfo(b) {
+      // UI base
+      setSpecies((data.species || "Cachorro").toLowerCase() === "gato" ? "gato" : "cão");
+      setSex(data.gender || "fêmea");
+      setSize(data.size || "médio");
+      setName(data.name || "");
+      setDesc(data.description || "");
+      setWeight(Number(data.weight || 0));
+      setBirth(data.birthday || "");
+      setAdoption(data.adoption || "");
+      setBreed(data.breed ? { id: data.breed, name: data.breed, image: data.cover || "" } : null);
+
+      // previews avatar/capa
+      if (data.avatarId) {
+        const url = await mediaGetUrl(data.avatarId);
+        setAvatarPreview(url);
+        setAvatarId(data.avatarId);
+      } else if (data.avatar) {
+        setAvatarPreview(data.avatar);
+      }
+
+      if (data.coverId) {
+        const url = await mediaGetUrl(data.coverId);
+        setCoverPreview(url);
+        setCoverId(data.coverId);
+      } else if (data.cover) {
+        setCoverPreview(data.cover);
+      }
+
+      setLoading(false);
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const breedInfo = useMemo(() => {
+    if (!breed) return null;
+    const b = getBreedById(breed.id);
+    if (!b) return null;
     return {
       suggestedSize: b.suggestedSize || "",
       weightRange: b.weightTip || "",
@@ -196,48 +205,87 @@ export default function PetEdit() {
       coat: b.grooming || "",
       health: b.healthNotes || "",
     };
-  }
+  }, [breed]);
 
-  // valor mostrado no “display” do slider
+  // uploads
+  const onPickAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      setAvatarPreview(URL.createObjectURL(file));
+      const id = await mediaSaveBlob(file);
+      setAvatarId(id);
+      setAvatarChanged(true);
+    } catch (err) {
+      console.error("Falha ao salvar avatar no IndexedDB", err);
+      alert("Não foi possível processar a imagem de perfil. Tente novamente.");
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const onPickCover = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      setCoverPreview(URL.createObjectURL(file));
+      const id = await mediaSaveBlob(file);
+      setCoverId(id);
+      setCoverChanged(true);
+    } catch (err) {
+      console.error("Falha ao salvar capa no IndexedDB", err);
+      alert("Não foi possível processar a imagem de capa. Tente novamente.");
+    } finally {
+      e.target.value = "";
+    }
+  };
+
   const sliderValue = useMemo(() => {
     if (weightUnit === "kg") return weight;
     return Math.round(weight * 2.20462 * 10) / 10;
   }, [weight, weightUnit]);
 
-  // upload/preview do avatar (data URL)
-  const avatarInputRef = useRef(null);
-  const onPickAvatar = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => setAvatar(String(reader.result));
-    reader.readAsDataURL(file);
-  };
-
-  // submit => update
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
+    if (!pet) return;
 
-    const payload = {
-      name,
-      species: storageSpecies, // "Cachorro" | "Gato"
+    const patch = {
+      name: (name || "").trim() || pet.name,
+      species: species === "gato" ? "Gato" : "Cachorro",
       breed: breed?.name || "",
       gender: sex,
       size,
-      weight: Number(weight),
+      weight: Number(weightUnit === "kg" ? weight : Math.round((weight / 2.20462) * 10) / 10),
       birthday: birth || "",
       adoption: adoption || "",
-      avatar: avatar || breed?.image || "",
       description: desc || "",
-      updatedAt: Date.now(),
     };
 
-    updatePet(id, payload);
-    navigate(`/pets/${id}`);
+    // avatar/capa: só envia se trocou
+    if (avatarChanged) {
+      patch.avatarId = avatarId || "";
+      patch.avatar = ""; // evita dataURLs
+    }
+    if (coverChanged) {
+      patch.coverId = coverId || "";
+      patch.cover = coverId ? "" : (breed?.image || "");
+    }
+
+    try {
+      await updatePet(pet.id, patch);
+      navigate(`/pets/${pet.id}`);
+    } catch (err) {
+      alert("Não foi possível salvar as alterações do pet.");
+      console.error(err);
+    }
   };
 
-  /* ------------------------------- RENDER -------------------------------- */
+  if (loading) {
+    return (
+      <div className="px-4 py-10 text-center opacity-70">Carregando…</div>
+    );
+  }
+
   return (
     <form onSubmit={onSubmit} className="mx-auto max-w-[1200px] px-4 py-8 space-y-8">
       <Styles />
@@ -245,32 +293,39 @@ export default function PetEdit() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Editar Pet</h1>
-          <p className="text-sm opacity-70">Atualize as informações do seu companheiro.</p>
+          <p className="text-sm opacity-70">
+            Atualize as informações do seu companheiro.
+          </p>
         </div>
       </header>
 
-      {/* Identificação */}
+      {/* Identificação + Avatar e Capa */}
       <Card className="p-4 sm:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-center gap-4">
-          <div className="flex items-center gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start gap-6">
+          {/* Avatar + Capa */}
+          <div className="flex flex-col items-center gap-6">
+            {/* Avatar */}
             <div className="relative w-24 h-24 rounded-full overflow-hidden ring-2 ring-white/10 shadow-md">
-              {avatar ? (
-                <img src={avatar} alt="avatar" className="w-full h-full object-cover" />
+              {avatarPreview ? (
+                <img
+                  src={avatarPreview}
+                  alt="avatar"
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
-                  sem foto
+                  sem avatar
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => avatarInputRef.current?.click()}
                 className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
-                title="Trocar foto"
+                title="Trocar avatar"
               >
-                trocar foto
+                trocar avatar
               </button>
             </div>
-
             <input
               ref={avatarInputRef}
               type="file"
@@ -278,8 +333,39 @@ export default function PetEdit() {
               className="hidden"
               onChange={onPickAvatar}
             />
+
+            {/* Capa */}
+            <div className="relative w-44 h-28 rounded-xl overflow-hidden ring-2 ring-white/10 shadow-md">
+              {coverPreview ? (
+                <img
+                  src={coverPreview}
+                  alt="capa"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem capa
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar capa"
+              >
+                trocar capa
+              </button>
+            </div>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPickCover}
+            />
           </div>
 
+          {/* Infos do Pet */}
           <div className="space-y-2">
             <label className="text-xs font-medium opacity-70">Nome do pet</label>
             <input
@@ -323,7 +409,6 @@ export default function PetEdit() {
         <Card className="p-4 sm:p-6 lg:col-span-2">
           <div className="mb-4">
             <h3 className="font-semibold">Raça</h3>
-            {/* BUSCAR RAÇA — igual ao create */}
             <div className="mt-3">
               <label className="text-xs font-medium opacity-70">Buscar raça</label>
               <input
@@ -340,10 +425,7 @@ export default function PetEdit() {
               <BreedTile
                 key={b.id}
                 breed={b}
-                active={
-                  (breed?.id && breed.id === b.id) ||
-                  (!breed?.id && b.name.toLowerCase() === (existing.breed || "").toLowerCase())
-                }
+                active={breed?.id === b.id || breed?.name === b.name}
                 onClick={() => setBreed(b)}
               />
             ))}
@@ -394,7 +476,7 @@ export default function PetEdit() {
         </Card>
       </div>
 
-      {/* Medidas & datas + Sugestões */}
+      {/* Medidas & datas */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="p-4 sm:p-6 lg:col-span-2">
           <h3 className="font-semibold mb-4">Medidas & datas</h3>
@@ -431,7 +513,9 @@ export default function PetEdit() {
 
             <div className="mt-3 rounded-xl p-4 bg-black/5 dark:bg-white/5">
               <div className="text-4xl font-semibold">
-                {sliderValue}
+                {weightUnit === "kg"
+                  ? weight
+                  : Math.round(weight * 2.20462 * 10) / 10}
                 <span className="text-lg font-normal opacity-70 ml-1">
                   {weightUnit}
                 </span>
@@ -448,7 +532,7 @@ export default function PetEdit() {
                   if (weightUnit === "kg") setWeight(v);
                   else setWeight(Math.round((v / 2.20462) * 10) / 10);
                 }}
-                className="pc-range mt-3 w-full"
+                className="pe-range mt-3 w-full"
               />
             </div>
           </div>
@@ -456,7 +540,9 @@ export default function PetEdit() {
           {/* Datas */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-medium opacity-70">Data de nascimento</label>
+              <label className="text-xs font-medium opacity-70">
+                Data de nascimento
+              </label>
               <input
                 type="date"
                 value={birth}
@@ -465,7 +551,9 @@ export default function PetEdit() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium opacity-70">Data de adoção</label>
+              <label className="text-xs font-medium opacity-70">
+                Data de adoção
+              </label>
               <input
                 type="date"
                 value={adoption}
@@ -476,7 +564,7 @@ export default function PetEdit() {
           </div>
         </Card>
 
-        {/* Sugestões da raça */}
+        {/* Sugestões */}
         <Card className="p-4 sm:p-6">
           <h3 className="font-semibold mb-3">Sugestões da raça</h3>
           {breedInfo ? (
@@ -504,7 +592,7 @@ export default function PetEdit() {
         </Card>
       </div>
 
-      {/* Sobre o pet — largura total */}
+      {/* Sobre o pet */}
       <Card className="p-4 sm:p-6">
         <h3 className="font-semibold mb-3">Sobre o pet</h3>
         <textarea
@@ -519,7 +607,7 @@ export default function PetEdit() {
       <div className="flex items-center justify-end gap-3">
         <button
           type="button"
-          onClick={() => history.back()}
+          onClick={() => navigate(-1)}
           className="h-10 px-4 rounded-lg ring-1 ring-black/10 dark:ring-white/10 hover:bg-black/5 dark:hover:bg-white/5"
         >
           Cancelar
@@ -528,7 +616,7 @@ export default function PetEdit() {
           type="submit"
           className="h-10 px-5 rounded-lg bg-orange-500 text-white shadow hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
         >
-          Salvar alterações
+          Salvar
         </button>
       </div>
     </form>

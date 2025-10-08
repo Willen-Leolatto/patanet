@@ -1,6 +1,12 @@
 // src/features/pets/services/petsStorage.js
 
+/* ======================================================================== *
+ *  STORAGE: PETS (localStorage) + MÍDIAS (IndexedDB)
+ * ======================================================================== */
+
 const KEY = "patanet_pets";
+
+/* --------------------------------- utils --------------------------------- */
 
 function uid() {
   if (crypto?.randomUUID) return crypto.randomUUID();
@@ -10,22 +16,22 @@ function uid() {
 /* ------------------------ Normalização / Migração ------------------------ */
 
 function isMediaObject(m) {
-  return m && typeof m === "object" && typeof m.url === "string";
+  return m && typeof m === "object" && (typeof m.url === "string" || m.storage === "idb");
 }
 
 function normalizeMediaArray(raw) {
   if (!raw) return [];
-  // aceita formatos: [{url,...}], ["dataurl"...], { id: {url}, ... }
   const arr = Array.isArray(raw) ? raw : Object.values(raw || {});
   const out = [];
   for (const item of arr) {
     if (isMediaObject(item)) {
       out.push({
         id: item.id || uid(),
-        url: item.url,
+        url: typeof item.url === "string" ? item.url : "",
         title: typeof item.title === "string" ? item.title : "",
-        kind: (item.kind || "image"),
+        kind: item.kind || "image",
         createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+        storage: item.storage === "idb" ? "idb" : undefined,
       });
     } else if (typeof item === "string" && item) {
       out.push({
@@ -43,7 +49,7 @@ function normalizeMediaArray(raw) {
 function normalizePet(p) {
   const copy = { ...(p || {}) };
 
-  // Migra gallery -> media
+  // Migração legacy: gallery -> media
   if (!copy.media && copy.gallery) {
     copy.media = normalizeMediaArray(copy.gallery);
     delete copy.gallery;
@@ -52,16 +58,29 @@ function normalizePet(p) {
     copy.media = normalizeMediaArray(copy.media);
   }
 
-  // Campos padrão
-  copy.cover = typeof copy.cover === "string" ? copy.cover : (copy.avatar || "");
+  // Campos padrão (sempre strings)
+  copy.avatar = typeof copy.avatar === "string" ? copy.avatar : "";
+  copy.cover = typeof copy.cover === "string" ? copy.cover : "";
+
+  // IDs de blobs no IndexedDB (novos)
+  copy.avatarId = typeof copy.avatarId === "string" ? copy.avatarId : "";
+  copy.coverId = typeof copy.coverId === "string" ? copy.coverId : "";
+
+  // Owner
   copy.ownerId = copy.ownerId ?? copy.userId ?? copy.createdBy ?? null;
 
   return copy;
 }
 
 function saveAll(list) {
-  localStorage.setItem(KEY, JSON.stringify(list || []));
-  window.dispatchEvent(new Event("patanet:pets-updated"));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(list || []));
+    window.dispatchEvent(new Event("patanet:pets-updated"));
+  } catch (err) {
+    const e = new Error("LOCAL_STORAGE_QUOTA_EXCEEDED");
+    e.cause = err;
+    throw e;
+  }
 }
 
 /* ------------------------------- API Pública ------------------------------ */
@@ -82,12 +101,11 @@ export function loadPets() {
     return n;
   });
 
-  if (migrated) saveAll(normalized); // persiste migração
+  if (migrated) saveAll(normalized);
   return normalized;
 }
 
 export function savePets(arr) {
-  // garanta que salva já normalizado
   const normalized = (Array.isArray(arr) ? arr : []).map((p) => {
     const n = normalizePet(p);
     delete n.__migrated;
@@ -117,8 +135,13 @@ export function addPet(input) {
     birthday: input.birthday || "",
     adoption: input.adoption || "",
     description: input.description || "",
+
+    // Avatar e Capa
     avatar: input.avatar || "",
+    avatarId: input.avatarId || "",
     cover: input.cover || input.avatar || "",
+    coverId: input.coverId || "",
+
     media: normalizeMediaArray(input.media),
     createdAt: now,
     ownerId: input.ownerId ?? input.userId ?? input.createdBy ?? null,
@@ -134,14 +157,23 @@ export function updatePet(id, patch) {
   const idx = list.findIndex((p) => p.id === id);
   if (idx === -1) return null;
 
-  // normaliza patch (especialmente media/gallery)
   const normPatch = { ...(patch || {}) };
+
+  // normaliza media/gallery
   if ("gallery" in normPatch && !("media" in normPatch)) {
     normPatch.media = normalizeMediaArray(normPatch.gallery);
     delete normPatch.gallery;
   }
   if ("media" in normPatch) {
     normPatch.media = normalizeMediaArray(normPatch.media);
+  }
+
+  // normaliza strings/ids
+  for (const k of ["avatar", "cover"]) {
+    if (k in normPatch && typeof normPatch[k] !== "string") normPatch[k] = "";
+  }
+  for (const k of ["avatarId", "coverId"]) {
+    if (k in normPatch && typeof normPatch[k] !== "string") normPatch[k] = "";
   }
 
   const merged = normalizePet({ ...list[idx], ...normPatch });
@@ -157,7 +189,7 @@ export function removePet(id) {
   saveAll(next);
 }
 
-/* ------- Helpers legados mantidos (convertendo para media) ------- */
+/* ------- Helpers legados (convertendo para media) ------- */
 export function addPetPhoto(id, { src, caption = "" }) {
   const pet = getPet(id);
   if (!pet) return;
@@ -177,10 +209,13 @@ export function removePetPhoto(id, photoId) {
   const pet = getPet(id);
   if (!pet) return;
   const media = (pet.media || []).filter((m) => m.id !== photoId);
-  updatePet(id, { media });
+  const patch = { media };
+  // se a capa atual é a foto removida, limpa somente a capa
+  if (pet.coverId === photoId) patch.coverId = "";
+  updatePet(id, patch);
 }
 
-/* Vacinas (inalterado) */
+/* ------------------------------- Vacinas ---------------------------------- */
 export function addVaccine(id, v) {
   const pet = getPet(id);
   if (!pet) return;
@@ -203,11 +238,103 @@ export function removeVaccine(id, vaccineId) {
   const vaccines = (pet.vaccines || []).filter((x) => x.id !== vaccineId);
   updatePet(id, { vaccines });
 }
-
 export function getPetById(id) {
   return getPet(id);
 }
 
+/* ======================================================================== *
+ *  MÍDIAS: IndexedDB
+ * ======================================================================== */
+
+const IDB_DB = "patanet_media";
+const IDB_STORE = "blobs";
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("IDB_OPEN_FAILED"));
+  });
+}
+
+function idbTxn(db, mode) {
+  return db.transaction(IDB_STORE, mode).objectStore(IDB_STORE);
+}
+
+/** Salva um Blob no IndexedDB. Retorna o id salvo. */
+export async function mediaSaveBlob(blob, id = uid(), meta = {}) {
+  const db = await idbOpen();
+  await new Promise((resolve, reject) => {
+    const store = idbTxn(db, "readwrite");
+    const req = store.put({
+      id,
+      blob,
+      createdAt: Date.now(),
+      type: blob?.type || "application/octet-stream",
+      ...meta,
+    });
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error || new Error("IDB_PUT_FAILED"));
+  });
+  db.close?.();
+  return id;
+}
+
+/** Obtém um blob pelo id e retorna um ObjectURL (blob:) para usar em <img src> */
+export async function mediaGetUrl(id) {
+  if (!id) return "";
+  const db = await idbOpen();
+  const record = await new Promise((resolve, reject) => {
+    const store = idbTxn(db, "readonly");
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("IDB_GET_FAILED"));
+  });
+  db.close?.();
+  if (!record?.blob) return "";
+  return URL.createObjectURL(record.blob);
+}
+
+/** Remove um blob do IndexedDB */
+export async function mediaDelete(id) {
+  if (!id) return true;
+  const db = await idbOpen();
+  await new Promise((resolve, reject) => {
+    const store = idbTxn(db, "readwrite");
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error || new Error("IDB_DELETE_FAILED"));
+  });
+  db.close?.();
+  return true;
+}
+
+/* =================== Raças (dados ricos, compatíveis) =================== */
+// ... (BREEDS e utilitários abaixo permanecem exatamente como já estavam)
+
+export function getBreedsBySpecies(species = "Cachorro") {
+  return BREEDS[species] || [];
+}
+export function searchBreeds(query, species) {
+  const q = String(query || "").toLowerCase();
+  const base = species
+    ? getBreedsBySpecies(species)
+    : [...(BREEDS.Cachorro || []), ...(BREEDS.Gato || [])];
+  return base.filter((b) => b.name.toLowerCase().includes(q));
+}
+export function getBreedById(id) {
+  return (
+    (BREEDS.Cachorro || []).find((b) => b.id === id) ||
+    (BREEDS.Gato || []).find((b) => b.id === id) ||
+    null
+  );
+}
 
 /* =================== Raças (dados ricos, compatíveis) =================== */
 /**
@@ -709,22 +836,3 @@ export const BREEDS = {
     },
   ],
 };
-
-/* ====== Acesso auxiliar ====== */
-export function getBreedsBySpecies(species = "Cachorro") {
-  return BREEDS[species] || [];
-}
-export function searchBreeds(query, species) {
-  const q = String(query || "").toLowerCase();
-  const base = species
-    ? getBreedsBySpecies(species)
-    : [...BREEDS.Cachorro, ...BREEDS.Gato];
-  return base.filter((b) => b.name.toLowerCase().includes(q));
-}
-export function getBreedById(id) {
-  return (
-    BREEDS.Cachorro.find((b) => b.id === id) ||
-    BREEDS.Gato.find((b) => b.id === id) ||
-    null
-  );
-}

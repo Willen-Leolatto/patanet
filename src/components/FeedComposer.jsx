@@ -1,166 +1,241 @@
 // src/components/FeedComposer.jsx
-import React, { useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ImagePlus, PawPrint } from "lucide-react";
 import { addPost } from "@/features/feed/services/feedStorage";
-import IconButton from "@/components/ui/IconButton";
-import { ImagePlus, SendHorizontal } from "lucide-react";
-
-/* helpers */
-function readAsDataURL(file) {
-  return new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(fr.result);
-    fr.onerror = rej;
-    fr.readAsDataURL(file);
-  });
-}
-
-async function compressImage(file, maxSide = 1280, quality = 0.78) {
-  const dataUrl = await readAsDataURL(file);
-  const img = new Image();
-  await new Promise((r, e) => {
-    img.onload = r;
-    img.onerror = e;
-    img.src = dataUrl;
-  });
-  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", quality);
-}
+import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
 
 export default function FeedComposer({ user }) {
   const [text, setText] = useState("");
-  const [images, setImages] = useState([]); // [{ preview, dataUrl }]
-  const [busy, setBusy] = useState(false);
-  const pickerRef = useRef(null);
+  const [images, setImages] = useState([]); // dataURLs
+  const [taggedPets, setTaggedPets] = useState([]); // ids de pets marcados
 
-  async function onChooseFiles(e) {
+  // todos os ids possíveis do usuário (cobre contas antigas)
+  const myIds = useMemo(
+    () =>
+      [user?.id, user?.uid, user?.email, user?.username]
+        .filter(Boolean)
+        .map(String),
+    [user]
+  );
+
+  const [allPets, setAllPets] = useState([]);
+  const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { name, avatarUrl } }
+
+  // Carrega pets e revalida quando atualizar no sistema
+  useEffect(() => {
+    const refresh = () => setAllPets(loadPets() || []);
+    refresh();
+    window.addEventListener("patanet:pets-updated", refresh);
+    return () => window.removeEventListener("patanet:pets-updated", refresh);
+  }, []);
+
+  // Filtra apenas os pets do usuário logado (compatível com registros antigos)
+  const myPets = useMemo(() => {
+    if (!myIds.length) return [];
+    return (allPets || []).filter((p) => {
+      const owner = p.ownerId || p.userId || p.createdBy;
+      return owner && myIds.includes(String(owner));
+    });
+  }, [allPets, myIds]);
+
+  // Resolve avatar do pet (avatarId -> blob) com fallback para cover
+  useEffect(() => {
+    let cancelled = false;
+    async function resolve() {
+      const pairs = await Promise.all(
+        myPets.map(async (p) => {
+          let avatarUrl = p.avatar || "";
+          if (!avatarUrl && p.avatarId) {
+            try {
+              avatarUrl = await mediaGetUrl(p.avatarId);
+            } catch {
+              avatarUrl = "";
+            }
+          }
+          if (!avatarUrl) {
+            let coverUrl = p.cover || "";
+            if (!coverUrl && p.coverId) {
+              try {
+                coverUrl = await mediaGetUrl(p.coverId);
+              } catch {
+                coverUrl = "";
+              }
+            }
+            avatarUrl = coverUrl || "";
+          }
+          return [p.id, { name: p.name || "Pet", avatarUrl }];
+        })
+      );
+      if (!cancelled) {
+        const map = {};
+        for (const [id, meta] of pairs) map[id] = meta;
+        setPetThumbs(map);
+      }
+    }
+    resolve();
+    return () => {
+      cancelled = true;
+      Object.values(petThumbs).forEach(({ avatarUrl }) => {
+        if (avatarUrl && avatarUrl.startsWith?.("blob:")) {
+          try {
+            URL.revokeObjectURL(avatarUrl);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myPets.length]);
+
+  function onPickFiles(e) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    setBusy(true);
-    try {
-      const results = [];
-      for (const f of files.slice(0, 10)) {
-        if (!f.type?.startsWith("image/")) continue;
-        const dataUrl = await compressImage(f);
-        results.push({ preview: URL.createObjectURL(f), dataUrl });
-      }
-      setImages((prev) => [...prev, ...results]);
-    } finally {
-      setBusy(false);
-      if (pickerRef.current) pickerRef.current.value = "";
-    }
+    Promise.all(
+      files.map(
+        (f) =>
+          new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => res(fr.result);
+            fr.onerror = rej;
+            fr.readAsDataURL(f);
+          })
+      )
+    )
+      .then((arr) => setImages((g) => [...g, ...arr]))
+      .catch(() => {});
   }
 
-  function removeImage(i) {
-    setImages((prev) => {
-      const next = [...prev];
-      if (next[i]?.preview) URL.revokeObjectURL(next[i].preview);
-      next.splice(i, 1);
-      return next;
-    });
+  function togglePet(pid) {
+    setTaggedPets((list) =>
+      list.includes(pid) ? list.filter((x) => x !== pid) : [...list, pid]
+    );
   }
 
-  async function publish() {
-    const t = (text || "").trim();
-    const imgs = images.map((i) => i.dataUrl).filter(Boolean);
+  function canPost() {
+    return user && (text.trim().length > 0 || images.length > 0);
+  }
 
-    // exige estar logado e ter conteúdo (texto ou imagem)
-    if (!user || !user.id || (!t && imgs.length === 0)) return;
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!canPost()) return;
 
-    setBusy(true);
-    try {
-      const author = {
-        id: user.id,
-        username: user.username,
-        name: user.name,
-        email: user.email,
-        avatar: user.image,
-      };
+    const author = {
+      id: user.id || user.uid || user.email || user.username,
+      username: user.username || "",
+      name: user.name || "",
+      email: user.email || "",
+      avatar: user.image || user.avatar || user.photoURL || "",
+    };
 
-      // API nova: addPost(author, text, images[])
-      await addPost(author, t, imgs);
-
-      // limpar campos/URLs de preview
-      setText("");
-      images.forEach((i) => i.preview && URL.revokeObjectURL(i.preview));
-      setImages([]);
-    } catch (e) {
-      console.error(e);
-      alert("Não foi possível publicar. Tente com menos imagens.");
-    } finally {
-      setBusy(false);
-    }
+    addPost(author, text, images, taggedPets);
+    setText("");
+    setImages([]);
+    setTaggedPets([]);
   }
 
   return (
-    <div className="card rounded-xl p-4">
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+    >
       <textarea
+        className="w-full resize-none rounded-lg border border-zinc-300 bg-white/80 p-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
+        rows={3}
+        placeholder="Compartilhe algo com a comunidade…"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Escreva algo sobre seu pet..."
-        maxLength={1000}
-        className="w-full resize-y rounded-md border border-slate-300 bg-white/90 px-3 py-2 text-sm outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-slate-900/70 dark:focus:border-slate-500"
-        rows={3}
       />
-      <div className="mt-2 flex items-center justify-between text-xs opacity-70">
-        <span>{text.length}/1000</span>
-        <span>Cadastre pets no Dashboard para marcá-los aqui.</span>
-      </div>
 
-      {images.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {images.map((img, i) => (
-            <div
-              key={i}
-              className="relative h-24 w-24 overflow-hidden rounded-md border border-slate-200 dark:border-slate-700"
-            >
-              <img src={img.preview || null} alt="" className="h-full w-full object-cover" />
-              <button
-                type="button"
-                onClick={() => removeImage(i)}
-                className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white"
-                title="Remover"
-              >
-                ×
-              </button>
+      {/* Galeria prévia */}
+      {!!images.length && (
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+          {images.map((src, i) => (
+            <div key={i} className="overflow-hidden rounded-xl">
+              <img
+                src={src || null}
+                alt=""
+                className="aspect-video w-full object-cover"
+              />
             </div>
           ))}
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-2">
-        {/* input escondido */}
-        <input
-          ref={pickerRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={onChooseFiles}
-        />
-        {/* botão com ícone que abre o seletor */}
-        <IconButton
-          icon={ImagePlus}
-          label="Adicionar mídia"
-          variant="ghost"
-          onClick={() => pickerRef.current?.click()}
-        />
+      {/* Seleção de pets (aparece se o usuário tem pets) */}
+      {myPets.length > 0 ? (
+        <div className="mt-3">
+          <div className="mb-1 inline-flex items-center gap-2 text-xs font-medium opacity-80">
+            <PawPrint className="h-4 w-4" />
+            Marcar pets (opcional)
+          </div>
+          <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
+            {myPets.map((p) => {
+              const active = taggedPets.includes(p.id);
+              const src = petThumbs[p.id]?.avatarUrl || undefined;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => togglePet(p.id)}
+                  title={petThumbs[p.id]?.name || p.name || "Pet"}
+                  className={`group inline-flex items-center gap-2 rounded-full px-2 py-1 ring-1 text-xs transition ${
+                    active
+                      ? "bg-[#f77904] text-white ring-[#f77904]"
+                      : "bg-zinc-50 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-800 dark:ring-zinc-700"
+                  }`}
+                >
+                  <PetChipAvatar src={src} />
+                  <span className="pr-1">{p.name || "Pet"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        // não bloqueia o post — só informa
+        <div className="mt-3 rounded-lg border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700">
+          Você ainda não marcou pets neste dispositivo. Cadastre seus pets em{" "}
+          <span className="font-medium">Meus Pets</span> para poder marcá-los
+          nas postagens (opcional).
+        </div>
+      )}
 
-        <IconButton
-          icon={SendHorizontal}
-          label="Publicar"
-          variant="primary"
-          onClick={publish}
-          disabled={busy || (!text.trim() && images.length === 0) || !user?.id}
-          className="ml-auto"
-        />
+      {/* Ações */}
+      <div className="mt-3 flex items-center justify-between">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800">
+          <ImagePlus className="h-4 w-4" />
+          Adicionar mídia
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={onPickFiles}
+            className="hidden"
+          />
+        </label>
+
+        <button
+          type="submit"
+          disabled={!canPost()}
+          className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+        >
+          Publicar
+        </button>
       </div>
-    </div>
+    </form>
+  );
+}
+
+function PetChipAvatar({ src }) {
+  if (!src) {
+    return (
+      <span className="inline-block h-6 w-6 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+    );
+  }
+  return (
+    <img
+      src={src || undefined}
+      alt=""
+      className="h-6 w-6 rounded-full object-cover ring-1 ring-white dark:ring-zinc-900"
+    />
   );
 }

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/store/auth";
 import { useTheme } from "@/store/theme";
 import { Sun, Moon } from "lucide-react";
+import { upsertUser } from "@/features/users/services/userStorage";
 import dogImg from "@/assets/dog.png";
 
 export default function Login() {
@@ -84,6 +85,35 @@ export default function Login() {
     }
   }
 
+  function deriveUsernameFallback(rawUsername, rawEmail) {
+    const u = (rawUsername || "").trim();
+    if (u) return u;
+    const em = (rawEmail || "").trim();
+    if (em.includes("@")) return em.split("@")[0];
+    return "";
+  }
+
+  function toCatalogUser(raw, base) {
+    const id =
+      raw?.id ||
+      raw?.uid ||
+      raw?.email ||
+      raw?.username ||
+      base?.email ||
+      base?.username ||
+      null;
+
+    return {
+      id,
+      name: raw?.name ?? base?.name ?? "",
+      username:
+        raw?.username ?? deriveUsernameFallback(base?.username, base?.email),
+      email: (raw?.email ?? base?.email ?? "").toLowerCase(),
+      image: raw?.image ?? raw?.avatar ?? base?.image ?? "",
+      createdAt: raw?.createdAt ?? Date.now(),
+    };
+  }
+
   async function onSubmit(e) {
     const fileInput = e.currentTarget?.imageFile;
     const pickedFile = fileInput?.files?.[0] || null;
@@ -99,7 +129,7 @@ export default function Login() {
         image: imageDataURL || image || "", // prioriza o arquivo escolhido no form
       };
 
-      let user;
+      let sessionUser;
 
       if (mode === "signup") {
         if (
@@ -111,7 +141,8 @@ export default function Login() {
           setError("Preencha nome, email/usuário, senha e aceite os termos.");
           return;
         }
-        user = await register(basePayload); // zustand -> authStorage
+        // o register deve persistir e retornar o usuário de sessão
+        sessionUser = await register(basePayload);
       } else {
         if (
           !(basePayload.email || basePayload.username) ||
@@ -121,10 +152,18 @@ export default function Login() {
           return;
         }
         const loginField = basePayload.email || basePayload.username;
-        user = await login({
+        sessionUser = await login({
           login: loginField,
           password: basePayload.password,
         });
+      }
+
+      // --- NOVO: garantir usuário no catálogo userStorage ---
+      try {
+        const userCatalog = toCatalogUser(sessionUser, basePayload);
+        if (userCatalog?.id) upsertUser(userCatalog);
+      } catch {
+        // não bloqueia o login caso falhe
       }
 
       navigate("/feed", { replace: true });
@@ -209,6 +248,7 @@ export default function Login() {
                           accept="image/*"
                           className="hidden"
                           onChange={onPickAvatar}
+                          name="imageFile"
                         />
                         <svg width="16" height="16" viewBox="0 0 24 24">
                           <path

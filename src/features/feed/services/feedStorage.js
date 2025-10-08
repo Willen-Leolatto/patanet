@@ -1,10 +1,10 @@
 // src/features/feed/services/feedStorage.js
 
-/* =========================================================
- *  feedStorage v3 — posts com múltiplas mídias, stats e comentários
- * ========================================================= */
-
 const STORAGE_KEY = "patanet_feed_v3";
+
+import {
+  mediaSaveBlob,
+} from "@/features/pets/services/petsStorage";
 
 /* ------------------ Utils base ------------------ */
 function safeParse(json, fallback) {
@@ -21,9 +21,22 @@ function loadAllRaw() {
 }
 
 function saveAllRaw(list) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list || []));
-  // Notifica a UI (Feed usa este evento para atualizar)
-  window.dispatchEvent(new Event("patanet:feed-updated"));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list || []));
+  } catch (err) {
+    // Evita crash por quota — mantém último estado válido
+    console.warn("feedStorage saveAllRaw failed:", err?.name || err);
+    // estratégia leve: se estourar, tenta remover posts muito antigos sem mídia grande
+    try {
+      const trimmed = (Array.isArray(list) ? list : []).slice(-200); // mantém os 200 mais recentes
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    } catch (e2) {
+      // se ainda estourar, não faz nada além de logar
+      console.warn("feedStorage emergency trim failed:", e2?.name || e2);
+    }
+  } finally {
+    window.dispatchEvent(new Event("patanet:feed-updated"));
+  }
 }
 
 function genId() {
@@ -44,7 +57,6 @@ function normAuthor(a) {
     avatar: a.avatar ?? a.image ?? "",
   };
 }
-
 function normLikeUser(u) {
   if (!u || typeof u !== "object") u = {};
   return {
@@ -53,19 +65,6 @@ function normLikeUser(u) {
     name: u.name ?? "",
     email: (u.email || "").toLowerCase(),
     avatar: u.avatar ?? u.image ?? "",
-  };
-}
-
-function normComment(c) {
-  if (!c || typeof c !== "object") c = {};
-  // Apenas 1 nível de replies (filhas)
-  return {
-    id: c.id ?? genId(),
-    text: typeof c.text === "string" ? c.text : "",
-    createdAt: typeof c.createdAt === "number" ? c.createdAt : Date.now(),
-    updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : c.createdAt ?? Date.now(),
-    author: normAuthor(c.author),
-    replies: (c.replies ? toArray(c.replies) : []).map(normReply),
   };
 }
 function normReply(r) {
@@ -78,43 +77,105 @@ function normReply(r) {
     author: normAuthor(r.author),
   };
 }
+function normComment(c) {
+  if (!c || typeof c !== "object") c = {};
+  return {
+    id: c.id ?? genId(),
+    text: typeof c.text === "string" ? c.text : "",
+    createdAt: typeof c.createdAt === "number" ? c.createdAt : Date.now(),
+    updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : c.createdAt ?? Date.now(),
+    author: normAuthor(c.author),
+    replies: (c.replies ? toArray(c.replies) : []).map(normReply),
+  };
+}
+
+// imagens no feed agora são objetos compactos
+// { id: string, storage: 'idb', kind: 'image' }
+function normImageEntry(it) {
+  if (!it) return null;
+  if (typeof it === "string") {
+    // strings antigas (http/dataURL) não persistimos mais como string para não estourar quota.
+    // Elas devem ser convertidas na criação/atualização via saveImagesToIDB.
+    return { id: it, storage: "legacy", kind: "image" };
+  }
+  if (typeof it === "object") {
+    return {
+      id: String(it.id || it.url || genId()),
+      storage: it.storage === "idb" ? "idb" : (it.storage || "legacy"),
+      kind: it.kind || "image",
+    };
+  }
+  return null;
+}
 
 function normPost(p) {
   if (!p || typeof p !== "object") p = {};
-  const hasImagesArray = Array.isArray(p.images);
-  const hasImageString = typeof p.image === "string" && p.image.length > 0;
+  const images = Array.isArray(p.images) ? p.images.map(normImageEntry).filter(Boolean) : [];
 
   return {
     id: p.id ?? genId(),
     text: typeof p.text === "string" ? p.text : "",
-    // suporte a legado: image (string) vira images [string]
-    images: hasImagesArray ? p.images.slice(0) : hasImageString ? [p.image] : [],
+    images,
     createdAt: typeof p.createdAt === "number" ? p.createdAt : Date.now(),
     updatedAt: typeof p.updatedAt === "number" ? p.updatedAt : p.createdAt ?? Date.now(),
     author: normAuthor(p.author),
     likes: toArray(p.likes).map(normLikeUser),
     comments: (p.comments ? toArray(p.comments) : []).map(normComment),
+    taggedPets: Array.isArray(p.taggedPets)
+      ? p.taggedPets.map((v) => String(v))
+      : [],
   };
+}
+
+/* ------------------ Helpers de imagem ------------------ */
+async function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  if (!dataUrl.startsWith("data:")) return null;
+  const res = await fetch(dataUrl);
+  return await res.blob();
+}
+
+/**
+ * Recebe uma lista de entradas (strings DataURL/URL, ou objetos) e
+ * retorna uma lista compacta [{id, storage:'idb', kind:'image'}], salvando blobs no IDB.
+ */
+async function saveImagesToIDB(inputs) {
+  const out = [];
+  for (const it of inputs || []) {
+    if (!it) continue;
+
+    if (typeof it === "string") {
+      if (it.startsWith("data:")) {
+        const blob = await dataUrlToBlob(it);
+        if (blob) {
+          const id = await mediaSaveBlob(blob);
+          if (id) out.push({ id, storage: "idb", kind: "image" });
+        }
+      } else {
+        // URL http(s): opcionalmente poderíamos baixar e converter, mas para não estourar quota,
+        // apenas descartar strings longas/externas. Se necessário, pode ser salvo como 'legacy'.
+        out.push({ id: it, storage: "legacy", kind: "image" });
+      }
+    } else if (typeof it === "object") {
+      // já veio normalizado?
+      if (it.storage === "idb" && it.id) out.push({ id: String(it.id), storage: "idb", kind: it.kind || "image" });
+      else if (it.url && typeof it.url === "string") out.push({ id: it.url, storage: "legacy", kind: it.kind || "image" });
+    }
+  }
+  return out;
 }
 
 /* ------------------ Carga/Migração leve ------------------ */
 function loadAll() {
-  // A partir do v3, garantimos shape único ao listar/salvar
   const arr = loadAllRaw();
   return (Array.isArray(arr) ? arr : []).map(normPost);
 }
-
 function saveAll(posts) {
-  // Salva já normalizado
   const normalized = (Array.isArray(posts) ? posts : []).map(normPost);
   saveAllRaw(normalized);
 }
 
 /* ------------------ API Pública ------------------ */
-
-/**
- * Lista todos os posts (normalizados e ordenados desc por createdAt).
- */
 export function listPosts() {
   const list = loadAll();
   return list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -124,26 +185,29 @@ export function listPosts() {
  * Cria um novo post.
  * @param {object} author { id, username, name, email, avatar }
  * @param {string} text
- * @param {string|string[]} images  (opcional) — aceita DataURL única ou array
+ * @param {Array<string|object>} images  — DataURLs/URLs/objetos
+ * @param {string[]} taggedPets
  */
-export function addPost(author, text, images = []) {
+export async function addPost(author, text, images = [], taggedPets = []) {
   const t = typeof text === "string" ? text.trim() : "";
   if (!author || !author.id || !t) return null;
 
-  let imgs = images;
-  if (typeof images === "string") imgs = images ? [images] : [];
-  if (!Array.isArray(imgs)) imgs = [];
+  const compactImages = await saveImagesToIDB(Array.isArray(images) ? images : [images]);
+
+  const tags =
+    Array.isArray(taggedPets) ? taggedPets.map((v) => String(v)) : [];
 
   const all = loadAll();
   const post = {
     id: genId(),
     text: t,
-    images: imgs.filter((s) => typeof s === "string" && s.length > 0),
+    images: compactImages, // agora só refs compactas
     createdAt: Date.now(),
     updatedAt: Date.now(),
     author: normAuthor(author),
     likes: [],
     comments: [],
+    taggedPets: tags,
   };
 
   all.push(post);
@@ -152,11 +216,11 @@ export function addPost(author, text, images = []) {
 }
 
 /**
- * Atualiza um post (texto/mídias/updatedAt).
+ * Atualiza um post.
  * @param {string} id
- * @param {{ text?: string, images?: string[]|string, updatedAt?: number }} patch
+ * @param {{ text?: string, images?: Array<string|object>|string, taggedPets?: string[]|null, updatedAt?: number }} patch
  */
-export function updatePost(id, patch = {}) {
+export async function updatePost(id, patch = {}) {
   if (!id) return;
 
   const all = loadAll();
@@ -169,21 +233,25 @@ export function updatePost(id, patch = {}) {
   if (typeof patch.text === "string") {
     next.text = patch.text;
   }
-  if (typeof patch.images === "string") {
-    next.images = patch.images ? [patch.images] : [];
-  } else if (Array.isArray(patch.images)) {
-    next.images = patch.images.filter((s) => typeof s === "string" && s.length > 0);
+
+  if (patch.images != null) {
+    const list =
+      typeof patch.images === "string" ? [patch.images] : Array.isArray(patch.images) ? patch.images : [];
+    next.images = await saveImagesToIDB(list);
   }
+
+  if (patch.taggedPets != null) {
+    next.taggedPets = Array.isArray(patch.taggedPets)
+      ? patch.taggedPets.map((v) => String(v))
+      : [];
+  }
+
   next.updatedAt = typeof patch.updatedAt === "number" ? patch.updatedAt : Date.now();
 
   all[idx] = next;
   saveAll(all);
 }
 
-/**
- * Exclui um post.
- * @param {string} id
- */
 export function deletePost(id) {
   if (!id) return;
   const all = loadAll();
@@ -191,11 +259,6 @@ export function deletePost(id) {
   saveAll(next);
 }
 
-/**
- * Alterna curtida do usuário no post.
- * @param {string} postId
- * @param {object} user  { id, username, name, email, avatar }
- */
 export function toggleLike(postId, user) {
   if (!postId || !user || !user.id) return;
 
@@ -205,20 +268,17 @@ export function toggleLike(postId, user) {
 
   const post = normPost(all[idx]);
   const likes = post.likes || [];
-  const exists = likes.find((u) => u.id === user.id);
+  const myId = user.id;
+  const exists = likes.find((u) => u.id === myId);
 
-  const newLikes = exists ? likes.filter((u) => u.id !== user.id) : [...likes, normLikeUser(user)];
+  const newLikes = exists
+    ? likes.filter((u) => u.id !== myId)
+    : [...likes, normLikeUser(user)];
 
-  all[idx] = { ...post, likes: newLikes };
+  all[idx] = { ...post, likes: newLikes, updatedAt: Date.now() };
   saveAll(all);
 }
 
-/**
- * Adiciona comentário no post (comentário pai).
- * @param {string} postId
- * @param {string} text
- * @param {object} author
- */
 export function addComment(postId, text, author) {
   const t = typeof text === "string" ? text.trim() : "";
   if (!postId || !t || !author || !author.id) return;
@@ -238,17 +298,10 @@ export function addComment(postId, text, author) {
     replies: [],
   };
 
-  all[idx] = { ...post, comments: [...(post.comments || []), newComment] };
+  all[idx] = { ...post, comments: [...(post.comments || []), newComment], updatedAt: Date.now() };
   saveAll(all);
 }
 
-/**
- * Responde a um comentário (apenas 1 nível — resposta filha).
- * @param {string} postId
- * @param {string} parentCommentId
- * @param {string} text
- * @param {object} author
- */
 export function replyComment(postId, parentCommentId, text, author) {
   const t = typeof text === "string" ? text.trim() : "";
   if (!postId || !parentCommentId || !t || !author || !author.id) return;
@@ -274,18 +327,11 @@ export function replyComment(postId, parentCommentId, text, author) {
     return c;
   });
 
-  all[idx] = { ...post, comments: nextComments };
+  all[idx] = { ...post, comments: nextComments, updatedAt: Date.now() };
   saveAll(all);
 }
 
-/* --------- Edição de comentários (para quando ligar na UI) --------- */
-
-/**
- * Atualiza o texto de um comentário pai.
- * @param {string} postId
- * @param {string} commentId
- * @param {string} newText
- */
+/* --------- (Opcional) edição de comentários --------- */
 export function updateComment(postId, commentId, newText) {
   const t = typeof newText === "string" ? newText.trim() : "";
   if (!postId || !commentId || !t) return;
@@ -306,13 +352,6 @@ export function updateComment(postId, commentId, newText) {
   saveAll(all);
 }
 
-/**
- * Atualiza o texto de uma resposta filha.
- * @param {string} postId
- * @param {string} parentCommentId
- * @param {string} replyId
- * @param {string} newText
- */
 export function updateReply(postId, parentCommentId, replyId, newText) {
   const t = typeof newText === "string" ? newText.trim() : "";
   if (!postId || !parentCommentId || !replyId || !t) return;
@@ -324,7 +363,9 @@ export function updateReply(postId, parentCommentId, replyId, newText) {
   const post = normPost(all[idx]);
   const nextComments = (post.comments || []).map((c) => {
     if (c.id === parentCommentId) {
-      const nextReplies = (c.replies || []).map((r) => (r.id === replyId ? { ...r, text: t, updatedAt: Date.now() } : r));
+      const nextReplies = (c.replies || []).map((r) =>
+        r.id === replyId ? { ...r, text: t, updatedAt: Date.now() } : r
+      );
       return { ...c, replies: nextReplies, updatedAt: Date.now() };
     }
     return c;
@@ -334,11 +375,94 @@ export function updateReply(postId, parentCommentId, replyId, newText) {
   saveAll(all);
 }
 
-/* ------------------ (Opcional) Seeder p/ debug ------------------ */
-// Descomente para popular dados quando vazio.
-/*
-if (listPosts().length === 0) {
-  const demo = { id: "u1", username: "maxi", name: "Maxi", email: "maxi@patanet.local", avatar: "" };
-  addPost(demo, "Bem-vindo à PataNet 🐾", []);
+
+/**
+ * Migra mídia legada (strings/DataURL) para IndexedDB e substitui por refs compactas.
+ * Executa uma única vez no carregamento do app/Feed. É idempotente.
+ */
+export async function runFeedMediaMigration() {
+  const raw = safeParse(localStorage.getItem(STORAGE_KEY), []);
+  if (!Array.isArray(raw) || raw.length === 0) return;
+
+  let changed = false;
+
+  async function normalizeImages(images) {
+    const out = [];
+    for (const it of images || []) {
+      if (!it) continue;
+
+      // Já está normalizado?
+      if (typeof it === "object" && it.storage === "idb" && it.id) {
+        out.push({ id: String(it.id), storage: "idb", kind: it.kind || "image" });
+        continue;
+      }
+
+      // String legada (DataURL ou http/https)
+      if (typeof it === "string") {
+        if (it.startsWith("data:")) {
+          try {
+            const blob = await dataUrlToBlob(it);
+            if (blob) {
+              const id = await mediaSaveBlob(blob);
+              if (id) {
+                out.push({ id, storage: "idb", kind: "image" });
+                changed = true;
+              }
+              continue;
+            }
+          } catch {}
+        }
+        // http/https — mantém como "legacy" (pode migrar depois se quiser)
+        out.push({ id: it, storage: "legacy", kind: "image" });
+        continue;
+      }
+
+      // Objeto legado sem storage/id
+      if (typeof it === "object") {
+        if (it.url && typeof it.url === "string") {
+          out.push({ id: it.url, storage: "legacy", kind: it.kind || "image" });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Monta lista migrada
+  const migrated = [];
+  for (const p of raw) {
+    const imgs = Array.isArray(p?.images) ? p.images : (p?.image ? [p.image] : []);
+    const compact = await normalizeImages(imgs);
+    migrated.push({
+      ...p,
+      images: compact,
+      image: undefined, // remove antigo "image"
+    });
+  }
+
+  // Tenta salvar tudo; se ainda assim estourar, salva em lotes
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+  } catch (err) {
+    console.warn("feedStorage migration full save failed:", err?.name || err);
+    // salva apenas os últimos N (em lotes decrescentes)
+    let N = Math.min(200, migrated.length);
+    let ok = false;
+    while (N > 0 && !ok) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated.slice(-N)));
+        ok = true;
+      } catch (e) {
+        N = Math.floor(N / 2);
+      }
+    }
+    if (!ok) {
+      // como último recurso, limpa a lista para não travar curtidas/comentários
+      console.warn("feedStorage migration emergency clear");
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    }
+  } finally {
+    if (changed) {
+      window.dispatchEvent(new Event("patanet:feed-updated"));
+    }
+  }
 }
-*/

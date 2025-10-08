@@ -1,3 +1,4 @@
+// src/features/pets/pages/PetDetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -18,6 +19,9 @@ import { useToast } from "@/components/ui/ToastProvider";
 import {
   getPet as storageGetPet,
   updatePet as storageUpdatePet,
+  mediaSaveBlob,
+  mediaGetUrl,
+  mediaDelete,
 } from "@/features/pets/services/petsStorage";
 import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
 import { useAuth } from "@/store/auth";
@@ -39,36 +43,7 @@ const EXAMPLES = [
       "https://images.unsplash.com/photo-1517849845537-4d257902454a?w=600&q=80&auto=format&fit=crop",
     cover:
       "https://images.unsplash.com/photo-1518020382113-a7e8fc38eac9?w=1200&q=80&auto=format&fit=crop",
-    media: [
-      {
-        id: "m1",
-        url: "https://images.unsplash.com/photo-1619983081563-430f63602796?w=1200&q=80&auto=format&fit=crop",
-        title: "Passeio no parque",
-        kind: "image",
-        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 7,
-      },
-      {
-        id: "m2",
-        url: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=1200&q=80&auto=format&fit=crop",
-        title: "Banho de sol",
-        kind: "image",
-        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 14,
-      },
-      {
-        id: "m3",
-        url: "https://images.unsplash.com/photo-1543852786-1cf6624b9987?w=1200&q=80&auto=format&fit=crop",
-        title: "Esperando petisco",
-        kind: "image",
-        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 30,
-      },
-      {
-        id: "m4",
-        url: "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=1200&q=80&auto=format&fit=crop",
-        title: "Carinha de pidão",
-        kind: "image",
-        createdAt: Date.now() - 1000 * 60 * 60 * 24 * 45,
-      },
-    ],
+    media: [],
     vaccines: [],
   },
   {
@@ -108,14 +83,66 @@ const EXAMPLES = [
 ];
 const exampleById = (id) => EXAMPLES.find((p) => p.id === id) || null;
 
-/* ------------------------------ COMPONENTE -------------------------------- */
+/* --------------------------------- helpers -------------------------------- */
+const readAsDataURL = (file) =>
+  new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+
+async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
+  const dataUrl = await readAsDataURL(file);
+  const img = new Image();
+  await new Promise((r, e) => {
+    img.onload = r;
+    img.onerror = e;
+    img.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+
+  // 1ª tentativa: WebP
+  let blob = await new Promise((res) =>
+    canvas.toBlob((b) => res(b), "image/webp", quality)
+  );
+  if (!blob) {
+    blob = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), "image/jpeg", quality)
+    );
+  }
+
+  // Se ainda ficou grande, recompacta
+  if (blob && blob.size > 500 * 1024) {
+    const canvas2 = document.createElement("canvas");
+    const factor = 0.85;
+    canvas2.width = Math.round(w * factor);
+    canvas2.height = Math.round(h * factor);
+    const ctx2 = canvas2.getContext("2d");
+    ctx2.drawImage(canvas, 0, 0, canvas2.width, canvas2.height);
+    blob = await new Promise((res) =>
+      canvas2.toBlob((b) => res(b), "image/webp", Math.max(0.45, quality - 0.1))
+    );
+  }
+  return blob;
+}
+
+/* -------------------------------- COMPONENTE ------------------------------- */
 export default function PetDetail() {
   const { id } = useParams();
   const toast = useToast();
   const confirm = useConfirm();
   const askInput = usePrompt();
 
-  // usuário logado
   const authUser = useAuth((s) => s.user);
   const isAuthenticated = !!authUser?.id;
 
@@ -129,43 +156,161 @@ export default function PetDetail() {
   const [lbOpen, setLbOpen] = useState(false);
   const [lbIndex, setLbIndex] = useState(0);
 
-  // Carregar pet
-  useEffect(() => {
-    if (isExample) setPet(exampleById(id));
-    else {
-      const data = storageGetPet?.(id);
-      if (!data) return setPet(null);
-      const media = Array.isArray(data.media)
-        ? data.media
-        : Array.isArray(data.gallery)
-        ? data.gallery.map((g) =>
-            typeof g === "string"
-              ? {
-                  id:
-                    crypto?.randomUUID?.() ||
-                    String(Date.now() + Math.random()),
-                  url: g,
-                  title: "",
-                  kind: "image",
-                  createdAt: Date.now(),
-                }
-              : {
-                  id:
-                    g.id ||
-                    crypto?.randomUUID?.() ||
-                    String(Date.now() + Math.random()),
-                  url: g.url,
-                  title: g.title || "",
-                  kind: g.kind || "image",
-                  createdAt: g.createdAt || Date.now(),
-                }
-          )
-        : [];
-      setPet({ ...data, media });
+  // URL cache para mídias do IndexedDB
+  const [mediaUrls, setMediaUrls] = useState({}); // { [mediaId]: objectURL|string }
+  // URLs resolvidas para avatar/capa (avatarId/coverId)
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
+
+  // Função para carregar do storage
+  const loadFromStorage = () => {
+    if (isExample) {
+      setPet(exampleById(id));
+      setMediaUrls({});
+      return;
     }
+    const data = storageGetPet?.(id);
+    if (!data) {
+      setPet(null);
+      setMediaUrls({});
+      return;
+    }
+    const media = Array.isArray(data.media)
+      ? data.media
+      : Array.isArray(data.gallery)
+      ? data.gallery.map((g) =>
+          typeof g === "string"
+            ? {
+                id:
+                  crypto?.randomUUID?.() || String(Date.now() + Math.random()),
+                url: g,
+                title: "",
+                kind: "image",
+                createdAt: Date.now(),
+              }
+            : {
+                id:
+                  g.id ||
+                  crypto?.randomUUID?.() ||
+                  String(Date.now() + Math.random()),
+                url: g.url,
+                title: g.title || "",
+                kind: g.kind || "image",
+                createdAt: g.createdAt || Date.now(),
+              }
+        )
+      : [];
+    setPet({ ...data, media });
+  };
+
+  // Carregar pet (1ª vez)
+  useEffect(() => {
+    loadFromStorage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isExample]);
 
-  // Persistência (real salva em storage, exemplo fica só em memória)
+  // Reagir a alterações no storage (ex.: ao editar o pet)
+  useEffect(() => {
+    const onUpdated = () => loadFromStorage();
+    window.addEventListener("patanet:pets-updated", onUpdated);
+    return () => window.removeEventListener("patanet:pets-updated", onUpdated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Resolver URLs de avatar/capa por IDB (avatarId/coverId)
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveHeaderImages() {
+      if (!pet) {
+        setAvatarUrl("");
+        setCoverUrl("");
+        return;
+      }
+      try {
+        // avatar
+        let aUrl = pet.avatar || "";
+        if (!aUrl && pet.avatarId) {
+          try {
+            aUrl = await mediaGetUrl?.(pet.avatarId);
+          } catch {
+            aUrl = "";
+          }
+        }
+        // capa
+        let cUrl = pet.cover || "";
+        if (!cUrl && pet.coverId) {
+          try {
+            cUrl = await mediaGetUrl?.(pet.coverId);
+          } catch {
+            cUrl = "";
+          }
+        }
+        if (!cancelled) {
+          setAvatarUrl(aUrl || "");
+          setCoverUrl(cUrl || "");
+        }
+      } catch {
+        if (!cancelled) {
+          setAvatarUrl(pet.avatar || "");
+          setCoverUrl(pet.cover || "");
+        }
+      }
+    }
+    resolveHeaderImages();
+    return () => {
+      cancelled = true;
+      // revoga blobs
+      [avatarUrl, coverUrl].forEach((u) => {
+        if (u && u.startsWith("blob:")) {
+          try {
+            URL.revokeObjectURL(u);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pet?.id, pet?.avatar, pet?.avatarId, pet?.cover, pet?.coverId]);
+
+  // Resolver URLs das mídias (galeria) que estão no IndexedDB
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveUrls() {
+      const entries = (pet?.media || []).filter((m) => m?.storage === "idb");
+      if (!entries.length) {
+        setMediaUrls({});
+        return;
+      }
+      const pairs = await Promise.all(
+        entries.map(async (m) => {
+          try {
+            const url = await mediaGetUrl?.(m.id);
+            return [m.id, url];
+          } catch {
+            return [m.id, ""];
+          }
+        })
+      );
+      if (!cancelled) {
+        const map = {};
+        for (const [k, v] of pairs) map[k] = v;
+        setMediaUrls(map);
+      }
+    }
+    resolveUrls();
+    return () => {
+      cancelled = true;
+      Object.values(mediaUrls || {}).forEach((u) => {
+        if (typeof u === "string" && u.startsWith("blob:")) {
+          try {
+            URL.revokeObjectURL(u);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pet?.id, (pet?.media || []).length]);
+
+  // Persistência (salva no storage se não for exemplo)
   const persist = (patch) => {
     if (!pet) return;
     const next = { ...pet, ...patch };
@@ -186,14 +331,28 @@ export default function PetDetail() {
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
     [pet]
   );
-  const lbImages = useMemo(() => imagesOnly.map((m) => m.url), [imagesOnly]);
+
+  // resolve URL para render (DataURL/https direto OU IndexedDB via mediaUrls)
+  const resolveSrc = (m) =>
+    m?.storage === "idb" ? mediaUrls[m.id] || "" : m?.url || "";
+
+  const lbSlides = useMemo(
+    () =>
+      imagesOnly.map((m) => ({
+        id: m.id,
+        url: resolveSrc(m),
+        title: m.title || "",
+        alt: m.title || "",
+        description: m.title || "",
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [imagesOnly, mediaUrls]
+  );
 
   const openLightbox = (idx) => {
     setLbIndex(idx);
     setLbOpen(true);
   };
-
-  const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("pt-BR") : "—");
 
   const guard = () => {
     if (!canEdit) {
@@ -203,55 +362,68 @@ export default function PetDetail() {
     return true;
   };
 
-  // Adicionar uma ou mais imagens
-  const handleAddMedia = (ev) => {
+  // Adicionar imagens
+  const handleAddMedia = async (ev) => {
     if (!guard()) return;
     const files = Array.from(ev.target.files || []);
+    ev.target.value = "";
     if (!files.length) return;
 
-    const readerFor = (file) =>
-      new Promise((resolve, reject) => {
-        if (!file.type.startsWith("image/")) return resolve(null);
-        const fr = new FileReader();
-        fr.onload = () =>
-          resolve({
-            id: crypto?.randomUUID?.() || String(Date.now() + Math.random()),
-            url: fr.result,
-            title: file.name.replace(/\.[^.]+$/, ""),
-            kind: "image",
-            createdAt: Date.now(),
-          });
-        fr.onerror = reject;
-        fr.readAsDataURL(file);
-      });
+    try {
+      const items = [];
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        const blob = await fileToCompressedBlob(file);
+        if (!blob) continue;
 
-    Promise.all(files.map(readerFor))
-      .then((items) => items.filter(Boolean))
-      .then((items) => {
-        if (!items.length) {
-          toast.error("Apenas imagens são aceitas.");
-          return;
-        }
-        persist({ media: [...(pet?.media || []), ...items] });
-        toast.success(
-          items.length > 1 ? "Imagens adicionadas!" : "Imagem adicionada!"
-        );
-        ev.target.value = "";
-      })
-      .catch(() => toast.error("Falha ao ler as imagens."));
+        const mediaId = await mediaSaveBlob?.(blob);
+        if (!mediaId) continue;
+
+        items.push({
+          id: mediaId,
+          title: file.name.replace(/\.[^.]+$/, ""),
+          kind: "image",
+          createdAt: Date.now(),
+          storage: "idb",
+        });
+      }
+
+      if (!items.length) {
+        toast.error("Apenas imagens são aceitas.");
+        return;
+      }
+
+      persist({ media: [...(pet?.media || []), ...items] });
+      toast.success(items.length > 1 ? "Imagens adicionadas!" : "Imagem adicionada!");
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        "Não foi possível salvar as imagens (armazenamento local cheio). Tente menos imagens ou menores."
+      );
+    }
   };
 
-  // Definir capa da GALERIA (não altera avatar)
+  // Definir capa da galeria
   const handleSetCover = async (item) => {
-    if (!guard() || !item || pet?.cover === item.url) return;
+    if (!guard() || !item) return;
+
     const ok = await confirm({
       title: "Definir como capa da galeria?",
       description: "Esta imagem será usada como capa da galeria do pet.",
       confirmText: "Definir capa",
     });
     if (!ok) return;
-    persist({ cover: item.url });
-    toast.success("Imagem definida como capa da galeria.");
+
+    try {
+      const patch =
+        item.storage === "idb"
+          ? { coverId: item.id, cover: "" }
+          : { cover: item.url, coverId: "" };
+      persist(patch);
+      toast.success("Imagem definida como capa da galeria.");
+    } catch (e) {
+      toast.error("Não foi possível salvar a capa. Espaço insuficiente.");
+    }
   };
 
   // Editar título
@@ -269,14 +441,17 @@ export default function PetDetail() {
       validate: (v) => String(v).trim().length <= 80,
       validateError: "Use no máximo 80 caracteres.",
     });
+    if (newTitle == null) return;
 
-    if (newTitle == null) return; // cancelado
-
-    const next = (pet?.media || []).map((m) =>
-      m.id === item.id ? { ...m, title: String(newTitle).trim() } : m
-    );
-    persist({ media: next });
-    toast.success("Título atualizado.");
+    try {
+      const next = (pet?.media || []).map((m) =>
+        m.id === item.id ? { ...m, title: String(newTitle).trim() } : m
+      );
+      persist({ media: next });
+      toast.success("Título atualizado.");
+    } catch (e) {
+      toast.error("Não foi possível salvar. Espaço de armazenamento insuficiente.");
+    }
   };
 
   // Remover imagem
@@ -290,33 +465,42 @@ export default function PetDetail() {
     });
     if (!ok) return;
 
-    const next = (pet?.media || []).filter((m) => m.id !== item.id);
-    const patch = { media: next };
-    if (pet?.cover === item.url) patch.cover = "";
-    persist(patch);
-    toast.success("Imagem removida.");
-
-    // se o lightbox estiver aberto nessa imagem, ajusta índice/fecha
-    // (imagensOnly é derivado de pet, então após persist() ele muda)
-    if (lbOpen) {
-      setLbIndex((i) => Math.max(0, i - 1));
-      if (next.filter((m) => (m.kind || "image") === "image").length === 0) {
-        setLbOpen(false);
+    try {
+      if (item.storage === "idb") {
+        try {
+          await mediaDelete?.(item.id);
+        } catch {}
       }
+
+      const next = (pet?.media || []).filter((m) => m.id !== item.id);
+      const patch = { media: next };
+      if (pet?.coverId === item.id) patch.coverId = "";
+      if (pet?.cover && item.url && pet.cover === item.url) patch.cover = "";
+      persist(patch);
+      toast.success("Imagem removida.");
+
+      if (lbOpen) {
+        setLbIndex((i) => Math.max(0, i - 1));
+        if (next.filter((m) => (m.kind || "image") === "image").length === 0) {
+          setLbOpen(false);
+        }
+      }
+    } catch {
+      toast.error("Falha ao remover a imagem. Tente novamente.");
     }
   };
 
-  const slides = imagesOnly.map((m) => ({
-    id: m.id,
-    url: m.url,
-    title: m.title || "",
-    alt: m.title || "",
-    description: m.title || "",
-  }));
+  const isCover = (m) =>
+    (pet?.cover && m.url && pet.cover === m.url) ||
+    (pet?.coverId && m.id === pet.coverId);
 
   if (!pet) {
     return <div className="p-6 text-sm opacity-70">Pet não encontrado.</div>;
   }
+
+  // Header avatar: avatarId -> avatar -> coverId -> cover
+  const headerAvatarSrc =
+    avatarUrl || coverUrl || undefined; // evita string vazia no src
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -327,7 +511,7 @@ export default function PetDetail() {
           {/* Header do pet */}
           <div className="flex items-start gap-4">
             <img
-              src={pet.avatar || pet.cover}
+              src={headerAvatarSrc}
               alt={pet.name}
               className="h-16 w-16 md:h-20 md:w-20 rounded-full object-cover ring-4 ring-black/10 dark:ring-white/10"
             />
@@ -358,9 +542,7 @@ export default function PetDetail() {
 
           {/* Datas */}
           <div className="mt-6">
-            <h3 className="mb-3 text-sm font-medium opacity-80">
-              Datas importantes
-            </h3>
+            <h3 className="mb-3 text-sm font-medium opacity-80">Datas importantes</h3>
             <div className="grid gap-3">
               <InfoRow
                 label="Nascimento"
@@ -411,9 +593,7 @@ export default function PetDetail() {
                   onToggle={() => setVaccinesOpen((v) => !v)}
                   leftIcon={<Syringe className="h-4 w-4 opacity-70" />}
                   title="Vacinas"
-                  rightActions={
-                    <span className="text-xs opacity-60">0 registro(s)</span>
-                  }
+                  rightActions={<span className="text-xs opacity-60">0 registro(s)</span>}
                 >
                   <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
                     Nenhuma vacina registrada para este pet.
@@ -463,82 +643,81 @@ export default function PetDetail() {
 
                   {imagesOnly.length === 0 ? (
                     <div className="rounded-lg border border-black/10 dark:border-white/10 p-6 text-sm opacity-70">
-                      Nenhuma mídia ainda.{" "}
-                      {canEdit ? "Use “Adicionar mídia”." : "—"}
+                      Nenhuma mídia ainda. {canEdit ? "Use “Adicionar mídia”." : "—"}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {imagesOnly.map((m, idx) => (
-                        <div
-                          key={m.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openLightbox(idx)}
-                          onKeyDown={(e) =>
-                            (e.key === "Enter" || e.key === " ") &&
-                            openLightbox(idx)
-                          }
-                          className="group relative overflow-hidden rounded-lg cursor-pointer"
-                          title={m.title}
-                        >
-                          <img
-                            src={m.url}
-                            alt={m.title || ""}
-                            className="aspect-[4/3] w-full object-cover"
-                          />
+                      {imagesOnly.map((m, idx) => {
+                        const src = resolveSrc(m);
+                        return (
+                          <div
+                            key={m.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openLightbox(idx)}
+                            onKeyDown={(e) =>
+                              (e.key === "Enter" || e.key === " ") && openLightbox(idx)
+                            }
+                            className="group relative overflow-hidden rounded-lg cursor-pointer"
+                            title={m.title}
+                          >
+                            <img
+                              src={src || undefined}
+                              alt={m.title || ""}
+                              className="aspect-[4/3] w-full object-cover"
+                            />
 
-                          {/* badge de capa da GALERIA */}
-                          {pet.cover === m.url && (
-                            <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
-                              <Star className="h-3 w-3 fill-white" /> capa
-                            </span>
-                          )}
-
-                          {/* barra de ações (só para o tutor) */}
-                          {canEdit && (
-                            <div
-                              className="
-                                absolute inset-x-0 bottom-0 flex items-center justify-between gap-2
-                                bg-gradient-to-t from-black/60 to-black/0 p-2
-                                text-white transition-opacity
-                                opacity-100 md:opacity-0 md:group-hover:opacity-100
-                              "
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <span className="max-w-[60%] truncate text-xs">
-                                {m.title || "Sem título"}
+                            {/* badge de capa da GALERIA */}
+                            {isCover(m) && (
+                              <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+                                <Star className="h-3 w-3 fill-white" /> capa
                               </span>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  title="Definir como capa da galeria"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                  onClick={() => handleSetCover(m)}
-                                >
-                                  <Star
-                                    className={`h-4 w-4 ${
-                                      pet.cover === m.url ? "fill-white" : ""
-                                    }`}
-                                  />
-                                </button>
-                                <button
-                                  title="Editar título"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                  onClick={() => handleEditTitle(m)}
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                </button>
-                                <button
-                                  title="Remover"
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                  onClick={() => handleDelete(m)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
+                            )}
+
+                            {/* barra de ações (só para o tutor) */}
+                            {canEdit && (
+                              <div
+                                className="
+                                  absolute inset-x-0 bottom-0 flex items-center justify-between gap-2
+                                  bg-gradient-to-t from-black/60 to-black/0 p-2
+                                  text-white transition-opacity
+                                  opacity-100 md:opacity-0 md:group-hover:opacity-100
+                                "
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span className="max-w-[60%] truncate text-xs">
+                                  {m.title || "Sem título"}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    title="Definir como capa da galeria"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                    onClick={() => handleSetCover(m)}
+                                  >
+                                    <Star
+                                      className={`h-4 w-4 ${isCover(m) ? "fill-white" : ""}`}
+                                    />
+                                  </button>
+                                  <button
+                                    title="Editar título"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                    onClick={() => handleEditTitle(m)}
+                                  >
+                                    <Edit3 className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    title="Remover"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                    onClick={() => handleDelete(m)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -552,14 +731,12 @@ export default function PetDetail() {
       {lbOpen && (
         <Lightbox
           open={lbOpen}
-          images={lbImages}
+          images={lbSlides.map((s) => s.url)}
           index={lbIndex}
-          slides={slides}
+          slides={lbSlides}
           onClose={() => setLbOpen(false)}
-          onPrev={() =>
-            setLbIndex((i) => (i - 1 + lbImages.length) % lbImages.length)
-          }
-          onNext={() => setLbIndex((i) => (i + 1) % lbImages.length)}
+          onPrev={() => setLbIndex((i) => (i - 1 + lbSlides.length) % lbSlides.length)}
+          onNext={() => setLbIndex((i) => (i + 1) % lbSlides.length)}
         />
       )}
     </div>
@@ -619,14 +796,7 @@ function StaticItem({ icon, title, showPlus = false }) {
 }
 
 /* --------- Accordion com transição suave (altura animada) --------- */
-function Accordion({
-  title,
-  open,
-  onToggle,
-  leftIcon,
-  rightActions,
-  children,
-}) {
+function Accordion({ title, open, onToggle, leftIcon, rightActions, children }) {
   const ref = useRef(null);
   const [height, setHeight] = useState(0);
 

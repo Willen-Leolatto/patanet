@@ -19,7 +19,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-import { loadPets } from "@/features/pets/services/petsStorage";
+import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
 import AvatarCircle from "@/components/AvatarCircle";
 
 const SIDEBAR_W = 280;
@@ -48,7 +48,11 @@ export default function Sidebar() {
 
   const [open, setOpen] = useState(true);
   const [isMdUp, setIsMdUp] = useState(false);
+
   const [myPets, setMyPets] = useState([]);
+  // urls resolvidas para os avatares de pets (via IDB)
+  const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { avatarUrl, coverUrl } }
+
   const [overflow, setOverflow] = useState(false);
   const railRef = useRef(null);
 
@@ -91,11 +95,12 @@ export default function Sidebar() {
     }
   }, [pathname, isMdUp]);
 
+  // carregar pets do usuário logado
   useEffect(() => {
     const refresh = () => {
       const all = loadPets();
       const mine = currentUserId
-        ? all.filter((p) => p.ownerId === currentUserId)
+        ? all.filter((p) => (p.ownerId || p.userId || p.createdBy) === currentUserId)
         : [];
       setMyPets(mine);
     };
@@ -103,6 +108,62 @@ export default function Sidebar() {
     window.addEventListener("patanet:pets-updated", refresh);
     return () => window.removeEventListener("patanet:pets-updated", refresh);
   }, [currentUserId]);
+
+  // resolver avatar/cover dos pets via IndexedDB (avatarId / coverId)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveThumbs() {
+      const pairs = await Promise.all(
+        (myPets || []).map(async (p) => {
+          // COVER
+          let coverUrl = p.cover || "";
+          if (!coverUrl && p.coverId) {
+            try {
+              coverUrl = await mediaGetUrl(p.coverId);
+            } catch {
+              coverUrl = "";
+            }
+          }
+          // AVATAR
+          let avatarUrl = p.avatar || "";
+          if (!avatarUrl && p.avatarId) {
+            try {
+              avatarUrl = await mediaGetUrl(p.avatarId);
+            } catch {
+              avatarUrl = "";
+            }
+          }
+          // fallback para cover quando não houver avatar
+          if (!avatarUrl) avatarUrl = coverUrl;
+
+          return [p.id, { coverUrl, avatarUrl }];
+        })
+      );
+
+      if (!cancelled) {
+        const map = {};
+        for (const [id, urls] of pairs) map[id] = urls;
+        setPetThumbs(map);
+      }
+    }
+
+    resolveThumbs();
+    return () => {
+      cancelled = true;
+      // revoga objectURLs
+      Object.values(petThumbs).forEach(({ avatarUrl, coverUrl }) => {
+        [avatarUrl, coverUrl].forEach((u) => {
+          if (u && typeof u === "string" && u.startsWith("blob:")) {
+            try {
+              URL.revokeObjectURL(u);
+            } catch {}
+          }
+        });
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myPets.length]);
 
   const NavItem = ({ to, icon: Ico, label }) => {
     const active =
@@ -143,7 +204,7 @@ export default function Sidebar() {
 
   const userName =
     user?.username ||
-    user?.displayName  ||
+    user?.displayName ||
     user?.name ||
     user?.email ||
     "Usuário";
@@ -197,24 +258,32 @@ export default function Sidebar() {
                     className="flex gap-3 overflow-x-auto overflow-y-hidden snap-x snap-mandatory scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-white/20"
                     data-overflow={overflow ? "true" : "false"}
                   >
-                    {myPets.map((p) => (
-                      <Link
-                        key={p.id}
-                        to={`/pets/${p.id}`}
-                        className="group relative shrink-0 snap-start"
-                        title={p.name}
-                      >
-                        <AvatarCircle
-                          src={p.avatar || ""}
-                          alt={p.name}
-                          size={48}
-                          className="ring-1 ring-white/10 group-hover:ring-[#f77904]/60 transition"
-                        />
-                        <span className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1.5 py-[2px] text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
-                          {p.name}
-                        </span>
-                      </Link>
-                    ))}
+                    {myPets.map((p) => {
+                      const avatarUrl =
+                        petThumbs[p.id]?.avatarUrl ||
+                        p.avatar ||
+                        p.cover ||
+                        undefined;
+
+                      return (
+                        <Link
+                          key={p.id}
+                          to={`/pets/${p.id}`}
+                          className="group relative shrink-0 snap-start"
+                          title={p.name}
+                        >
+                          <AvatarCircle
+                            src={avatarUrl || undefined}
+                            alt={p.name}
+                            size={48}
+                            className="ring-1 ring-white/10 group-hover:ring-[#f77904]/60 transition"
+                          />
+                          <span className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1.5 py-[2px] text-[10px] text-white opacity-0 backdrop-blur-sm transition group-hover:opacity-100">
+                            {p.name}
+                          </span>
+                        </Link>
+                      );
+                    })}
                     {myPets.length === 0 && (
                       <span className="text-[11px] text-[var(--sidebar-fg)]/60">
                         Nenhum pet ainda
@@ -251,7 +320,7 @@ export default function Sidebar() {
             <div className="flex items-center gap-3">
               {/* Avatar do usuário (ou placeholder) */}
               <AvatarCircle
-                src={user ? userAvatar : ""}
+                src={user ? userAvatar || undefined : undefined}
                 alt={userName}
                 size={36}
                 className="ring-1 ring-white/10"

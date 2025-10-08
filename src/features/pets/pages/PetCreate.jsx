@@ -1,20 +1,19 @@
-// PetCreate.jsx — atualizado (upload de foto + busca de raça dentro do card)
-import React, { useMemo, useState, useEffect, useRef } from "react";
+// src/features/pets/pages/PetCreate.jsx
+import React, { useMemo, useRef, useState } from "react";
 import {
+  addPet,
   getBreedsBySpecies,
   getBreedById,
-  addPet,
+  mediaSaveBlob,
 } from "@/features/pets/services/petsStorage";
 import { useAuth } from "@/store/auth.jsx";
 
-/* ----------------------------- estilos locais ---------------------------- */
+/* --------------------------------- estilo -------------------------------- */
 const Styles = () => (
   <style>{`
-    /* brilho bonito no pill ativo */
     .pc-pill[data-active="true"]{
       box-shadow: 0 0 0 6px rgba(255,147,62,.28), 0 6px 18px rgba(255,147,62,.30);
     }
-    /* range estilizado (claro/escuro) */
     .pc-range{ -webkit-appearance:none; width:100%; height:6px; border-radius:9999px;
       background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5)); outline:none }
     .pc-range::-webkit-slider-thumb{ -webkit-appearance:none; height:22px; width:22px; border-radius:50%;
@@ -29,7 +28,7 @@ const Styles = () => (
   `}</style>
 );
 
-/* --------------------------------- UI ----------------------------------- */
+/* --------------------------------- UI ------------------------------------ */
 const Pill = ({ active, children, onClick }) => (
   <button
     type="button"
@@ -37,8 +36,7 @@ const Pill = ({ active, children, onClick }) => (
     data-active={active ? "true" : "false"}
     className="
       pc-pill inline-flex items-center gap-2 rounded-full px-4 h-9 text-sm font-medium
-      transition-all duration-300
-      bg-orange-500 text-white shadow-sm hover:bg-orange-600
+      transition-all duration-300 bg-orange-500 text-white shadow-sm hover:bg-orange-600
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400
     "
   >
@@ -86,7 +84,6 @@ const BreedTile = ({ breed, active, onClick }) => {
           "
         />
       )}
-      {/* gradiente + rótulo */}
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
       <div className="absolute left-0 right-0 bottom-0 px-3 pb-2 flex items-end justify-between">
         <span className="text-white/95 font-semibold drop-shadow-sm">
@@ -102,28 +99,31 @@ const BreedTile = ({ breed, active, onClick }) => {
   );
 };
 
-/* --------------------------------- Page --------------------------------- */
+/* --------------------------------- Página --------------------------------- */
 export default function PetCreate() {
-  // estados “amigáveis” e compatíveis com o storage
-  const [species, setSpecies] = useState("cão"); // cão | gato
-  const [sex, setSex] = useState("fêmea"); // macho | fêmea
-  const [size, setSize] = useState("médio"); // pequeno | médio | grande
+  const auth = useAuth();
+  const currentUserId =
+    auth.user?.id ||
+    auth.user?.uid ||
+    auth.user?.email ||
+    auth.user?.username ||
+    "me";
+
+  // básicos
+  const [species, setSpecies] = useState("cão"); // cão | gato (armazenamos "Cachorro"/"Gato")
+  const [sex, setSex] = useState("fêmea");
+  const [size, setSize] = useState("médio");
   const [name, setName] = useState("");
-  const [avatar, setAvatar] = useState("");
   const [desc, setDesc] = useState("");
 
-  const [weightUnit, setWeightUnit] = useState("kg"); // kg | lb
-  const [weight, setWeight] = useState(22.2);
+  const [weightUnit, setWeightUnit] = useState("kg");
+  const [weight, setWeight] = useState(8.5);
   const [birth, setBirth] = useState("");
   const [adoption, setAdoption] = useState("");
 
-  const [query, setQuery] = useState("");
-  const me = useAuth();
-  const currentUserId = 
-  me.user?.id || me.user?.uid || me.user?.email || me.user?.username || "me";
-
+  // raça
   const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
-
+  const [query, setQuery] = useState("");
   const breeds = useMemo(
     () =>
       (getBreedsBySpecies(storageSpecies) || []).filter((b) =>
@@ -131,32 +131,7 @@ export default function PetCreate() {
       ),
     [storageSpecies, query]
   );
-
   const [breed, setBreed] = useState(null);
-
-  // useEffect(() => {
-  //   if (isExample) {
-  //     setPet(exampleById(id));
-  //     return;
-  //   }
-
-  //   const data = storageGetPet?.(id);
-  //   if (!data) {
-  //     setPet(null);
-  //     return;
-  //   }
-
-  //   // migração: blob URL não persiste entre reloads
-  //   if (data.avatar?.startsWith("blob:")) {
-  //     data.avatar = "";
-  //     storageUpdatePet?.(id, { avatar: "" });
-  //   }
-
-  //   data.media = Array.isArray(data.media) ? data.media : [];
-  //   setPet({ ...data });
-  // }, [id, isExample]);
-
-  // infos ricas da raça
   const breedInfo = useMemo(() => {
     if (!breed) return null;
     const b = getBreedById(breed.id);
@@ -176,67 +151,105 @@ export default function PetCreate() {
     };
   }, [breed]);
 
-  // valor mostrado no “display” do slider
+  // Avatar e Capa (ambos via IndexedDB) + previews
+  const avatarInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [coverPreview, setCoverPreview] = useState("");
+  const [avatarId, setAvatarId] = useState("");
+  const [coverId, setCoverId] = useState("");
+
+  const onPickAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      setAvatarPreview(URL.createObjectURL(file));
+      const id = await mediaSaveBlob(file);
+      setAvatarId(id);
+    } catch (err) {
+      console.error("Falha ao salvar avatar no IndexedDB", err);
+      alert("Não foi possível processar a imagem de perfil. Tente novamente.");
+      setAvatarPreview("");
+      setAvatarId("");
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const onPickCover = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      setCoverPreview(URL.createObjectURL(file));
+      const id = await mediaSaveBlob(file);
+      setCoverId(id);
+    } catch (err) {
+      console.error("Falha ao salvar capa no IndexedDB", err);
+      alert("Não foi possível processar a imagem de capa. Tente novamente.");
+      setCoverPreview("");
+      setCoverId("");
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  // peso exibido
   const sliderValue = useMemo(() => {
     if (weightUnit === "kg") return weight;
     return Math.round(weight * 2.20462 * 10) / 10;
   }, [weight, weightUnit]);
+  const sliderValueKg =
+    weightUnit === "kg"
+      ? weight
+      : Math.round((weight / 2.20462) * 10) / 10;
 
-  // upload/preview do avatar
-  const avatarInputRef = useRef(null);
-
-  // --- antes: onPickAvatar criava URL.createObjectURL(blob) ---
-  // --- depois: salva como data URL (base64) ---
-  const onPickAvatar = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) return;
-
-    const reader = new FileReader();
-    reader.onload = () => setAvatar(String(reader.result)); // <-- data URL
-    reader.readAsDataURL(file);
-  };
-
-  // limpeza no unmount
-  // useEffect(() => {
-  //   return () => {
-  //     if (avatar?.startsWith("blob:")) {
-  //       try {
-  //         URL.revokeObjectURL(avatar);
-  //       } catch {}
-  //     }
-  //   };
-  // }, [avatar]);
-
-  // dentro do PetCreate.jsx
-  const onSubmit = (e) => {
+  // submit
+  const onSubmit = async (e) => {
     e.preventDefault();
+    try {
+      const payload = {
+        name: (name || "").trim() || "Sem nome",
+        species: storageSpecies, // "Cachorro" | "Gato"
+        breed: breed?.name || "",
+        gender: sex,
+        size,
+        weight: Number(sliderValueKg),
+        birthday: birth || "",
+        adoption: adoption || "",
+        description: desc || "",
 
-    const payload = {
-      name,
-      species: storageSpecies, // "Cachorro" | "Gato"
-      breed: breed?.name || "",
-      gender: sex, // "macho" | "fêmea"
-      size,
-      weight: Number(weight),
-      birthday: birth || "", // <- nome que o PetDetail espera
-      adoption: adoption || "", // <- idem
-      avatar: avatar || breed?.image || "",
-      description: desc || "", // <- idem
-      media: [], // inicia vazio (galeria depois)
-      ownerId: currentUserId,   // ⬅️ garante o dono
-      createdAt: Date.now(),
-    };
+        // ⚠️ Não persistimos DataURL no localStorage
+        avatar: "", // sempre string vazia (quando usar avatarId)
+        avatarId: avatarId || "",
 
-    addPet(payload);
-    history.back();
+        // Capa: prioriza coverId (upload do usuário); se não houver,
+        // usa imagem "leve" da raça como cover (URL pública).
+        coverId: coverId || "",
+        cover: coverId ? "" : (breed?.image || ""),
+
+        media: [], // galeria será gerida em PetDetail
+        ownerId: currentUserId,
+        createdAt: Date.now(),
+      };
+
+      addPet(payload);
+      history.back();
+    } catch (err) {
+      if (String(err?.message) === "LOCAL_STORAGE_QUOTA_EXCEEDED") {
+        alert(
+          "Seu armazenamento local ficou cheio.\n" +
+            "Remova Pets ou fotos antigas, reduza o tamanho das imagens, " +
+            "ou migre para a versão com backend quando estiver disponível."
+        );
+      } else {
+        alert("Não foi possível salvar o pet. Tente novamente.");
+      }
+      console.error(err);
+    }
   };
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="mx-auto max-w-[1200px] px-4 py-8 space-y-8"
-    >
+    <form onSubmit={onSubmit} className="mx-auto max-w-[1200px] px-4 py-8 space-y-8">
       <Styles />
 
       <header className="flex items-center justify-between">
@@ -248,32 +261,33 @@ export default function PetCreate() {
         </div>
       </header>
 
-      {/* Identificação */}
+      {/* Identificação + Avatar e Capa */}
       <Card className="p-4 sm:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-center gap-4">
-          <div className="flex items-center gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start gap-6">
+          {/* Avatar + Capa */}
+          <div className="flex flex-col items-center gap-6">
+            {/* Avatar */}
             <div className="relative w-24 h-24 rounded-full overflow-hidden ring-2 ring-white/10 shadow-md">
-              {avatar ? (
+              {avatarPreview ? (
                 <img
-                  src={avatar}
+                  src={avatarPreview}
                   alt="avatar"
                   className="w-full h-full object-cover"
                 />
               ) : (
                 <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
-                  sem foto
+                  sem avatar
                 </div>
               )}
               <button
                 type="button"
                 onClick={() => avatarInputRef.current?.click()}
                 className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
-                title="Trocar foto"
+                title="Trocar avatar"
               >
-                trocar foto
+                trocar avatar
               </button>
             </div>
-
             <input
               ref={avatarInputRef}
               type="file"
@@ -281,12 +295,41 @@ export default function PetCreate() {
               className="hidden"
               onChange={onPickAvatar}
             />
+
+            {/* Capa */}
+            <div className="relative w-44 h-28 rounded-xl overflow-hidden ring-2 ring-white/10 shadow-md">
+              {coverPreview || breed?.image ? (
+                <img
+                  src={coverPreview || breed?.image}
+                  alt="capa"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem capa
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar capa"
+              >
+                trocar capa
+              </button>
+            </div>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPickCover}
+            />
           </div>
 
+          {/* Infos do Pet */}
           <div className="space-y-2">
-            <label className="text-xs font-medium opacity-70">
-              Nome do pet
-            </label>
+            <label className="text-xs font-medium opacity-70">Nome do pet</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -295,16 +338,10 @@ export default function PetCreate() {
             />
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <Pill
-                active={species === "cão"}
-                onClick={() => setSpecies("cão")}
-              >
+              <Pill active={species === "cão"} onClick={() => setSpecies("cão")}>
                 Cão
               </Pill>
-              <Pill
-                active={species === "gato"}
-                onClick={() => setSpecies("gato")}
-              >
+              <Pill active={species === "gato"} onClick={() => setSpecies("gato")}>
                 Gato
               </Pill>
               <span className="mx-1 opacity-30">|</span>
@@ -315,19 +352,13 @@ export default function PetCreate() {
                 Macho
               </Pill>
               <span className="mx-1 opacity-30">|</span>
-              <Pill
-                active={size === "pequeno"}
-                onClick={() => setSize("pequeno")}
-              >
+              <Pill active={size === "pequeno"} onClick={() => setSize("pequeno")}>
                 Pequeno
               </Pill>
               <Pill active={size === "médio"} onClick={() => setSize("médio")}>
                 Médio
               </Pill>
-              <Pill
-                active={size === "grande"}
-                onClick={() => setSize("grande")}
-              >
+              <Pill active={size === "grande"} onClick={() => setSize("grande")}>
                 Grande
               </Pill>
             </div>
@@ -340,11 +371,8 @@ export default function PetCreate() {
         <Card className="p-4 sm:p-6 lg:col-span-2">
           <div className="mb-4">
             <h3 className="font-semibold">Raça</h3>
-            {/* BUSCAR RAÇA — agora fica aqui dentro */}
             <div className="mt-3">
-              <label className="text-xs font-medium opacity-70">
-                Buscar raça
-              </label>
+              <label className="text-xs font-medium opacity-70">Buscar raça</label>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -354,7 +382,6 @@ export default function PetCreate() {
             </div>
           </div>
 
-          {/* tiles menores / responsivo */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {breeds.map((b) => (
               <BreedTile
@@ -406,14 +433,12 @@ export default function PetCreate() {
               </div>
             </div>
           ) : (
-            <p className="opacity-60 text-sm">
-              Selecione uma raça para ver detalhes.
-            </p>
+            <p className="opacity-60 text-sm">Selecione uma raça para ver detalhes.</p>
           )}
         </Card>
       </div>
 
-      {/* Medidas & datas + Sugestões — alinhados entre si */}
+      {/* Medidas & datas */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="p-4 sm:p-6 lg:col-span-2">
           <h3 className="font-semibold mb-4">Medidas & datas</h3>
@@ -499,7 +524,7 @@ export default function PetCreate() {
           </div>
         </Card>
 
-        {/* Sugestões da raça */}
+        {/* Sugestões */}
         <Card className="p-4 sm:p-6">
           <h3 className="font-semibold mb-3">Sugestões da raça</h3>
           {breedInfo ? (
@@ -527,7 +552,7 @@ export default function PetCreate() {
         </Card>
       </div>
 
-      {/* Sobre o pet — largura total */}
+      {/* Sobre o pet */}
       <Card className="p-4 sm:p-6">
         <h3 className="font-semibold mb-3">Sobre o pet</h3>
         <textarea

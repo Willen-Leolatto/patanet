@@ -28,7 +28,17 @@ import {
   replyComment,
   updatePost,
   deletePost,
+  runFeedMediaMigration,
 } from "@/features/feed/services/feedStorage";
+
+import {
+  loadPets,
+  mediaGetUrl, // resolve imagens (IDB) e avatars/covers de pets
+} from "@/features/pets/services/petsStorage";
+
+import {
+  isFollowing as isFollowingUser, // checa se eu sigo alguém
+} from "@/features/users/services/userStorage";
 
 /* -------------------- Normalizadores / utils -------------------- */
 const toArray = (v) => (Array.isArray(v) ? v : Object.values(v || {}));
@@ -68,10 +78,9 @@ const normComment = (c) => ({
 const normPost = (p) => ({
   id: p?.id ?? crypto.randomUUID?.() ?? String(Date.now() + Math.random()),
   text: typeof p?.text === "string" ? p.text : "",
-  // suporta image (string) OU images (array strings)
-  image: typeof p?.image === "string" ? p.image : "",
+  // imagens agora são objetos {id, storage:'idb'|'legacy', kind:'image'} (mas mantemos compat com string legado)
   images: Array.isArray(p?.images)
-    ? p.images
+    ? p.images.slice()
     : typeof p?.image === "string" && p.image
     ? [p.image]
     : [],
@@ -80,6 +89,8 @@ const normPost = (p) => ({
   author: normAuthor(p?.author ?? {}),
   likes: normLikes(p?.likes),
   comments: (p?.comments ? toArray(p.comments) : []).map(normComment),
+  // pets marcados (opcional)
+  taggedPets: Array.isArray(p?.taggedPets) ? p.taggedPets.map(String) : [],
 });
 
 const byDescDate = (a, b) => (b?.createdAt || 0) - (a?.createdAt || 0);
@@ -109,11 +120,20 @@ function AvatarCircle({ src, alt, size = 40, className = "" }) {
 /* -------------------- Modais -------------------- */
 function EditPostModal({ open, post, onClose, onSave }) {
   const [text, setText] = useState(post?.text || "");
-  const [gallery, setGallery] = useState(post?.images || []);
+  // no editor, mostramos urls resolvidas (o storage trata ao salvar)
+  const [gallery, setGallery] = useState(
+    Array.isArray(post?.images)
+      ? post.images.map((im) => (typeof im === "string" ? im : im?.id || ""))
+      : []
+  );
 
   useEffect(() => {
     setText(post?.text || "");
-    setGallery(post?.images || []);
+    setGallery(
+      Array.isArray(post?.images)
+        ? post.images.map((im) => (typeof im === "string" ? im : im?.id || ""))
+        : []
+    );
   }, [post]);
 
   if (!open || !post) return null;
@@ -343,6 +363,33 @@ function DotsMenu({ onEdit, onStats, onDelete }) {
   );
 }
 
+/* -------------------- Faixa de pets marcados -------------------- */
+function TaggedPetsBar({ petIds = [], petThumbs = {} }) {
+  if (!Array.isArray(petIds) || petIds.length === 0) return null;
+  return (
+    <div className="mb-2 -mx-2 px-2">
+      <div className="flex items-center gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
+        {petIds.map((pid) => {
+          const meta = petThumbs[pid] || {};
+          const src = meta.avatarUrl || meta.coverUrl || undefined;
+          const name = meta.name || "Pet";
+          return (
+            <Link
+              key={pid}
+              to={`/pets/${pid}`}
+              title={name}
+              className="group inline-flex items-center gap-2 rounded-full bg-zinc-50 px-2 py-1 text-xs ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-800 dark:ring-zinc-700 dark:hover:bg-zinc-700"
+            >
+              <AvatarCircle src={src || undefined} alt={name} size={26} />
+              <span className="pr-1">{name}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* -------------------- Página Feed -------------------- */
 export default function Feed() {
   const confirm = useConfirm?.() || null;
@@ -363,12 +410,44 @@ export default function Feed() {
 
   const sentinelRef = useRef(null);
 
+  // cache de thumbs dos pets marcados { [petId]: {name, avatarUrl, coverUrl} }
+  const [petThumbs, setPetThumbs] = useState({});
+
+  // cache de URLs de imagens do feed (IDB)
+  const [imageUrls, setImageUrls] = useState({}); // { [imageId]: url }
+
+  const me = user
+    ? {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        email: user.email,
+        avatar: user.image,
+      }
+    : null;
+
   const refresh = useCallback(() => {
     const raw = listPosts() || [];
-    const normalized = raw.map(normPost).sort(byDescDate);
-    setAll(normalized);
+    const normalized = raw.map(normPost);
+
+    // ordenar conforme "seguido por mim?" primeiro e depois por data desc
+    const sorted = normalized.sort((a, b) => {
+      const af = me?.id ? !!isFollowingUser(me.id, a.author?.id) : false;
+      const bf = me?.id ? !!isFollowingUser(me.id, b.author?.id) : false;
+      if (af !== bf) return bf - af; // true (1) primeiro
+      return byDescDate(a, b);
+    });
+
+    setAll(sorted);
+    setVisible((v) => Math.min(Math.max(v, 10), sorted.length || 10));
+  }, [me?.id]);
+
+  useEffect(() => {
+    // roda uma vez por montagem do Feed; segura posts antigos com DataURL
+    runFeedMediaMigration();
   }, []);
 
+  // carrega e observa storage do feed
   useEffect(() => {
     refresh();
     const onUpdate = () => refresh();
@@ -376,6 +455,7 @@ export default function Feed() {
     return () => window.removeEventListener("patanet:feed-updated", onUpdate);
   }, [refresh]);
 
+  // infinite scroll
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
@@ -390,23 +470,144 @@ export default function Feed() {
 
   const items = useMemo(() => all.slice(0, visible), [all, visible]);
 
-  const me = user
-    ? {
-        id: user.id,
-        username: user.username,
-        name: user.name,
-        email: user.email,
-        avatar: user.image,
+  // resolve thumbs de pets marcados (avatarId/coverId) para os posts visíveis
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveTagged() {
+      // coleta ids únicos marcados nos posts visíveis
+      const ids = new Set();
+      for (const p of items) {
+        (p.taggedPets || []).forEach((id) => ids.add(String(id)));
       }
-    : null;
+      if (ids.size === 0) {
+        setPetThumbs({});
+        return;
+      }
+
+      // mapeia via petsStorage
+      const allPets = loadPets() || [];
+      const map = {};
+
+      // pré-resolve URLs
+      await Promise.all(
+        Array.from(ids).map(async (pid) => {
+          const pet = allPets.find((pp) => String(pp.id) === String(pid));
+          if (!pet) return;
+
+          let coverUrl = pet.cover || "";
+          if (!coverUrl && pet.coverId) {
+            try {
+              coverUrl = await mediaGetUrl(pet.coverId);
+            } catch {
+              coverUrl = "";
+            }
+          }
+          let avatarUrl = pet.avatar || "";
+          if (!avatarUrl && pet.avatarId) {
+            try {
+              avatarUrl = await mediaGetUrl(pet.avatarId);
+            } catch {
+              avatarUrl = "";
+            }
+          }
+          if (!avatarUrl) avatarUrl = coverUrl;
+
+          map[pid] = {
+            name: pet.name || "Pet",
+            avatarUrl,
+            coverUrl,
+          };
+        })
+      );
+
+      if (!cancelled) setPetThumbs(map);
+    }
+
+    resolveTagged();
+    return () => {
+      cancelled = true;
+      // revoga blobs se necessário
+      Object.values(petThumbs).forEach(({ avatarUrl, coverUrl }) => {
+        [avatarUrl, coverUrl].forEach((u) => {
+          if (u && typeof u === "string" && u.startsWith("blob:")) {
+            try {
+              URL.revokeObjectURL(u);
+            } catch {}
+          }
+        });
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.map((p) => (p.taggedPets || []).join(",")).join("|")]);
+
+  // resolve imagens do feed (IDB -> objectURL)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveImages() {
+      const ids = new Set();
+      for (const p of items) {
+        (p.images || []).forEach((im) => {
+          if (im && typeof im === "object" && im.storage === "idb" && im.id) {
+            ids.add(String(im.id));
+          }
+        });
+      }
+      if (ids.size === 0) {
+        setImageUrls({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        Array.from(ids).map(async (id) => {
+          try {
+            const url = await mediaGetUrl(id);
+            return [id, url];
+          } catch {
+            return [id, ""];
+          }
+        })
+      );
+
+      if (!cancelled) {
+        const map = {};
+        for (const [k, v] of entries) map[k] = v;
+        setImageUrls(map);
+      }
+    }
+
+    resolveImages();
+    return () => {
+      cancelled = true;
+      Object.values(imageUrls).forEach((u) => {
+        if (u && typeof u === "string" && u.startsWith("blob:")) {
+          try {
+            URL.revokeObjectURL(u);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    items
+      .map((p) =>
+        (p.images || [])
+          .map((im) =>
+            typeof im === "string" ? im : `${im?.id}-${im?.storage}`
+          )
+          .join("|")
+      )
+      .join("||"),
+  ]);
 
   const handleToggleLike = useCallback(
     (postId) => {
       if (!me) return;
       toggleLike(postId, me);
-      refresh();
+      // refresh via evento disparado pelo storage
     },
-    [me, refresh]
+    [me]
   );
 
   const handleAddComment = useCallback(
@@ -414,9 +615,8 @@ export default function Feed() {
       const t = typeof text === "string" ? text.trim() : "";
       if (!me || !t) return;
       addComment(postId, t, me);
-      refresh();
     },
-    [me, refresh]
+    [me]
   );
 
   const handleReplyComment = useCallback(
@@ -424,9 +624,8 @@ export default function Feed() {
       const t = typeof text === "string" ? text.trim() : "";
       if (!me || !t) return;
       replyComment(postId, parentCommentId, t, me);
-      refresh();
     },
-    [me, refresh]
+    [me]
   );
 
   const handleOpenEdit = (post) => {
@@ -434,16 +633,14 @@ export default function Feed() {
     setEdit({ open: true, post });
   };
 
-  const handleSaveEdit = (patched) => {
+  const handleSaveEdit = async (patched) => {
     if (!patched?.id) return;
-    // envia texto e (futuramente) imagens; updatedAt para exibir "Editado"
-    updatePost(patched.id, {
+    await updatePost(patched.id, {
       text: patched.text,
-      images: patched.images,
+      images: patched.images, // o storage converte e salva no IDB
       updatedAt: Date.now(),
     });
     setEdit({ open: false, post: null });
-    refresh();
   };
 
   const handleDelete = async (post) => {
@@ -461,7 +658,6 @@ export default function Feed() {
     }
     if (ok) {
       deletePost(post.id);
-      refresh();
     }
   };
 
@@ -487,6 +683,10 @@ export default function Feed() {
           const commentsCount = (post.comments && post.comments.length) || 0;
           const showComments = !!openComments[post.id];
 
+          const taggedIds = Array.isArray(post.taggedPets)
+            ? post.taggedPets
+            : [];
+
           return (
             <article
               key={post.id}
@@ -499,11 +699,15 @@ export default function Feed() {
                   <Link
                     to={`/perfil/${post.author?.id}`}
                     className="shrink-0"
-                    title={`Ver perfil de ${post.author?.username || post.author?.name || "usuário"}`}
+                    title={`Ver perfil de ${
+                      post.author?.username || post.author?.name || "usuário"
+                    }`}
                   >
                     <AvatarCircle
                       src={post.author?.avatar || ""}
-                      alt={post.author?.username || post.author?.name || "Autor"}
+                      alt={
+                        post.author?.username || post.author?.name || "Autor"
+                      }
                       size={40}
                     />
                   </Link>
@@ -512,7 +716,9 @@ export default function Feed() {
                   <Link
                     to={`/perfil/${post.author?.id}`}
                     className="leading-tight hover:opacity-90"
-                    title={`Ver perfil de ${post.author?.username || post.author?.name || "usuário"}`}
+                    title={`Ver perfil de ${
+                      post.author?.username || post.author?.name || "usuário"
+                    }`}
                   >
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-semibold">
@@ -546,36 +752,58 @@ export default function Feed() {
               {/* Mídias: grid quando houver mais de 1 imagem */}
               {!!post.images?.length && (
                 <div
-                  className={`mb-3 grid gap-2 ${
+                  className={`mb-2 grid gap-2 ${
                     post.images.length > 1 ? "grid-cols-2" : ""
                   }`}
                 >
-                  {post.images.map((src, i) => (
-                    <div key={i} className="overflow-hidden rounded-xl">
-                      <img
-                        src={src || null}
-                        alt=""
-                        className="max-h-[520px] w-full cursor-zoom-in object-cover"
-                        onClick={() => {
-                          const title =
-                            (post.text || "").trim().slice(0, 80) ||
-                            `${
-                              post.author?.username ||
-                              post.author?.name ||
-                              "Post"
-                            } • ${new Date(post.createdAt).toLocaleString()}`;
-                          const slides = (post.images || []).map((url) => ({
-                            id: url,
-                            url,
-                            title,
-                          }));
-                          setLightbox({ open: true, slides, index: i });
-                        }}
-                      />
-                    </div>
-                  ))}
+                  {post.images.map((img, i) => {
+                    // img pode ser string (legado) ou objeto {id, storage}
+                    let src = "";
+                    if (typeof img === "string") {
+                      src = img;
+                    } else if (img && typeof img === "object") {
+                      if (img.storage === "idb") src = imageUrls[img.id] || "";
+                      else if (img.storage === "legacy") src = img.id || "";
+                    }
+                    const title =
+                      (post.text || "").trim().slice(0, 80) ||
+                      `${
+                        post.author?.username || post.author?.name || "Post"
+                      } • ${new Date(post.createdAt).toLocaleString()}`;
+
+                    return (
+                      <div key={i} className="overflow-hidden rounded-xl">
+                        <img
+                          src={src || undefined}
+                          alt=""
+                          className="max-h-[520px] w-full cursor-zoom-in object-cover"
+                          onClick={() => {
+                            const slides = (post.images || []).map(
+                              (im, idx) => {
+                                let u = "";
+                                if (typeof im === "string") u = im;
+                                else if (im?.storage === "idb")
+                                  u = imageUrls[im.id] || "";
+                                else if (im?.storage === "legacy")
+                                  u = im.id || "";
+                                return {
+                                  id: im?.id || String(idx),
+                                  url: u,
+                                  title,
+                                };
+                              }
+                            );
+                            setLightbox({ open: true, slides, index: i });
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+
+              {/* Pets marcados (se houver) */}
+              <TaggedPetsBar petIds={taggedIds} petThumbs={petThumbs} />
 
               {/* Ações (curtir/comentar toggle) */}
               <FeedPostActions
@@ -585,7 +813,6 @@ export default function Feed() {
                 onLike={() => handleToggleLike(post.id)}
                 onComment={() => toggleComments(post.id)}
                 onStats={() => handleOpenStats(post)}
-                // edição/remoção ficam no menu ⋯
               />
 
               {/* Collapse de comentários */}
@@ -653,8 +880,7 @@ function CommentsBlock({ post, user, onAddComment, onReply }) {
     setEditingText("");
   };
   const saveEdit = () => {
-    // Por enquanto, o feedStorage ainda não expõe updateComment/updateReply.
-    // Vamos só fechar o editor (persistência virá quando ajustarmos o storage).
+    // Ainda não persistimos edição de comentários (há API no feedStorage).
     setEditing(null);
     setEditingText("");
   };
@@ -710,11 +936,15 @@ function CommentsBlock({ post, user, onAddComment, onReply }) {
                 <Link
                   to={`/perfil/${c.author?.id}`}
                   className="shrink-0"
-                  title={`Ver perfil de ${c.author?.username || c.author?.name || "usuário"}`}
+                  title={`Ver perfil de ${
+                    c.author?.username || c.author?.name || "usuário"
+                  }`}
                 >
                   <AvatarCircle
                     src={c.author?.avatar || ""}
-                    alt={c.author?.username || c.author?.name || c.author?.email}
+                    alt={
+                      c.author?.username || c.author?.name || c.author?.email
+                    }
                     size={32}
                   />
                 </Link>
@@ -725,7 +955,9 @@ function CommentsBlock({ post, user, onAddComment, onReply }) {
                     <Link
                       to={`/perfil/${c.author?.id}`}
                       className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
-                      title={`Ver perfil de ${c.author?.username || c.author?.name || "usuário"}`}
+                      title={`Ver perfil de ${
+                        c.author?.username || c.author?.name || "usuário"
+                      }`}
                     >
                       {c.author?.username || c.author?.name || c.author?.email}
                     </Link>
@@ -804,7 +1036,11 @@ function CommentsBlock({ post, user, onAddComment, onReply }) {
                               <Link
                                 to={`/perfil/${r.author?.id}`}
                                 className="shrink-0"
-                                title={`Ver perfil de ${r.author?.username || r.author?.name || "usuário"}`}
+                                title={`Ver perfil de ${
+                                  r.author?.username ||
+                                  r.author?.name ||
+                                  "usuário"
+                                }`}
                               >
                                 <AvatarCircle
                                   src={r.author?.avatar || ""}
@@ -822,7 +1058,11 @@ function CommentsBlock({ post, user, onAddComment, onReply }) {
                                   <Link
                                     to={`/perfil/${r.author?.id}`}
                                     className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
-                                    title={`Ver perfil de ${r.author?.username || r.author?.name || "usuário"}`}
+                                    title={`Ver perfil de ${
+                                      r.author?.username ||
+                                      r.author?.name ||
+                                      "usuário"
+                                    }`}
                                   >
                                     {r.author?.username ||
                                       r.author?.name ||
