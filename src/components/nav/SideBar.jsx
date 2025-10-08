@@ -17,28 +17,20 @@ import {
   Moon,
   ChevronLeft,
   ChevronRight,
+  X,
 } from "lucide-react";
 
 import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
 import AvatarCircle from "@/components/AvatarCircle";
 
 const SIDEBAR_W = 280;
+const LS_DESKTOP_OPEN_KEY = "patanet:sidebar:desktop-open";
 
 export default function Sidebar() {
   const { pathname } = useLocation();
 
   // não renderiza em rotas de auth
   if (/^\/(login|signup|auth)\b/.test(pathname)) return null;
-
-  // pega o slice de auth (funciona com Context e com Zustand)
-  const authSlice =
-    typeof useAuth === "function" && useAuth.length > 0
-      ? useAuth((s) => s)
-      : useAuth();
-
-  // ——— usuario “defensivo” (cobre diferentes formatos)
-  const rawUser =
-    authSlice?.user ?? authSlice?.currentUser ?? authSlice?.me ?? null;
 
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
@@ -50,7 +42,6 @@ export default function Sidebar() {
   const [isMdUp, setIsMdUp] = useState(false);
 
   const [myPets, setMyPets] = useState([]);
-  // urls resolvidas para os avatares de pets (via IDB)
   const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { avatarUrl, coverUrl } }
 
   const [overflow, setOverflow] = useState(false);
@@ -64,23 +55,45 @@ export default function Sidebar() {
     document.documentElement.style.setProperty("--sidebar-ml", ml);
   }
 
+  // fecha o menu se for mobile
+  const closeIfMobile = () => {
+    if (!isMdUp) {
+      setOpen(false);
+      applyContentSpacing(false, false);
+    }
+  };
+
+  // estado inicial e reação ao breakpoint
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
     const handle = () => {
-      setIsMdUp(mq.matches);
-      setOpen(mq.matches);
-      applyContentSpacing(mq.matches, mq.matches);
+      const md = mq.matches;
+      setIsMdUp(md);
+
+      if (md) {
+        // desktop: respeita a última preferência do usuário (persistida)
+        const stored = localStorage.getItem(LS_DESKTOP_OPEN_KEY);
+        const wantOpen = stored == null ? true : stored === "1";
+        setOpen(wantOpen);
+        applyContentSpacing(wantOpen, true);
+      } else {
+        // mobile: sempre fechado por padrão
+        setOpen(false);
+        applyContentSpacing(false, false);
+      }
     };
     handle();
     mq.addEventListener("change", handle);
     return () => mq.removeEventListener("change", handle);
   }, []);
 
+  // evento global para abrir/fechar via botão de hambúrguer (caso exista)
   useEffect(() => {
     const onToggle = () => {
       setOpen((v) => {
         const next = !v;
         applyContentSpacing(next, isMdUp);
+        if (isMdUp) localStorage.setItem(LS_DESKTOP_OPEN_KEY, next ? "1" : "0");
         return next;
       });
     };
@@ -88,10 +101,11 @@ export default function Sidebar() {
     return () => window.removeEventListener("patanet:sidebar-toggle", onToggle);
   }, [isMdUp]);
 
+  // FECHA ao mudar de rota no mobile
   useEffect(() => {
     if (!isMdUp) {
-      setOpen(true);
-      applyContentSpacing(true, true);
+      setOpen(false);
+      applyContentSpacing(false, false);
     }
   }, [pathname, isMdUp]);
 
@@ -116,7 +130,6 @@ export default function Sidebar() {
     async function resolveThumbs() {
       const pairs = await Promise.all(
         (myPets || []).map(async (p) => {
-          // COVER
           let coverUrl = p.cover || "";
           if (!coverUrl && p.coverId) {
             try {
@@ -125,7 +138,6 @@ export default function Sidebar() {
               coverUrl = "";
             }
           }
-          // AVATAR
           let avatarUrl = p.avatar || "";
           if (!avatarUrl && p.avatarId) {
             try {
@@ -134,9 +146,7 @@ export default function Sidebar() {
               avatarUrl = "";
             }
           }
-          // fallback para cover quando não houver avatar
           if (!avatarUrl) avatarUrl = coverUrl;
-
           return [p.id, { coverUrl, avatarUrl }];
         })
       );
@@ -151,7 +161,6 @@ export default function Sidebar() {
     resolveThumbs();
     return () => {
       cancelled = true;
-      // revoga objectURLs
       Object.values(petThumbs).forEach(({ avatarUrl, coverUrl }) => {
         [avatarUrl, coverUrl].forEach((u) => {
           if (u && typeof u === "string" && u.startsWith("blob:")) {
@@ -173,6 +182,7 @@ export default function Sidebar() {
     return (
       <Link
         to={to}
+        onClick={closeIfMobile}
         className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
           active
             ? "bg-white/10 text-white"
@@ -199,9 +209,7 @@ export default function Sidebar() {
     };
   }, [myPets.length]);
 
-  // avatar do usuário logado
   const userAvatar = user?.image || user?.photoURL || user?.avatar || "";
-
   const userName =
     user?.username ||
     user?.displayName ||
@@ -230,9 +238,28 @@ export default function Sidebar() {
         "
         style={{ transform: open ? "translateX(0)" : "translateX(-280px)" }}
       >
-        <div className="flex h-full flex-col gap-6 p-4">
+        <div className="relative flex h-full flex-col gap-6 p-4">
+          {/* Botão FECHAR no mobile (posicionado abaixo da status bar) */}
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              applyContentSpacing(false, false);
+            }}
+            className="md:hidden absolute right-3 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm"
+            style={{
+              top: "calc(env(safe-area-inset-top, 0px) + 14px)", // desce o botão
+            }}
+            aria-label="Fechar menu"
+            title="Fechar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
           {/* Logo / título */}
-          <div className="px-1 text-lg font-semibold text-white">PataNet</div>
+          <div className="px-1 text-lg font-semibold text-white mt-8 md:mt-0">
+            PataNet
+          </div>
 
           {/* ===== Seus pets ===== */}
           {user && (
@@ -245,6 +272,7 @@ export default function Sidebar() {
                 {/* Botão Novo Pet */}
                 <Link
                   to="/pets/novo"
+                  onClick={closeIfMobile}
                   className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white hover:opacity-90"
                   title="Adicionar pet"
                 >
@@ -269,6 +297,7 @@ export default function Sidebar() {
                         <Link
                           key={p.id}
                           to={`/pets/${p.id}`}
+                          onClick={closeIfMobile}
                           className="group relative shrink-0 snap-start"
                           title={p.name}
                         >
@@ -318,10 +347,9 @@ export default function Sidebar() {
           {/* Rodapé da sidebar */}
           <div className="rounded-xl bg-[#606873] p-3 text-white">
             <div className="flex items-center gap-3">
-              {/* Avatar do usuário (ou placeholder) */}
               <AvatarCircle
-                src={user ? userAvatar || undefined : undefined}
-                alt={userName}
+                src={user ? userAvatarOrFallback(user) : undefined}
+                alt={user?.username || user?.name || "Usuário"}
                 size={36}
                 className="ring-1 ring-white/10"
               />
@@ -329,7 +357,9 @@ export default function Sidebar() {
               <div className="flex-1">
                 <div className="text-xs opacity-80">Olá</div>
                 <div className="text-sm font-medium">
-                  {user ? userName : "Visitante"}
+                  {user
+                    ? user.username || user.displayName || user.name || user.email
+                    : "Visitante"}
                 </div>
               </div>
 
@@ -347,7 +377,10 @@ export default function Sidebar() {
 
               {user ? (
                 <button
-                  onClick={logout}
+                  onClick={() => {
+                    logout();
+                    closeIfMobile();
+                  }}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-white/10 px-2 text-xs"
                   title="Sair"
                 >
@@ -357,6 +390,7 @@ export default function Sidebar() {
               ) : (
                 <Link
                   to="/login"
+                  onClick={closeIfMobile}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-white/10 px-2 text-xs"
                   title="Entrar"
                 >
@@ -367,15 +401,16 @@ export default function Sidebar() {
             </div>
           </div>
 
-          {/* Botão retrair/expandir no desktop */}
+          {/* Botão retrair/expandir no DESKTOP */}
           <button
             type="button"
             onClick={() => {
               const next = !open;
               setOpen(next);
               applyContentSpacing(next, true);
+              localStorage.setItem(LS_DESKTOP_OPEN_KEY, next ? "1" : "0");
             }}
-            className="hidden md:flex absolute -right-3 top-6 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[var(--sidebar-bg)] text-[var(--sidebar-fg)] shadow transition-opacity hover:opacity-100"
+            className="hidden md:flex absolute -right-3 top-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[var(--sidebar-bg)] text-[var(--sidebar-fg)] shadow transition-opacity hover:opacity-100"
             title={open ? "Retrair menu" : "Expandir menu"}
             aria-label="Retrair menu"
             aria-expanded={open}
@@ -390,4 +425,9 @@ export default function Sidebar() {
       </aside>
     </>
   );
+}
+
+/* Helpers */
+function userAvatarOrFallback(user) {
+  return user?.image || user?.photoURL || user?.avatar || "";
 }
