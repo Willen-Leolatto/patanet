@@ -6,6 +6,9 @@ import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import "yet-another-react-lightbox/styles.css";
 import "yet-another-react-lightbox/plugins/captions.css";
 
+// 👇 importado do AppShell
+import { registerBackHandler } from "@/layouts/AppShell";
+
 /**
  * slides: [{ id, url|src, title|description }]
  * open, index, onClose, onIndexChange
@@ -51,6 +54,16 @@ export default function Lightbox({
     }
   }, [open]);
 
+  // 👇 registra um handler de back enquanto o lightbox está aberto
+  useEffect(() => {
+    if (!open) return;
+    const unregister = registerBackHandler(() => {
+      onClose?.();
+      return true; // tratou o back
+    });
+    return unregister;
+  }, [open, onClose]);
+
   return (
     <YaLightbox
       open={open}
@@ -65,17 +78,17 @@ export default function Lightbox({
       on={{ view: ({ index: i }) => onIndexChange?.(i) }}
       // Config do Zoom (desktop: roda do mouse; mobile: pinch/duplo toque)
       zoom={{
-        maxZoomPixelRatio: 3.2,            // até ~3x
-        zoomInMultiplier: 1.5,             // passo do zoom
-        doubleTapDelay: 260,               // duplo toque
-        doubleClickDelay: 260,             // duplo clique
-        doubleClickMaxStops: 2,            // quantos "steps" no duplo clique
+        maxZoomPixelRatio: 3.2,
+        zoomInMultiplier: 1.5,
+        doubleTapDelay: 260,
+        doubleClickDelay: 260,
+        doubleClickMaxStops: 2,
         keyboardMoveDistance: 50,
-        wheelZoomDistanceFactor: 180,      // sensibilidade do scroll
-        pinchZoomDistanceFactor: 2,        // sensibilidade do pinch
-        scrollToZoom: true,                // habilita zoom com scroll
+        wheelZoomDistanceFactor: 180,
+        pinchZoomDistanceFactor: 2,
+        scrollToZoom: true,
       }}
-      // Barra de ações personalizada (continua igual)
+      // Barra de ações personalizada (mantida)
       render={{
         toolbar: ({ index: i }) => {
           const current = lbSlides[i];
@@ -133,7 +146,7 @@ export default function Lightbox({
         },
       }}
       styles={{
-        container: { backgroundColor: "rgba(0,0,0,0.85)" }, // backdrop
+        container: { backgroundColor: "rgba(0,0,0,0.85)" },
       }}
     />
   );

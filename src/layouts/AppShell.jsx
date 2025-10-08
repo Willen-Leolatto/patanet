@@ -1,8 +1,20 @@
 // src/components/layout/AppShell.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import SideBar from "@/components/nav/SideBar";
 import { useAuth } from "@/store/auth";
+
+// 👇 adicionados
+import { Capacitor } from "@capacitor/core";
+import { App as CapApp } from "@capacitor/app";
+
+// Handlers globais para interceptar o botão voltar (ex.: Lightbox / Modais)
+const _backHandlers = new Set();
+/** Registre uma função que retorna true se tratou o back (ex.: fechar modal) */
+export function registerBackHandler(fn) {
+  _backHandlers.add(fn);
+  return () => _backHandlers.delete(fn);
+}
 
 export default function AppShell() {
   const { pathname } = useLocation();
@@ -50,6 +62,43 @@ export default function AppShell() {
       document.documentElement.style.setProperty("--sidebar-ml", "0px");
     }
   }, [isAuthRoute, user]);
+
+  // 👇 Listener do botão voltar (Android/Capacitor)
+  const exitArmedRef = useRef(false);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform?.()) return;
+
+    const sub = CapApp.addListener("backButton", ({ canGoBack }) => {
+      // 1) Overlays/Modais (Lightbox etc.)
+      for (const fn of Array.from(_backHandlers)) {
+        try {
+          if (fn?.() === true) return; // tratado
+        } catch {}
+      }
+
+      // 2) Navegação (evita voltar pra /auth)
+      const onAuth = /^\/auth(\/|$)/.test(pathname);
+      if (canGoBack && !onAuth) {
+        navigate(-1);
+        return;
+      }
+
+      // 3) Raiz → duplo toque para sair
+      if (!exitArmedRef.current) {
+        exitArmedRef.current = true;
+        // Feedback mínimo sem UI extra:
+        // eslint-disable-next-line no-console
+        console.log("Pressione voltar novamente para sair.");
+        setTimeout(() => (exitArmedRef.current = false), 1500);
+      } else {
+        CapApp.exitApp();
+      }
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, [pathname, navigate]);
 
   // Enquanto esperamos curta janela de hidratação, mostra loader simples
   if (!isHydrated) {
