@@ -1,29 +1,23 @@
 import { http } from './axios.js'
 
-export async function addLikePost({ postId }) {
-  const response = await http.post(`/posts/like/${postId}`)
-  return response.data
-}
-
-export async function removeLikePost({ postId }) {
-  const response = await http.delete(`/posts/like/${postId}`)
-  return response.data
-}
-
-export async function addCommentPost({ postId, message, parentId }) {
-  const response = await http.post(`/posts/comment/${postId}`, {
-    message, parentId
-  })
-  return response.data
-}
-
-export async function removeCommentPost({ postId, commentId }) {
-  const response = await http.delete(`posts/${postId}/comment/${commentId}`)
-  return response.data
-}
 
 export async function createPost({ subtitle, pets, medias }) {
-  const response = await http.post('/posts', { subtitle, pets, medias })
+  const formData = new FormData()
+  formData.append('subtitle', subtitle)
+
+  if (Array.isArray(pets)) {
+    for (const pet of pets) {
+      formData.append('pets[]', pet)
+    }
+  }
+
+  if (Array.isArray(medias)) {
+    for (const media of medias) {
+      formData.append('medias[]', media)
+    }
+  }
+
+  const response = await http.post('/posts', formData)
   return response.data
 }
 
@@ -67,36 +61,3 @@ export async function getPostById({ postId }) {
   const response = await http.get(`/posts/${postId}`)
   return response.data
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
