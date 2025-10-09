@@ -335,11 +335,11 @@ export default function Sidebar() {
           {/* Navegação secundária */}
           <nav className="flex flex-col gap-1">
             <NavItem to="/perfil" icon={User} label="Perfil" />
-            <NavItem
+            {/* <NavItem
               to="/dashboard/configuracoes"
               icon={Settings}
               label="Configurações"
-            />
+            /> */}
           </nav>
 
           <div className="mt-auto" />

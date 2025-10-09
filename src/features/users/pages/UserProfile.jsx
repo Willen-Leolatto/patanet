@@ -14,7 +14,7 @@ import { getUserById as getAuthUserById } from "@/features/auth/services/authSto
 import {
   loadPets,
   removePet,
-  mediaGetUrl, // resolve avatarId/coverId
+  mediaGetUrl,
 } from "@/features/pets/services/petsStorage";
 import Lightbox from "@/components/Lightbox";
 import {
@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
-/* Perfil visual (capa/bio/site/local) legado                                 */
+/* Perfil visual (capa/site/local) legado (mantido para compat)               */
 /* -------------------------------------------------------------------------- */
 const PROFILE_KEY = "patanet_user_profiles";
 function readProfiles() {
@@ -48,6 +48,7 @@ function writeProfiles(map) {
 }
 function getProfile(uid) {
   const map = readProfiles();
+  // bio aqui é legado, NÃO é mais usada na exibição
   return map[uid] || { cover: "", bio: "", website: "", location: "" };
 }
 function patchProfile(uid, patch) {
@@ -57,20 +58,6 @@ function patchProfile(uid, patch) {
 }
 
 /* --------------------------------- utils UI -------------------------------- */
-function SafeImg({ src, alt = "", className = "" }) {
-  if (!src) {
-    return (
-      <div
-        className={`grid place-items-center bg-[var(--chip-bg)] text-[var(--chip-fg)] ${className}`}
-        role="img"
-        aria-label={alt}
-      >
-        <ImageIcon className="h-6 w-6 opacity-60" />
-      </div>
-    );
-  }
-  return <img src={src || undefined} alt={alt} className={className} />;
-}
 function Avatar({ src, alt, size = 96, className = "" }) {
   if (!src) {
     return (
@@ -101,7 +88,7 @@ const fmtDate = (iso) =>
 
 /* ---------------------------------- página --------------------------------- */
 export default function UserProfile() {
-  const { userId } = useParams(); // /usuario/:userId | /perfil
+  const { userId } = useParams();
   const authUser = useAuth((s) => s.user);
 
   const currentId =
@@ -113,27 +100,72 @@ export default function UserProfile() {
   const viewedId = userId || currentId;
   const isOwn = !!currentId && String(viewedId) === String(currentId);
 
-  // dados do usuário exibido
   const [viewedUser, setViewedUser] = useState(null);
 
-  // urls resolvidas de avatar/capa do usuário
   const [coverUrl, setCoverUrl] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
 
-  // perfil visual legado (bio/site/local/capa antiga)
+  // ainda usamos website/location/capa legados
   const [profile, setProfile] = useState(getProfile(viewedId));
+  useEffect(() => setProfile(getProfile(viewedId)), [viewedId]);
 
-  useEffect(() => {
-    setProfile(getProfile(viewedId));
-  }, [viewedId]);
-
-  useEffect(() => {
+  const rebuildViewedUser = React.useCallback(() => {
     if (!viewedId) return;
 
+    let u = getUserCatalogById?.(viewedId);
+
     if (isOwn) {
-      const u = authUser || {};
-      setViewedUser({
-        id: u.id || u.uid || currentId,
+      const a = authUser || {};
+      const merged = {
+        id: a.id || a.uid || viewedId,
+        name: (u?.name && String(u.name)) || a.name || a.displayName || "",
+        username: (u?.username && String(u.username)) || a.username || "",
+        email: (u?.email && String(u.email)) || a.email || "",
+        image:
+          (u?.image && String(u.image)) ||
+          a.image ||
+          a.avatar ||
+          a.photoURL ||
+          "",
+        avatar:
+          (u?.avatar && String(u.avatar)) ||
+          a.avatar ||
+          a.image ||
+          a.photoURL ||
+          "",
+        avatarId: (u?.avatarId && String(u.avatarId)) || a.avatarId || "",
+        cover: (u?.cover && String(u.cover)) || a.cover || "",
+        coverId: (u?.coverId && String(u.coverId)) || a.coverId || "",
+        bio: (u?.bio && String(u.bio)) || a.bio || "", // <- bio do catálogo
+        createdAt: u?.createdAt || a.createdAt || Date.now(),
+      };
+      setViewedUser(merged);
+      return;
+    }
+
+    if (!u) {
+      const old = getAuthUserById?.(viewedId);
+      if (old) {
+        u = {
+          id: old.id || old.uid || viewedId,
+          name: old.name || old.displayName || "",
+          username: old.username || "",
+          email: old.email || "",
+          image: old.image || old.avatar || old.photoURL || "",
+          avatar: old.avatar || old.image || "",
+          avatarId: old.avatarId || "",
+          cover: old.cover || "",
+          coverId: old.coverId || "",
+          bio: old.bio || "",
+          createdAt: old.createdAt || Date.now(),
+        };
+        try {
+          upsertCatalogUser(u);
+        } catch {}
+      }
+    } else {
+      u = {
+        id: u.id || viewedId,
         name: u.name || u.displayName || "",
         username: u.username || "",
         email: u.email || "",
@@ -142,80 +174,42 @@ export default function UserProfile() {
         avatarId: u.avatarId || "",
         cover: u.cover || "",
         coverId: u.coverId || "",
+        bio: u.bio || "",
         createdAt: u.createdAt || Date.now(),
-      });
-    } else {
-      // 1) tenta catálogo (userStorage)
-      let u = getUserCatalogById?.(viewedId);
-      // 2) fallback para authStorage (usuários antigos)
-      if (!u) {
-        const old = getAuthUserById?.(viewedId);
-        if (old) {
-          u = {
-            id: old.id || old.uid || viewedId,
-            name: old.name || old.displayName || "",
-            username: old.username || "",
-            email: old.email || "",
-            image: old.image || old.avatar || old.photoURL || "",
-            avatar: old.avatar || old.image || "",
-            avatarId: old.avatarId || "",
-            cover: old.cover || "",
-            coverId: old.coverId || "",
-            createdAt: old.createdAt || Date.now(),
-          };
-          try {
-            upsertCatalogUser({
-              id: u.id,
-              name: u.name,
-              username: u.username,
-              email: u.email,
-              image: u.image,
-              avatar: u.avatar,
-              avatarId: u.avatarId,
-              cover: u.cover,
-              coverId: u.coverId,
-              createdAt: u.createdAt,
-            });
-          } catch {}
-        }
-      } else {
-        // normaliza campos
-        u = {
-          id: u.id || viewedId,
-          name: u.name || u.displayName || "",
-          username: u.username || "",
-          email: u.email || "",
-          image: u.image || u.avatar || u.photoURL || "",
-          avatar: u.avatar || u.image || "",
-          avatarId: u.avatarId || "",
-          cover: u.cover || "",
-          coverId: u.coverId || "",
-          createdAt: u.createdAt || Date.now(),
-        };
-      }
-      setViewedUser(
-        u || {
-          id: viewedId,
-          name: "",
-          username: "",
-          email: "",
-          image: "",
-          avatar: "",
-          avatarId: "",
-          cover: "",
-          coverId: "",
-          createdAt: Date.now(),
-        }
-      );
+      };
     }
-  }, [isOwn, viewedId, currentId, authUser]);
+    setViewedUser(
+      u || {
+        id: viewedId,
+        name: "",
+        username: "",
+        email: "",
+        image: "",
+        avatar: "",
+        avatarId: "",
+        cover: "",
+        coverId: "",
+        bio: "",
+        createdAt: Date.now(),
+      }
+    );
+  }, [authUser, isOwn, viewedId]);
 
-  // resolve avatar/capa do usuário (preferência: user -> IDs -> legado profile.cover)
+  useEffect(() => {
+    rebuildViewedUser();
+  }, [rebuildViewedUser]);
+
+  useEffect(() => {
+    const onUsersUpdated = () => rebuildViewedUser();
+    window.addEventListener("patanet:users-updated", onUsersUpdated);
+    return () =>
+      window.removeEventListener("patanet:users-updated", onUsersUpdated);
+  }, [rebuildViewedUser]);
+
   useEffect(() => {
     let cancelled = false;
     async function resolveUserMedia() {
       const u = viewedUser || {};
-      // COVER
       let c =
         (typeof u.cover === "string" && u.cover.length > 0 && u.cover) || "";
       if (!c && u.coverId) {
@@ -225,9 +219,8 @@ export default function UserProfile() {
           c = "";
         }
       }
-      if (!c && profile?.cover) c = profile.cover; // fallback legado
+      if (!c && profile?.cover) c = profile.cover;
 
-      // AVATAR
       let a =
         (typeof u.avatar === "string" && u.avatar.length > 0 && u.avatar) ||
         (typeof u.image === "string" && u.image.length > 0 && u.image) ||
@@ -239,7 +232,7 @@ export default function UserProfile() {
           a = "";
         }
       }
-      if (!a) a = c; // último fallback: usa capa como avatar
+      if (!a) a = c;
 
       if (!cancelled) {
         setCoverUrl(c || "");
@@ -254,7 +247,6 @@ export default function UserProfile() {
 
   const fixedUser = viewedUser || { id: viewedId, username: "" };
 
-  // pets do usuário
   const [pets, setPets] = useState([]);
   useEffect(() => {
     const refresh = () => {
@@ -269,14 +261,12 @@ export default function UserProfile() {
     return () => window.removeEventListener("patanet:pets-updated", refresh);
   }, [viewedId]);
 
-  // URLs resolvidas para avatar/capa de cada pet
-  const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { coverUrl, avatarUrl } }
+  const [petThumbs, setPetThumbs] = useState({});
   useEffect(() => {
     let cancelled = false;
     async function resolveAll() {
       const pairs = await Promise.all(
         (pets || []).map(async (p) => {
-          // COVER
           let cover = p.cover || "";
           if (!cover && p.coverId) {
             try {
@@ -285,7 +275,6 @@ export default function UserProfile() {
               cover = "";
             }
           }
-          // AVATAR
           let avatar = p.avatar || "";
           if (!avatar && p.avatarId) {
             try {
@@ -295,7 +284,6 @@ export default function UserProfile() {
             }
           }
           if (!avatar) avatar = cover;
-
           return [p.id, { coverUrl: cover || "", avatarUrl: avatar || "" }];
         })
       );
@@ -308,7 +296,6 @@ export default function UserProfile() {
     resolveAll();
     return () => {
       cancelled = true;
-      // revoga objectURLs
       Object.values(petThumbs).forEach(({ coverUrl: c, avatarUrl: a }) => {
         [c, a].forEach((u) => {
           if (u && typeof u === "string" && u.startsWith("blob:")) {
@@ -322,7 +309,6 @@ export default function UserProfile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pets.length]);
 
-  // followers/following (contadores reativos)
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [iFollow, setIFollow] = useState(false);
@@ -339,10 +325,8 @@ export default function UserProfile() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewedId, currentId, isOwn]);
 
-  // lightbox
   const [lb, setLb] = useState({ open: false, slides: [], index: 0 });
 
-  // edição de capa legado (só visual, mantém compat)
   const fileRef = useRef(null);
   const onPickCover = async (e) => {
     const f = e.target.files?.[0];
@@ -353,7 +337,6 @@ export default function UserProfile() {
     e.target.value = "";
   };
 
-  // editar bio/site/local
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profile);
   useEffect(() => setDraft(profile), [profile]);
@@ -363,7 +346,6 @@ export default function UserProfile() {
     patchProfile(viewedId, draft);
   };
 
-  // métricas simples
   const metrics = useMemo(() => {
     const totalPets = pets.length;
     const totalMedia = pets.reduce(
@@ -373,7 +355,6 @@ export default function UserProfile() {
     return { totalPets, totalMedia };
   }, [pets]);
 
-  // ações
   const handleRemovePet = (pet) => {
     if (!isOwn || !pet?.id) return;
     if (!window.confirm(`Remover "${pet.name}"?`)) return;
@@ -383,25 +364,22 @@ export default function UserProfile() {
   const toggleFollowAction = () => {
     if (!currentId || isOwn) return;
     toggleFollow(currentId, viewedId);
-    refreshFollows();
   };
 
-  // helpers
   const openLightbox = (slides, index = 0) =>
     setLb({ open: true, slides, index });
 
-  if (!fixedUser) {
-    return null;
-  }
+  if (!viewedUser) return null;
 
-  const displayName = fixedUser.name || fixedUser.username || "Usuário";
-  const displayUsername = fixedUser.username ? `@${fixedUser.username}` : fixedUser.email || "";
+  const displayName = viewedUser.name || viewedUser.username || "Usuário";
+  const displayUsername = viewedUser.username
+    ? `@${viewedUser.username}`
+    : viewedUser.email || "";
 
   return (
     <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
       {/* HEADER */}
       <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        {/* Capa maior */}
         <div className="relative h-56 w-full bg-gradient-to-r from-orange-300 to-rose-300 dark:from-orange-800 dark:to-rose-800 md:h-72">
           {coverUrl ? (
             <img
@@ -410,13 +388,7 @@ export default function UserProfile() {
               className="h-full w-full object-cover"
               onClick={() =>
                 openLightbox(
-                  [
-                    {
-                      id: "cover",
-                      url: coverUrl,
-                      title: fixedUser.username || fixedUser.name,
-                    },
-                  ],
+                  [{ id: "cover", url: coverUrl, title: viewedUser.username || viewedUser.name }],
                   0
                 )
               }
@@ -425,7 +397,6 @@ export default function UserProfile() {
             <div className="h-full w-full" />
           )}
 
-          {/* Botão de alterar capa (apenas no próprio) */}
           {isOwn && (
             <button
               className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white backdrop-blur hover:bg-black/70"
@@ -443,17 +414,11 @@ export default function UserProfile() {
             onChange={onPickCover}
           />
 
-          {/* Avatar sobreposto à capa */}
           <div className="absolute left-6 -bottom-12 z-10">
-            <Avatar
-              src={avatarUrl}
-              alt={displayName}
-              size={104}
-            />
+            <Avatar src={avatarUrl} alt={displayName} size={104} />
           </div>
         </div>
 
-        {/* Barra inferior do header */}
         <div className="relative px-4 pb-4 pt-14 md:px-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-6">
             <div className="min-w-0">
@@ -463,7 +428,6 @@ export default function UserProfile() {
               <div className="text-xs text-zinc-500">{displayUsername}</div>
             </div>
 
-            {/* métricas + ações */}
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <Metric label="Pets" value={metrics.totalPets} />
               <Metric label="Mídias" value={metrics.totalMedia} />
@@ -500,8 +464,9 @@ export default function UserProfile() {
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Sobre
                   </div>
+                  {/* EXIBE A BIO DO USUÁRIO (userStorage) */}
                   <p className="whitespace-pre-wrap">
-                    {profile.bio?.trim() ? profile.bio : "Sem descrição."}
+                    {viewedUser?.bio?.trim() ? viewedUser.bio : "Sem descrição."}
                   </p>
                 </div>
 
@@ -527,7 +492,7 @@ export default function UserProfile() {
                   </div>
                   <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
                     <CalendarDays className="h-4 w-4 opacity-70" />
-                    <span>Membro desde {fmtMemberSince(fixedUser)}</span>
+                    <span>Membro desde {fmtMemberSince(viewedUser)}</span>
                   </div>
                 </div>
               </div>
@@ -539,9 +504,10 @@ export default function UserProfile() {
                   saveProfile();
                 }}
               >
+                {/* Mantemos edição local apenas para website/localização legados */}
                 <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Sobre
+                    Sobre (legado)
                   </label>
                   <textarea
                     className="w-full rounded-lg border border-zinc-200 bg-white p-2 outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
@@ -615,12 +581,12 @@ export default function UserProfile() {
         </div>
       </section>
 
-      {/* PETS desse usuário */}
+      {/* PETS */}
       <section className="mt-6">
         <div className="mb-3 flex items-center justify-between">
           <div className="inline-flex items-center gap-2 text-sm font-medium opacity-80">
             <PawPrint className="h-4 w-4" />
-            Pets de {isOwn ? "você" : fixedUser.username || "usuário"}
+            Pets de {isOwn ? "você" : viewedUser.username || "usuário"}
           </div>
           {isOwn && (
             <Link
@@ -657,13 +623,7 @@ export default function UserProfile() {
                           onClick={(e) => {
                             e.preventDefault();
                             openLightbox(
-                              [
-                                {
-                                  id: p.id + "-cover",
-                                  url: cover,
-                                  title: p.name,
-                                },
-                              ],
+                              [{ id: p.id + "-cover", url: cover, title: p.name }],
                               0
                             );
                           }}
@@ -685,13 +645,7 @@ export default function UserProfile() {
                           className="h-12 w-12 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900"
                           onClick={() =>
                             openLightbox(
-                              [
-                                {
-                                  id: p.id + "-avatar",
-                                  url: avatar,
-                                  title: p.name,
-                                },
-                              ],
+                              [{ id: p.id + "-avatar", url: avatar, title: p.name }],
                               0
                             )
                           }
@@ -747,7 +701,6 @@ export default function UserProfile() {
         )}
       </section>
 
-      {/* LIGHTBOX */}
       {lb.open && (
         <Lightbox
           open={lb.open}

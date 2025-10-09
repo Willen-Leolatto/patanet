@@ -22,10 +22,7 @@ import {
 } from "@/features/pets/services/petsStorage";
 
 // userStorage existente
-import {
-  getUserById,
-  updateUser,
-} from "@/features/users/services/userStorage";
+import { getUserById, updateUser } from "@/features/users/services/userStorage";
 
 /* ----------------------------------------------------------------------------
  * SETTINGS (fallback localStorage)
@@ -132,6 +129,10 @@ export default function UserEdit() {
 
   const userId = authUser?.id;
 
+  // refs para inputs de arquivo (avatar/capa)
+  const avatarInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+
   // estado base (perfil + settings)
   const [loading, setLoading] = useState(true);
   const [initialHash, setInitialHash] = useState("");
@@ -203,20 +204,35 @@ export default function UserEdit() {
       try {
         const u = getUserById?.(userId) || authUser || {};
         const s = readUserSettings(userId) || {};
-        // avatar/cover: se tiver id, tenta resolver URL (apenas para preview local)
-        let avatarPreview = u.avatar || "";
-        if (!avatarPreview && u.avatarId) {
-          try {
-            const url = await mediaGetUrl(u.avatarId);
-            avatarPreview = url || "";
-          } catch {}
+
+        // ------- Avatar preview com fallbacks robustos -------
+        let avatarPreview =
+          (u && typeof u.avatar === "string" && u.avatar) ||
+          (authUser && typeof authUser.avatar === "string" && authUser.avatar) ||
+          (u && typeof u.image === "string" && u.image) ||
+          "";
+
+        if (!avatarPreview) {
+          const aid = u?.avatarId || authUser?.avatarId;
+          if (aid) {
+            try {
+              avatarPreview = (await mediaGetUrl(aid)) || "";
+            } catch {}
+          }
         }
-        let coverPreview = u.cover || "";
-        if (!coverPreview && u.coverId) {
-          try {
-            const url = await mediaGetUrl(u.coverId);
-            coverPreview = url || "";
-          } catch {}
+
+        // ------- Cover preview com fallbacks -------
+        let coverPreview =
+          (u && typeof u.cover === "string" && u.cover) ||
+          (authUser && typeof authUser.cover === "string" && authUser.cover) ||
+          "";
+        if (!coverPreview) {
+          const cid = u?.coverId || authUser?.coverId;
+          if (cid) {
+            try {
+              coverPreview = (await mediaGetUrl(cid)) || "";
+            } catch {}
+          }
         }
 
         if (!cancelled) {
@@ -224,10 +240,13 @@ export default function UserEdit() {
           setUsername(u.username || "");
           setBio(u.bio || "");
           setEmail(u.email || authUser?.email || "");
+
           setAvatar(avatarPreview || "");
-          setAvatarId(u.avatarId || "");
+          setAvatarId(u.avatarId || authUser?.avatarId || "");
+
           setCover(coverPreview || "");
-          setCoverId(u.coverId || "");
+          setCoverId(u.coverId || authUser?.coverId || "");
+
           setFeedFollowsFirst(
             typeof s.feedFollowsFirst === "boolean" ? s.feedFollowsFirst : true
           );
@@ -241,9 +260,9 @@ export default function UserEdit() {
             bio: u.bio || "",
             email: u.email || authUser?.email || "",
             avatar: avatarPreview || "",
-            avatarId: u.avatarId || "",
+            avatarId: u.avatarId || authUser?.avatarId || "",
             cover: coverPreview || "",
-            coverId: u.coverId || "",
+            coverId: u.coverId || authUser?.coverId || "",
             feedFollowsFirst:
               typeof s.feedFollowsFirst === "boolean"
                 ? s.feedFollowsFirst
@@ -416,7 +435,8 @@ export default function UserEdit() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Esconde no mobile, mostra do md pra cima */}
+        <div className="hidden items-center gap-2 md:flex">
           <button
             type="button"
             onClick={onCancel}
@@ -495,49 +515,66 @@ export default function UserEdit() {
           </h2>
 
           <div className="grid gap-5">
-            {/* Avatar */}
+            {/* Avatar — wrapper sem overflow para permitir o botão “sair” do círculo */}
             <div className="flex items-center gap-4">
-              <div className="h-20 w-20 overflow-hidden rounded-full ring-4 ring-black/10 dark:ring-white/10">
-                {avatar ? (
-                  <img
-                    src={avatar || undefined}
-                    alt="Avatar"
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="grid h-full w-full place-items-center bg-[var(--chip-bg)] text-[var(--chip-fg)]">
-                    <User2 className="h-8 w-8 opacity-60" />
-                  </div>
-                )}
+              <div className="relative inline-block">
+                {/* círculo com overflow-hidden apenas aqui */}
+                <div className="h-24 w-24 overflow-hidden rounded-full ring-4 ring-black/10 dark:ring-white/10">
+                  {avatar ? (
+                    <img
+                      src={avatar || undefined}
+                      alt="Avatar"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center bg-[var(--chip-bg)] text-[var(--chip-fg)]">
+                      <User2 className="h-9 w-9 opacity-60" />
+                    </div>
+                  )}
+                </div>
+
+                {/* botão posicionado no WRAPPER, fora do círculo */}
+                <button
+                  type="button"
+                  title="Alterar avatar"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="
+        absolute right-0 bottom-0
+        translate-x-1/3 translate-y-1/3
+        inline-flex h-9 w-9 items-center justify-center
+        rounded-full bg-[#f77904] text-white shadow-lg
+        ring-2 ring-white hover:opacity-95
+      "
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
+
+                {/* input escondido */}
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onPickAvatar}
+                />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#f77904] px-3 py-1.5 text-sm font-medium text-white hover:opacity-95">
-                  <Camera className="h-4 w-4" />
-                  Alterar avatar
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={onPickAvatar}
-                  />
-                </label>
-                {avatar && (
-                  <button
-                    type="button"
-                    onClick={onRemoveAvatar}
-                    className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/40"
-                  >
-                    <X className="h-4 w-4" />
-                    Remover
-                  </button>
-                )}
-              </div>
+              {/* botão remover (se houver) */}
+              {avatar && (
+                <button
+                  type="button"
+                  onClick={onRemoveAvatar}
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/40"
+                >
+                  <X className="h-4 w-4" />
+                  Remover
+                </button>
+              )}
             </div>
 
             {/* Capa */}
             <div>
-              <div className="aspect-[16/5] w-full overflow-hidden rounded-xl ring-4 ring-black/10 dark:ring-white/10">
+              <div className="relative aspect-[16/5] w-full overflow-hidden rounded-xl ring-4 ring-black/10 dark:ring-white/10">
                 {cover ? (
                   <img
                     src={cover || undefined}
@@ -549,30 +586,38 @@ export default function UserEdit() {
                     <ImageIcon className="h-7 w-7 opacity-60" />
                   </div>
                 )}
+
+                {/* botão flutuante de câmera para a capa */}
+                <button
+                  type="button"
+                  title="Alterar capa"
+                  onClick={() => coverInputRef.current?.click()}
+                  className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur hover:bg-black/70"
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
+
+                <input
+                  ref={coverInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onPickCover}
+                />
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#f77904] px-3 py-1.5 text-sm font-medium text-white hover:opacity-95">
-                  <Camera className="h-4 w-4" />
-                  Alterar capa
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={onPickCover}
-                  />
-                </label>
-                {cover && (
+              {cover && (
+                <div className="mt-3">
                   <button
                     type="button"
                     onClick={onRemoveCover}
                     className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/40"
                   >
                     <X className="h-4 w-4" />
-                    Remover
+                    Remover capa
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -598,7 +643,8 @@ export default function UserEdit() {
                     Priorizar postagens de quem sigo
                   </div>
                   <div className="text-xs opacity-70">
-                    O feed exibirá primeiro postagens das pessoas que você segue.
+                    O feed exibirá primeiro postagens das pessoas que você
+                    segue.
                   </div>
                 </div>
               </label>
@@ -629,15 +675,15 @@ export default function UserEdit() {
           <div className="mt-5 flex items-start gap-3 rounded-xl bg-amber-100 p-4 text-amber-900 ring-1 ring-amber-300 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/50">
             <AlertTriangle className="mt-[2px] h-5 w-5 shrink-0" />
             <div className="text-sm">
-              <strong>Atenção:</strong> estas configurações são locais (salvas no
-              seu dispositivo). Quando o backend estiver disponível, você poderá
-              sincronizá-las entre dispositivos.
+              <strong>Atenção:</strong> estas configurações são locais (salvas
+              no seu dispositivo). Quando o backend estiver disponível, você
+              poderá sincronizá-las entre dispositivos.
             </div>
           </div>
         </section>
       </div>
 
-      {/* Rodapé fixo em telas pequenas (opcional) */}
+      {/* Rodapé fixo em telas pequenas (apenas mobile) */}
       <div className="sticky bottom-4 mt-6 flex justify-end gap-2 md:hidden">
         <button
           type="button"
