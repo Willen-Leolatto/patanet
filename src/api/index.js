@@ -9,5 +9,6 @@ export * from './owner.api.js'
 export * from './post.api.js'
 export * from './specie.api.js'
 export * from './user.api.js'
+export * from './vaccines.api.js'
 
 
