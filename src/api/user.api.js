@@ -52,3 +52,8 @@ export async function fetchUsersProfile({ query, page = 1, perPage = 10 }) {
   return response.data
 }
 
+export async function removeOwnerAccount() {
+  const response = await http.delete('/users')
+  return response.data
+}
+

@@ -29,3 +29,8 @@ export function saveTokens(payload) {
   window.localStorage.setItem(ACCESS_TOKEN_KEY, access_token)
   window.localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token)
 }
+
+export function clearTokens() {
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY)
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY)
+}

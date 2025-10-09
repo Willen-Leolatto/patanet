@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from './auth.api.js'
+import { ACCESS_TOKEN_KEY, clearTokens, refresh, REFRESH_TOKEN_KEY } from './auth.api.js'
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
@@ -18,4 +18,27 @@ http.interceptors.request.use(async (config) => {
   return config
 })
 
-export { http }
+http.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+      const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY)
+      if (!refreshToken) {
+        clearTokens()
+        return Promise.reject(error)
+      }
+
+      try {
+        await refresh()
+        return http(originalRequest)
+      } catch (refreshError) {
+        clearTokens()
+        return Promise.reject(refreshError)
+      }
+    }
+
+    return Promise.reject(error)
+  })
