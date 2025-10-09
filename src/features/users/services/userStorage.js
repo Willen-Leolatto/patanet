@@ -9,6 +9,7 @@
 const USERS_KEY = "patanet_users";
 const FOLLOWS_KEY = "patanet_follows";
 const FOLLOWS_EVENT = "patanet:follows-updated";
+const USERS_EVENT = "patanet:users-updated";
 
 /* -------------------------- utils de storage -------------------------- */
 function safeParse(json, fallback) {
@@ -23,10 +24,17 @@ function emitFollowsEvent() {
     window.dispatchEvent(new Event(FOLLOWS_EVENT));
   } catch {}
 }
+function emitUsersEvent() {
+  try {
+    window.dispatchEvent(new Event(USERS_EVENT));
+  } catch {}
+}
 function ensureId(u) {
-  return (
-    u?.id || u?.uid || u?.email || u?.username || null
-  );
+  return u?.id || u?.uid || u?.email || u?.username || null;
+}
+function writeUsers(arr) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(arr || []));
+  emitUsersEvent();
 }
 
 /* ============================== USERS =============================== */
@@ -51,33 +59,80 @@ export function getUserById(id) {
   );
 }
 
-/** Upsert simples — útil se você quiser espelhar o cadastro da auth aqui. */
+/** Upsert simples — útil para espelhar o cadastro da auth aqui. */
 export function upsertUser(userLike) {
   const id = ensureId(userLike);
   if (!id) return null;
 
   const all = listUsers();
   const idx = all.findIndex(
-    (u) =>
-      u.id === id || u.uid === id || u.email === id || u.username === id
+    (u) => u.id === id || u.uid === id || u.email === id || u.username === id
   );
 
   const current = idx >= 0 ? all[idx] : {};
+
+  // Normaliza campos comuns e de mídia (avatar/capa) + bio
   const merged = {
     ...current,
-    // campos comuns
-    id: id,
+    id,
     name: userLike?.name ?? current?.name ?? "",
     username: userLike?.username ?? current?.username ?? "",
     email: userLike?.email ?? current?.email ?? "",
-    image: userLike?.image ?? userLike?.avatar ?? current?.image ?? "",
+    // image é legado; mantemos para compat
+    image:
+      userLike?.image ??
+      userLike?.avatar ??
+      current?.image ??
+      current?.avatar ??
+      "",
+    bio: userLike?.bio ?? current?.bio ?? "",
+    // mídia
+    avatar: userLike?.avatar ?? current?.avatar ?? "",
+    avatarId: userLike?.avatarId ?? current?.avatarId ?? "",
+    cover: userLike?.cover ?? current?.cover ?? "",
+    coverId: userLike?.coverId ?? current?.coverId ?? "",
     createdAt: userLike?.createdAt ?? current?.createdAt ?? Date.now(),
   };
 
   if (idx >= 0) all[idx] = merged;
   else all.push(merged);
 
-  localStorage.setItem(USERS_KEY, JSON.stringify(all));
+  writeUsers(all);
+  return merged;
+}
+
+/**
+ * Atualiza (ou cria se não existir) o usuário identificado por `userId`
+ * com os campos do `patch`. Retorna o objeto final persistido.
+ */
+export function updateUser(userId, patch = {}) {
+  const id = ensureId({ id: userId });
+  if (!id) return null;
+
+  const all = listUsers();
+  const idx = all.findIndex(
+    (u) => u.id === id || u.uid === id || u.email === id || u.username === id
+  );
+
+  if (idx === -1) {
+    // se não existir, faz upsert com o patch e id
+    return upsertUser({ id, ...patch });
+  }
+
+  const current = all[idx] || {};
+  const merged = {
+    ...current,
+    ...patch,
+    id, // garante id coerente
+  };
+
+  // Consistência: se avatar foi alterado, atualiza image legado
+  if (Object.prototype.hasOwnProperty.call(patch, "avatar")) {
+    merged.image = patch.avatar || merged.image || "";
+  }
+
+  all[idx] = merged;
+  writeUsers(all);
   return merged;
 }
 

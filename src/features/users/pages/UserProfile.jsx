@@ -14,7 +14,7 @@ import { getUserById as getAuthUserById } from "@/features/auth/services/authSto
 import {
   loadPets,
   removePet,
-  mediaGetUrl, // <-- resolve avatarId/coverId
+  mediaGetUrl, // resolve avatarId/coverId
 } from "@/features/pets/services/petsStorage";
 import Lightbox from "@/components/Lightbox";
 import {
@@ -28,10 +28,12 @@ import {
   ImagePlus,
   UserPlus,
   UserCheck,
+  Image as ImageIcon,
+  User as UserIcon,
 } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
-/* Perfil visual (capa/bio/site/local)                                        */
+/* Perfil visual (capa/bio/site/local) legado                                 */
 /* -------------------------------------------------------------------------- */
 const PROFILE_KEY = "patanet_user_profiles";
 function readProfiles() {
@@ -55,6 +57,20 @@ function patchProfile(uid, patch) {
 }
 
 /* --------------------------------- utils UI -------------------------------- */
+function SafeImg({ src, alt = "", className = "" }) {
+  if (!src) {
+    return (
+      <div
+        className={`grid place-items-center bg-[var(--chip-bg)] text-[var(--chip-fg)] ${className}`}
+        role="img"
+        aria-label={alt}
+      >
+        <ImageIcon className="h-6 w-6 opacity-60" />
+      </div>
+    );
+  }
+  return <img src={src || undefined} alt={alt} className={className} />;
+}
 function Avatar({ src, alt, size = 96, className = "" }) {
   if (!src) {
     return (
@@ -62,7 +78,11 @@ function Avatar({ src, alt, size = 96, className = "" }) {
         className={`rounded-full bg-zinc-300 dark:bg-zinc-700 ring-4 ring-black/10 dark:ring-white/10 ${className}`}
         style={{ width: size, height: size }}
         title={alt}
-      />
+      >
+        <div className="grid h-full w-full place-items-center text-[var(--chip-fg)]">
+          <UserIcon className="h-7 w-7 opacity-60" />
+        </div>
+      </div>
     );
   }
   return (
@@ -74,15 +94,16 @@ function Avatar({ src, alt, size = 96, className = "" }) {
     />
   );
 }
+
 const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "—");
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
 
 /* ---------------------------------- página --------------------------------- */
 export default function UserProfile() {
-  const { userId } = useParams(); // /perfil/:userId? — vazio => meu perfil
-
+  const { userId } = useParams(); // /usuario/:userId | /perfil
   const authUser = useAuth((s) => s.user);
+
   const currentId =
     authUser?.id ||
     authUser?.uid ||
@@ -90,80 +111,157 @@ export default function UserProfile() {
     authUser?.username ||
     null;
   const viewedId = userId || currentId;
-
   const isOwn = !!currentId && String(viewedId) === String(currentId);
 
-  // dados do usuário a ser exibido
+  // dados do usuário exibido
   const [viewedUser, setViewedUser] = useState(null);
+
+  // urls resolvidas de avatar/capa do usuário
+  const [coverUrl, setCoverUrl] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+
+  // perfil visual legado (bio/site/local/capa antiga)
+  const [profile, setProfile] = useState(getProfile(viewedId));
+
+  useEffect(() => {
+    setProfile(getProfile(viewedId));
+  }, [viewedId]);
 
   useEffect(() => {
     if (!viewedId) return;
 
     if (isOwn) {
+      const u = authUser || {};
       setViewedUser({
-        id: currentId,
-        name: authUser?.name || authUser?.displayName || "",
-        username: authUser?.username || "",
-        email: authUser?.email || "",
-        image: authUser?.image || authUser?.avatar || authUser?.photoURL || "",
-        createdAt: authUser?.createdAt || Date.now(),
+        id: u.id || u.uid || currentId,
+        name: u.name || u.displayName || "",
+        username: u.username || "",
+        email: u.email || "",
+        image: u.image || u.avatar || u.photoURL || "",
+        avatar: u.avatar || u.image || "",
+        avatarId: u.avatarId || "",
+        cover: u.cover || "",
+        coverId: u.coverId || "",
+        createdAt: u.createdAt || Date.now(),
       });
     } else {
       // 1) tenta catálogo (userStorage)
       let u = getUserCatalogById?.(viewedId);
       // 2) fallback para authStorage (usuários antigos)
       if (!u) {
-        u = getAuthUserById?.(viewedId);
-        // se achou no auth e não existe no catálogo, sincroniza agora
-        if (u) {
+        const old = getAuthUserById?.(viewedId);
+        if (old) {
+          u = {
+            id: old.id || old.uid || viewedId,
+            name: old.name || old.displayName || "",
+            username: old.username || "",
+            email: old.email || "",
+            image: old.image || old.avatar || old.photoURL || "",
+            avatar: old.avatar || old.image || "",
+            avatarId: old.avatarId || "",
+            cover: old.cover || "",
+            coverId: old.coverId || "",
+            createdAt: old.createdAt || Date.now(),
+          };
           try {
             upsertCatalogUser({
-              id: u.id || u.uid || u.email || u.username,
-              name: u.name || u.displayName || "",
-              username: u.username || "",
-              email: u.email || "",
-              image: u.image || u.avatar || u.photoURL || "",
-              createdAt: u.createdAt || Date.now(),
+              id: u.id,
+              name: u.name,
+              username: u.username,
+              email: u.email,
+              image: u.image,
+              avatar: u.avatar,
+              avatarId: u.avatarId,
+              cover: u.cover,
+              coverId: u.coverId,
+              createdAt: u.createdAt,
             });
           } catch {}
         }
+      } else {
+        // normaliza campos
+        u = {
+          id: u.id || viewedId,
+          name: u.name || u.displayName || "",
+          username: u.username || "",
+          email: u.email || "",
+          image: u.image || u.avatar || u.photoURL || "",
+          avatar: u.avatar || u.image || "",
+          avatarId: u.avatarId || "",
+          cover: u.cover || "",
+          coverId: u.coverId || "",
+          createdAt: u.createdAt || Date.now(),
+        };
       }
       setViewedUser(
-        u
-          ? {
-              id: u.id || u.uid || viewedId,
-              name: u.name || u.displayName || "",
-              username: u.username || "",
-              email: u.email || "",
-              image: u.image || u.avatar || u.photoURL || "",
-              createdAt: u.createdAt || Date.now(),
-            }
-          : {
-              id: viewedId,
-              name: "",
-              username: "",
-              email: "",
-              image: "",
-              createdAt: Date.now(),
-            }
+        u || {
+          id: viewedId,
+          name: "",
+          username: "",
+          email: "",
+          image: "",
+          avatar: "",
+          avatarId: "",
+          cover: "",
+          coverId: "",
+          createdAt: Date.now(),
+        }
       );
     }
   }, [isOwn, viewedId, currentId, authUser]);
 
-  const fixedUser = viewedUser || { id: viewedId, username: "" };
-
-  // perfil visual
-  const [profile, setProfile] = useState(getProfile(viewedId));
+  // resolve avatar/capa do usuário (preferência: user -> IDs -> legado profile.cover)
   useEffect(() => {
-    setProfile(getProfile(viewedId));
-  }, [viewedId]);
+    let cancelled = false;
+    async function resolveUserMedia() {
+      const u = viewedUser || {};
+      // COVER
+      let c =
+        (typeof u.cover === "string" && u.cover.length > 0 && u.cover) || "";
+      if (!c && u.coverId) {
+        try {
+          c = (await mediaGetUrl(u.coverId)) || "";
+        } catch {
+          c = "";
+        }
+      }
+      if (!c && profile?.cover) c = profile.cover; // fallback legado
+
+      // AVATAR
+      let a =
+        (typeof u.avatar === "string" && u.avatar.length > 0 && u.avatar) ||
+        (typeof u.image === "string" && u.image.length > 0 && u.image) ||
+        "";
+      if (!a && u.avatarId) {
+        try {
+          a = (await mediaGetUrl(u.avatarId)) || "";
+        } catch {
+          a = "";
+        }
+      }
+      if (!a) a = c; // último fallback: usa capa como avatar
+
+      if (!cancelled) {
+        setCoverUrl(c || "");
+        setAvatarUrl(a || "");
+      }
+    }
+    resolveUserMedia();
+    return () => {
+      cancelled = true;
+    };
+  }, [viewedUser, profile]);
+
+  const fixedUser = viewedUser || { id: viewedId, username: "" };
 
   // pets do usuário
   const [pets, setPets] = useState([]);
   useEffect(() => {
     const refresh = () => {
       const all = loadPets() || [];
-      const mine = all.filter((p) => (p.ownerId || p.userId || p.createdBy) === viewedId);
+      const mine = all.filter(
+        (p) => String(p.ownerId || p.userId || p.createdBy) === String(viewedId)
+      );
       setPets(mine);
     };
     refresh();
@@ -179,26 +277,26 @@ export default function UserProfile() {
       const pairs = await Promise.all(
         (pets || []).map(async (p) => {
           // COVER
-          let coverUrl = p.cover || "";
-          if (!coverUrl && p.coverId) {
+          let cover = p.cover || "";
+          if (!cover && p.coverId) {
             try {
-              coverUrl = await mediaGetUrl(p.coverId);
+              cover = await mediaGetUrl(p.coverId);
             } catch {
-              coverUrl = "";
+              cover = "";
             }
           }
-          // AVATAR (fallback para cover)
-          let avatarUrl = p.avatar || "";
-          if (!avatarUrl && p.avatarId) {
+          // AVATAR
+          let avatar = p.avatar || "";
+          if (!avatar && p.avatarId) {
             try {
-              avatarUrl = await mediaGetUrl(p.avatarId);
+              avatar = await mediaGetUrl(p.avatarId);
             } catch {
-              avatarUrl = "";
+              avatar = "";
             }
           }
-          if (!avatarUrl) avatarUrl = coverUrl;
+          if (!avatar) avatar = cover;
 
-          return [p.id, { coverUrl, avatarUrl }];
+          return [p.id, { coverUrl: cover || "", avatarUrl: avatar || "" }];
         })
       );
       if (!cancelled) {
@@ -211,8 +309,8 @@ export default function UserProfile() {
     return () => {
       cancelled = true;
       // revoga objectURLs
-      Object.values(petThumbs).forEach(({ coverUrl, avatarUrl }) => {
-        [coverUrl, avatarUrl].forEach((u) => {
+      Object.values(petThumbs).forEach(({ coverUrl: c, avatarUrl: a }) => {
+        [c, a].forEach((u) => {
           if (u && typeof u === "string" && u.startsWith("blob:")) {
             try {
               URL.revokeObjectURL(u);
@@ -244,7 +342,7 @@ export default function UserProfile() {
   // lightbox
   const [lb, setLb] = useState({ open: false, slides: [], index: 0 });
 
-  // edição de capa
+  // edição de capa legado (só visual, mantém compat)
   const fileRef = useRef(null);
   const onPickCover = async (e) => {
     const f = e.target.files?.[0];
@@ -292,15 +390,22 @@ export default function UserProfile() {
   const openLightbox = (slides, index = 0) =>
     setLb({ open: true, slides, index });
 
+  if (!fixedUser) {
+    return null;
+  }
+
+  const displayName = fixedUser.name || fixedUser.username || "Usuário";
+  const displayUsername = fixedUser.username ? `@${fixedUser.username}` : fixedUser.email || "";
+
   return (
     <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
       {/* HEADER */}
       <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         {/* Capa maior */}
         <div className="relative h-56 w-full bg-gradient-to-r from-orange-300 to-rose-300 dark:from-orange-800 dark:to-rose-800 md:h-72">
-          {profile.cover && (
+          {coverUrl ? (
             <img
-              src={profile.cover || undefined}
+              src={coverUrl || undefined}
               alt="Capa do perfil"
               className="h-full w-full object-cover"
               onClick={() =>
@@ -308,7 +413,7 @@ export default function UserProfile() {
                   [
                     {
                       id: "cover",
-                      url: profile.cover,
+                      url: coverUrl,
                       title: fixedUser.username || fixedUser.name,
                     },
                   ],
@@ -316,6 +421,8 @@ export default function UserProfile() {
                 )
               }
             />
+          ) : (
+            <div className="h-full w-full" />
           )}
 
           {/* Botão de alterar capa (apenas no próprio) */}
@@ -323,7 +430,7 @@ export default function UserProfile() {
             <button
               className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white backdrop-blur hover:bg-black/70"
               onClick={() => fileRef.current?.click()}
-              title="Alterar capa do perfil"
+              title="Alterar capa do perfil (modo legado)"
             >
               <Camera className="h-4 w-4" /> Alterar capa
             </button>
@@ -339,8 +446,8 @@ export default function UserProfile() {
           {/* Avatar sobreposto à capa */}
           <div className="absolute left-6 -bottom-12 z-10">
             <Avatar
-              src={fixedUser.image}
-              alt={fixedUser.username || fixedUser.name || "Usuário"}
+              src={avatarUrl}
+              alt={displayName}
               size={104}
             />
           </div>
@@ -351,11 +458,9 @@ export default function UserProfile() {
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-6">
             <div className="min-w-0">
               <div className="text-lg font-semibold leading-tight md:text-xl">
-                {fixedUser.name || fixedUser.username || "Usuário"}
+                {displayName}
               </div>
-              <div className="text-xs text-zinc-500">
-                {fixedUser.username ? `@${fixedUser.username}` : fixedUser.email}
-              </div>
+              <div className="text-xs text-zinc-500">{displayUsername}</div>
             </div>
 
             {/* métricas + ações */}
@@ -377,10 +482,11 @@ export default function UserProfile() {
                 </button>
               ) : (
                 <Link
-                  to="/dashboard/configuracoes"
-                  className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white"
+                  to="/perfil/editar"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white"
                 >
-                  Configurar conta
+                  <Edit3 className="h-4 w-4" />
+                  Editar perfil
                 </Link>
               )}
             </div>
@@ -501,7 +607,7 @@ export default function UserProfile() {
                   className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
                   onClick={() => setEditing(true)}
                 >
-                  <Edit3 className="h-4 w-4" /> Editar perfil
+                  <Edit3 className="h-4 w-4" /> Editar seção “Sobre”
                 </button>
               </div>
             )}
@@ -533,8 +639,8 @@ export default function UserProfile() {
         ) : (
           <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {pets.map((p) => {
-              const coverUrl = petThumbs[p.id]?.coverUrl || "";
-              const avatarUrl = petThumbs[p.id]?.avatarUrl || "";
+              const cover = petThumbs[p.id]?.coverUrl || "";
+              const avatar = petThumbs[p.id]?.avatarUrl || "";
 
               return (
                 <li
@@ -543,9 +649,9 @@ export default function UserProfile() {
                 >
                   <Link to={`/pets/${p.id}`} className="block">
                     <div className="relative aspect-[4/3] overflow-hidden">
-                      {coverUrl ? (
+                      {cover ? (
                         <img
-                          src={coverUrl || undefined}
+                          src={cover || undefined}
                           alt={p.name}
                           className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
                           onClick={(e) => {
@@ -554,7 +660,7 @@ export default function UserProfile() {
                               [
                                 {
                                   id: p.id + "-cover",
-                                  url: coverUrl,
+                                  url: cover,
                                   title: p.name,
                                 },
                               ],
@@ -572,9 +678,9 @@ export default function UserProfile() {
 
                   <div className="space-y-3 p-4">
                     <div className="flex items-start gap-3">
-                      {avatarUrl ? (
+                      {avatar ? (
                         <img
-                          src={avatarUrl || undefined}
+                          src={avatar || undefined}
                           alt=""
                           className="h-12 w-12 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900"
                           onClick={() =>
@@ -582,7 +688,7 @@ export default function UserProfile() {
                               [
                                 {
                                   id: p.id + "-avatar",
-                                  url: avatarUrl,
+                                  url: avatar,
                                   title: p.name,
                                 },
                               ],

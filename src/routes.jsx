@@ -1,58 +1,68 @@
 // src/routes.jsx
 import React, { Suspense, lazy } from "react";
-import {
-  createBrowserRouter,
-  createRoutesFromElements,
-  Route,
-  Navigate,
-} from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-import AppShell from "@layouts/AppShell.jsx";
-import ProtectedRoute from "./components/ProtectedRoute.jsx";
-import { PetList, PetCreate, PetDetail, PetEdit } from "@/features/pets";
-import UserProfile from "@/features/users/pages/UserProfile";
+import AppShell from "@/layouts/AppShell";
 
-// Lazy pages
-const Feed = lazy(() => import("@features/feed/pages/Feed.jsx"));
-const Login = lazy(() => import("@features/auth/pages/Login.jsx"));
-const DashboardHome = lazy(() =>
-  import("@features/dashboard/pages/DashboardHome.jsx")
-);
-const Settings = lazy(() =>
-  import("@features/dashboard/pages/Settings.jsx")
-);
+// Auth / sessão
+const Login = lazy(() => import("@/features/auth/pages/Login"));
 
-const withSuspense = (el) => <Suspense fallback={null}>{el}</Suspense>;
+// Feed
+const Feed = lazy(() => import("@/features/feed/pages/Feed"));
 
-export const router = createBrowserRouter(
-  createRoutesFromElements(
-    <Route element={<AppShell />}>
-      {/* Pública */}
-      <Route path="/auth" element={withSuspense(<Login />)} />
+// Pets
+const PetList = lazy(() => import("@/features/pets/pages/PetList"));
+const PetCreate = lazy(() => import("@/features/pets/pages/PetCreate"));
+const PetDetail = lazy(() => import("@/features/pets/pages/PetDetail"));
+const PetEdit = lazy(() => import("@/features/pets/pages/PetEdit"));
 
-      {/* Privada */}
-      <Route element={<ProtectedRoute />}>
-        {/* "/" -> Feed */}
-        <Route index element={withSuspense(<Feed />)} />
-        <Route path="feed" element={withSuspense(<Feed />)} />
-        <Route path="perfil" element={withSuspense(<UserProfile />)} />
-        <Route path="perfil/:userId" element={withSuspense(<UserProfile />)} />
+// Usuários
+const UserProfile = lazy(() => import("@/features/users/pages/UserProfile"));
+const UserEdit = lazy(() => import("@/features/users/pages/UserEdit")); // ⬅️ NOVO
 
-        {/* Pets */}
-        <Route path="pets" element={<PetList />} />
-        <Route path="pets/novo" element={<PetCreate />} />
-        <Route path="pets/:id" element={<PetDetail />} />
-        <Route path="pets/:id/editar" element={<PetEdit />} />
+function Loader() {
+  return (
+    <div className="min-h-dvh grid place-items-center text-sm text-zinc-500 dark:text-zinc-400">
+      Carregando…
+    </div>
+  );
+}
 
-        {/* Configurações */}
-        <Route
-          path="dashboard/configuracoes"
-          element={withSuspense(<Settings />)}
-        />
-      </Route>
+export default function AppRoutes() {
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<Loader />}>
+        <Routes>
+          {/* Rotas públicas de autenticação */}
+          <Route path="/auth" element={<Login />} />
 
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Route>
-  )
-);
+          {/* AppShell gerencia layout + proteção internamente */}
+          <Route element={<AppShell />}>
+            {/* Home -> feed */}
+            <Route index element={<Navigate to="/feed" replace />} />
+
+            {/* Feed */}
+            <Route path="/feed" element={<Feed />} />
+
+            {/* Pets */}
+            <Route path="/pets" element={<PetList />} />
+            <Route path="/pets/novo" element={<PetCreate />} />
+            <Route path="/pets/:id" element={<PetDetail />} />
+            <Route path="/pets/:id/editar" element={<PetEdit />} />
+
+            {/* Perfil do usuário (próprio) */}
+            <Route path="/perfil" element={<UserProfile />} />
+            {/* ⬇️ NOVA ROTA: editar perfil */}
+            <Route path="/perfil/editar" element={<UserEdit />} />
+
+            {/* Perfil de outro usuário (caso exista esse fluxo) */}
+            <Route path="/usuario/:userId" element={<UserProfile />} />
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/feed" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}
