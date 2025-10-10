@@ -18,6 +18,15 @@ export function registerBackHandler(fn) {
   return () => _backHandlers.delete(fn);
 }
 
+// Helper: valida se objeto “parece” um usuário autenticado
+function isValidUser(u) {
+  if (!u || typeof u !== "object") return false;
+  const id = u.id || u._id || u.uid;
+  const email = u.email && String(u.email).includes("@") ? u.email : null;
+  const username = u.username || u.userName;
+  return Boolean(id || email || username);
+}
+
 export default function AppShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -41,7 +50,9 @@ export default function AppShell() {
       try {
         setProbing(true);
         const u = await getMyProfile(); // /users/me
-        if (!cancelled) setMe(u || null);
+        // Algumas APIs retornam 200 com objeto vazio; tratamos como não autenticado
+        const ok = isValidUser(u);
+        if (!cancelled) setMe(ok ? u : null);
       } catch {
         if (!cancelled) setMe(null);
       } finally {
@@ -66,28 +77,30 @@ export default function AppShell() {
     [pathname]
   );
 
+  const authenticated = useMemo(() => isValidUser(me), [me]);
+
   // Regras de navegação (somente após probe concluído)
   useEffect(() => {
     if (probing) return; // não decide enquanto carrega sessão
 
-    // Sem sessão e fora das rotas públicas -> vai para /login
-    if (!me && !isAuthRoute) {
-      navigate("/login", { replace: true, state: { from: pathname } });
+    // Sem sessão e fora das rotas públicas -> vai para /auth
+    if (!authenticated && !isAuthRoute && pathname !== "/auth") {
+      navigate("/auth", { replace: true, state: { from: pathname } });
       return;
     }
 
     // Com sessão e em rota de auth -> manda para /feed
-    if (me && isAuthRoute) {
+    if (authenticated && isAuthRoute && pathname !== "/feed") {
       navigate("/feed", { replace: true });
     }
-  }, [probing, me, isAuthRoute, pathname, navigate]);
+  }, [probing, authenticated, isAuthRoute, pathname, navigate]);
 
   // Ajuste do deslocamento quando a sidebar não deve aparecer
   useEffect(() => {
-    if (isAuthRoute || !me) {
+    if (isAuthRoute || !authenticated) {
       document.documentElement.style.setProperty("--sidebar-ml", "0px");
     }
-  }, [isAuthRoute, me]);
+  }, [isAuthRoute, authenticated]);
 
   // ===== Botão voltar (Capacitor) — mantido =====
   const exitArmedRef = useRef(false);
@@ -102,7 +115,7 @@ export default function AppShell() {
         } catch {}
       }
 
-      // 2) Navegação (evita voltar pra /login)
+      // 2) Navegação (evita voltar pra /auth)
       const onAuth = /^\/(login|signup|auth)(\/|$)/i.test(pathname);
       if (canGoBack && !onAuth) {
         navigate(-1);
@@ -138,7 +151,7 @@ export default function AppShell() {
   }
 
   // ===== Layout sem sidebar (rotas de auth ou sem sessão) =====
-  if (isAuthRoute || !me) {
+  if (isAuthRoute || !authenticated) {
     return (
       <div className="min-h-dvh w-full">
         <main className="min-h-dvh w-full grid place-items-center px-4 md:px-6">

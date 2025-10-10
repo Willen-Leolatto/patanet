@@ -1,143 +1,114 @@
-// src/features/feed/pages/Feed.jsx
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import {
-  CornerUpRight,
-  BarChart3,
-  MoreHorizontal,
-  X,
-  Pencil,
-  Check,
-} from "lucide-react";
+// src/components/FeedComposer.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { ImagePlus, PawPrint } from "lucide-react";
+// Removidos: addPost (storage local)
+import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
+// API real
+import { createPost } from "@/api/post.api.js";
 
-import FeedComposer from "@/components/FeedComposer";
-import FeedPostActions from "@/components/FeedPostActions";
-import Lightbox from "@/components/Lightbox";
-import { useConfirm } from "@/components/ui/ConfirmProvider";
+export default function FeedComposer({ user }) {
+  const [text, setText] = useState("");
+  const [images, setImages] = useState([]); // dataURLs (para UI)
+  const [files, setFiles] = useState([]);   // File[] (para API)
+  const [taggedPets, setTaggedPets] = useState([]); // ids de pets marcados
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
 
-// ==== APIs (front-only; servidor imutável) ====
-import { fetchMyFeed, deletePost as apiDeletePost } from "@/api/post.api.js";
-import { addLikePost, removeLikePost } from "@/api/like.api.js";
-import { addCommentPost } from "@/api/comment.api.js";
-import { getMyProfile } from "@/api/user.api.js";
-import { fetchAnimalsById } from "@/api/animal.api.js";
-
-// -------------------- Utils de normalização (mantidos) --------------------
-const toArray = (v) => (Array.isArray(v) ? v : Object.values(v || {}));
-
-const normLikes = (likes) =>
-  toArray(likes).map((u) => ({
-    id: u?.id ?? u?.uid ?? u?.email ?? u?.username ?? String(u),
-    username: u?.username ?? "",
-    name: u?.name ?? "",
-    email: (u?.email || "").toLowerCase(),
-    avatar: u?.avatar ?? u?.image ?? "",
-  }));
-
-const normAuthor = (a) => ({
-  id: a?.id ?? a?.uid ?? a?.email ?? a?.username ?? "",
-  username: a?.username ?? "",
-  name: a?.name ?? "",
-  email: (a?.email || "").toLowerCase(),
-  avatar: a?.avatar ?? a?.image ?? "",
-});
-
-const normComment = (c) => ({
-  id: c?.id ?? crypto.randomUUID?.() ?? String(Date.now() + Math.random()),
-  text: typeof c?.text === "string" ? c.text : c?.message || "",
-  createdAt: typeof c?.createdAt === "number" ? c.createdAt : Date.now(),
-  updatedAt: typeof c?.updatedAt === "number" ? c.updatedAt : c?.createdAt,
-  author: normAuthor(c?.author ?? c?.user ?? {}),
-  replies: (c?.replies ? toArray(c.replies) : []).map((r) => ({
-    id: r?.id ?? crypto.randomUUID?.() ?? String(Date.now() + Math.random()),
-    text: typeof r?.text === "string" ? r.text : r?.message || "",
-    createdAt: typeof r?.createdAt === "number" ? r.createdAt : Date.now(),
-    updatedAt: typeof r?.updatedAt === "number" ? r.updatedAt : r?.createdAt,
-    author: normAuthor(r?.author ?? r?.user ?? {}),
-  })),
-});
-
-const normPost = (p) => ({
-  id: p?.id ?? p?._id ?? String(p?.uuid || ""),
-  text: typeof p?.text === "string" ? p.text : (p?.subtitle || ""),
-  images: Array.isArray(p?.medias)
-    ? p.medias.map((m) => m?.url || m) // servidor já devolve URL? usamos direto
-    : Array.isArray(p?.images)
-    ? p.images
-    : p?.image
-    ? [p.image]
-    : [],
-  createdAt:
-    typeof p?.createdAt === "number"
-      ? p.createdAt
-      : p?.createdAt
-      ? new Date(p.createdAt).getTime()
-      : Date.now(),
-  updatedAt:
-    typeof p?.updatedAt === "number"
-      ? p.updatedAt
-      : p?.updatedAt
-      ? new Date(p.updatedAt).getTime()
-      : p?.createdAt
-      ? new Date(p.createdAt).getTime()
-      : Date.now(),
-  author: normAuthor(p?.author ?? p?.user ?? {}),
-  likes: normLikes(p?.likes ?? p?.usersLiked ?? []),
-  comments: (p?.comments ? toArray(p.comments) : []).map(normComment),
-  taggedPets: Array.isArray(p?.pets)
-    ? p.pets.map((pet) => String(pet?.id ?? pet))
-    : Array.isArray(p?.taggedPets)
-    ? p.taggedPets.map(String)
-    : [],
-});
-
-const byDescDate = (a, b) => (b?.createdAt || 0) - (a?.createdAt || 0);
-
-function AvatarCircle({ src, alt, size = 40, className = "" }) {
-  if (!src) {
-    return (
-      <div
-        className={`rounded-full bg-zinc-200 dark:bg-zinc-700 ${className}`}
-        style={{ width: size, height: size }}
-        aria-label={alt}
-        title={alt}
-      />
-    );
-  }
-  return (
-    <img
-      src={src || null}
-      alt={alt}
-      className={`rounded-full object-cover ring-1 ring-zinc-200 dark:ring-zinc-800 ${className}`}
-      style={{ width: size, height: size }}
-    />
-  );
-}
-
-// -------------------- Modais (inalterados visualmente) --------------------
-function EditPostModal({ open, post, onClose, onSave }) {
-  const [text, setText] = useState(post?.text || "");
-  const [gallery, setGallery] = useState(
-    Array.isArray(post?.images) ? post.images.slice() : []
+  // todos os ids possíveis do usuário (cobre contas antigas)
+  const myIds = useMemo(
+    () =>
+      [user?.id, user?.uid, user?.email, user?.username]
+        .filter(Boolean)
+        .map(String),
+    [user]
   );
 
+  const [allPets, setAllPets] = useState([]);
+  const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { name, avatarUrl } }
+
+  // Carrega pets e revalida quando atualizar no sistema
   useEffect(() => {
-    setText(post?.text || "");
-    setGallery(Array.isArray(post?.images) ? post.images.slice() : []);
-  }, [post]);
+    const refresh = () => setAllPets(loadPets() || []);
+    refresh();
+    window.addEventListener("patanet:pets-updated", refresh);
+    return () => window.removeEventListener("patanet:pets-updated", refresh);
+  }, []);
 
-  if (!open || !post) return null;
+  // Filtra apenas os pets do usuário logado (compatível com registros antigos)
+  const myPets = useMemo(() => {
+    if (!myIds.length) return [];
+    return (allPets || []).filter((p) => {
+      const owner = p.ownerId || p.userId || p.createdBy;
+      return owner && myIds.includes(String(owner));
+    });
+  }, [allPets, myIds]);
 
-  function removeImage(idx) {
-    setGallery((g) => g.filter((_, i) => i !== idx));
+  // Resolve avatar do pet (avatarId -> blob) com fallback para cover
+  useEffect(() => {
+    let cancelled = false;
+    async function resolve() {
+      const pairs = await Promise.all(
+        myPets.map(async (p) => {
+          let avatarUrl = p.avatar || "";
+          if (!avatarUrl && p.avatarId) {
+            try {
+              avatarUrl = await mediaGetUrl(p.avatarId);
+            } catch {
+              avatarUrl = "";
+            }
+          }
+          if (!avatarUrl) {
+            let coverUrl = p.cover || "";
+            if (!coverUrl && p.coverId) {
+              try {
+                coverUrl = await mediaGetUrl(p.coverId);
+              } catch {
+                coverUrl = "";
+              }
+            }
+            avatarUrl = coverUrl || "";
+          }
+          return [p.id, { name: p.name || "Pet", avatarUrl }];
+        })
+      );
+      if (!cancelled) {
+        const map = {};
+        for (const [id, meta] of pairs) map[id] = meta;
+        setPetThumbs(map);
+      }
+    }
+    resolve();
+    return () => {
+      cancelled = true;
+      Object.values(petThumbs).forEach(({ avatarUrl }) => {
+        if (avatarUrl && avatarUrl.startsWith?.("blob:")) {
+          try {
+            URL.revokeObjectURL(avatarUrl);
+          } catch {}
+        }
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myPets.length]);
+
+  // utils
+  function dataUrlToFile(dataUrl, name = "media.jpg") {
+    const arr = dataUrl.split(",");
+    const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+    const bstr = atob(arr[1] || "");
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new File([u8arr], name, { type: mime });
   }
 
   function onPickFiles(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    // Apenas preview local; edição real depende de endpoint server
+    const selected = Array.from(e.target.files || []);
+    if (!selected.length) return;
+
+    // Previews (dataURL) para UI
     Promise.all(
-      files.map(
+      selected.map(
         (f) =>
           new Promise((res, rej) => {
             const fr = new FileReader();
@@ -147,904 +118,173 @@ function EditPostModal({ open, post, onClose, onSave }) {
           })
       )
     )
-      .then((arr) => setGallery((g) => [...g, ...arr]))
+      .then((arr) => {
+        setImages((g) => [...g, ...arr]);
+        setFiles((g) => [...g, ...selected]);
+      })
       .catch(() => {});
   }
 
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50">
-      <div className="w-full max-w-2xl rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900">
-        <h3 className="mb-2 text-lg font-semibold">Editar postagem</h3>
+  function togglePet(pid) {
+    setTaggedPets((list) =>
+      list.includes(pid) ? list.filter((x) => x !== pid) : [...list, pid]
+    );
+  }
 
-        <textarea
-          className="min-h-[120px] w-full rounded-lg border border-zinc-300 bg-white/80 p-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Atualize seu texto…"
-        />
+  function canPost() {
+    return user && !sending && (text.trim().length > 0 || images.length > 0);
+  }
 
-        <div className="mt-3">
-          <div className="mb-2 text-sm font-medium">Mídias</div>
-          {gallery.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {gallery.map((src, i) => (
-                <div key={i} className="relative overflow-hidden rounded-lg">
-                  <img
-                    src={src || null}
-                    alt=""
-                    className="aspect-video w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeImage(i)}
-                    className="absolute right-1 top-1 rounded-md bg-black/50 p-1 text-white"
-                    title="Remover"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700">
-              Sem mídias anexadas.
-            </div>
-          )}
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canPost()) return;
 
-          <div className="mt-2">
-            <input type="file" accept="image/*" multiple onChange={onPickFiles} />
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Você pode adicionar uma ou mais imagens.
-            </p>
-          </div>
-        </div>
+    setSending(true);
+    setError("");
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
-            onClick={onClose}
-          >
-            Cancelar
-          </button>
-          <button
-            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
-            onClick={() => {
-              console.info("Editar post: aguardando endpoint PATCH /posts/:id");
-              onSave?.({ ...post, text, images: gallery });
-            }}
-          >
-            Salvar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatsModal({ open, post, onClose }) {
-  if (!open || !post) return null;
-  const likes = normLikes(post.likes);
-
-  const flatComments = (() => {
-    const out = [];
-    for (const c of post.comments || []) {
-      out.push(c);
-      for (const r of c.replies || []) out.push(r);
-    }
-    return out;
-  })();
-
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50">
-      <div className="w-full max-w-xl rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900">
-        <div className="mb-3 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5" />
-          <h3 className="text-lg font-semibold">Estatísticas da postagem</h3>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-            <div className="text-sm text-zinc-500">Curtidas</div>
-            <div className="text-2xl font-bold">{likes.length}</div>
-          </div>
-          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-            <div className="text-sm text-zinc-500">Comentários</div>
-            <div className="text-2xl font-bold">{flatComments.length}</div>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <div className="mb-1 text-sm font-medium">Quem curtiu</div>
-            <ul className="space-y-1">
-              {likes.length === 0 && (
-                <li className="text-sm text-zinc-500">Ninguém curtiu ainda.</li>
-              )}
-              {likes.map((u) => (
-                <li key={u.id} className="flex items-center gap-2 text-sm">
-                  <AvatarCircle
-                    src={u.avatar || ""}
-                    alt={u.username || u.name || u.email}
-                    size={24}
-                    className="ring-0"
-                  />
-                  <span>{u.username || u.name || u.email}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div>
-            <div className="mb-1 text-sm font-medium">Quem comentou</div>
-            <ul className="space-y-1">
-              {flatComments.length === 0 && (
-                <li className="text-sm text-zinc-500">Sem comentários.</li>
-              )}
-              {flatComments.map((c) => (
-                <li key={c.id} className="flex items-center gap-2 text-sm">
-                  <AvatarCircle
-                    src={c.author?.avatar || ""}
-                    alt={c.author?.username || c.author?.name || c.author?.email}
-                    size={24}
-                    className="ring-0"
-                  />
-                  <span>
-                    {c.author?.username || c.author?.name || c.author?.email}
-                    <span className="text-zinc-500">: {c.text}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="mt-4 flex justify-end">
-          <button
-            className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-white dark:bg-zinc-700"
-            onClick={onClose}
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DotsMenu({ onEdit, onStats, onDelete }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        className="rounded-md p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        title="Mais ações"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <MoreHorizontal className="h-5 w-5" />
-      </button>
-      {open && (
-        <div className="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-          <button
-            className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => (setOpen(false), onEdit?.())}
-          >
-            Editar
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => (setOpen(false), onStats?.())}
-          >
-            Estatísticas
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-            onClick={() => (setOpen(false), onDelete?.())}
-          >
-            Remover
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TaggedPetsBar({ petIds = [], petThumbs = {} }) {
-  if (!Array.isArray(petIds) || petIds.length === 0) return null;
-  return (
-    <div className="mb-2 -mx-2 px-2">
-      <div className="flex items-center gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
-        {petIds.map((pid) => {
-          const meta = petThumbs[pid] || {};
-          const src = meta.avatarUrl || meta.coverUrl || undefined;
-          const name = meta.name || "Pet";
-          return (
-            <Link
-              key={pid}
-              to={`/pets/${pid}`}
-              title={name}
-              className="group inline-flex items-center gap-2 rounded-full bg-zinc-50 px-2 py-1 text-xs ring-1 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-800 dark:ring-zinc-700 dark:hover:bg-zinc-700"
-            >
-              <AvatarCircle src={src || undefined} alt={name} size={26} />
-              <span className="pr-1">{name}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// -------------------- Página Feed (refatorada para API) --------------------
-export default function Feed() {
-  const confirm = useConfirm?.() || null;
-  const navigate = useNavigate();
-
-  const [me, setMe] = useState(null);
-  const [loadingMe, setLoadingMe] = useState(true);
-
-  // paginação server-side
-  const [page, setPage] = useState(1);
-  const perPage = 10;
-
-  const [posts, setPosts] = useState([]);
-  const [hasMore, setHasMore] = useState(true);
-
-  const [lightbox, setLightbox] = useState({ open: false, slides: [], index: 0 });
-  const [edit, setEdit] = useState({ open: false, post: null });
-  const [stats, setStats] = useState({ open: false, post: null });
-
-  const [openComments, setOpenComments] = useState({});
-  const sentinelRef = useRef(null);
-
-  // cache de thumbs de pets
-  const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { name, avatarUrl, coverUrl } }
-
-  // ---- carregar usuário logado
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        setLoadingMe(true);
-        const u = await getMyProfile(); // /users/me
-        if (!cancel) {
-          setMe({
-            id: u?.id ?? u?._id ?? u?.email ?? u?.username,
-            username: u?.username,
-            name: u?.name,
-            email: u?.email,
-            avatar: u?.image,
-          });
-        }
-      } catch (e) {
-        if (!cancel) navigate("/login", { replace: true });
-      } finally {
-        if (!cancel) setLoadingMe(false);
-      }
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [navigate]);
-
-  // ---- carregar feed (page-by-page)
-  const loadPage = useCallback(
-    async (pg) => {
-      if (!hasMore && pg !== 1) return;
-      const data = await fetchMyFeed({ page: pg, perPage }); // /posts/feed
-      const rows = Array.isArray(data?.items || data?.data) ? (data.items || data.data) : (Array.isArray(data) ? data : []);
-      const normalized = rows.map(normPost).sort(byDescDate);
-
-      setPosts((old) => (pg === 1 ? normalized : [...old, ...normalized]));
-      // heurística para saber se há mais
-      const total = data?.total ?? data?.meta?.total ?? null;
-      if (total != null) {
-        const consumed = (pg) * perPage;
-        setHasMore(consumed < total);
-      } else {
-        // fallback: se veio menos que perPage, acabou
-        setHasMore(rows.length >= perPage);
-      }
-    },
-    [hasMore]
-  );
-
-  useEffect(() => {
-    loadPage(1);
-  }, [loadPage]);
-
-  // ---- infinite scroll
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting && hasMore) {
-          setPage((p) => {
-            const next = p + 1;
-            loadPage(next);
-            return next;
-          });
-        }
-      });
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [hasMore, loadPage]);
-
-  const items = useMemo(() => posts, [posts]);
-
-  // ---- resolver thumbs dos pets marcados via API (lazy + cache)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const ids = new Set();
-      for (const p of items) (p.taggedPets || []).forEach((id) => ids.add(String(id)));
-
-      const missing = Array.from(ids).filter((id) => !petThumbs[id]);
-      if (missing.length === 0) return;
-
-      const entries = await Promise.all(
-        missing.map(async (id) => {
-          try {
-            const pet = await fetchAnimalsById({ animalId: id });
-            return [
-              id,
-              {
-                name: pet?.name || "Pet",
-                avatarUrl: pet?.image?.url || pet?.image || "",
-                coverUrl: pet?.imageCover?.url || pet?.imageCover || "",
-              },
-            ];
-          } catch {
-            return [id, { name: "Pet", avatarUrl: "", coverUrl: "" }];
-          }
-        })
-      );
-
-      if (!cancelled) {
-        setPetThumbs((m) => ({ ...m, ...Object.fromEntries(entries) }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [items, petThumbs]);
-
-  // -------------------- Ações --------------------
-  const handleToggleLike = useCallback(
-    async (postId) => {
-      if (!me) return;
-      setPosts((rows) =>
-        rows.map((p) => {
-          if (p.id !== postId) return p;
-          const liked = !!p.likes.find((l) => l.id === me.id);
-          const nextLikes = liked
-            ? p.likes.filter((l) => l.id !== me.id)
-            : [...p.likes, { id: me.id, username: me.username, name: me.name, email: me.email, avatar: me.avatar }];
-          return { ...p, likes: nextLikes };
-        })
-      );
-      try {
-        const target = posts.find((p) => p.id === postId);
-        const liked = !!target?.likes?.find((l) => l.id === me.id);
-        if (liked) {
-          // já estava curtido — agora removeu
-          await removeLikePost({ postId });
-        } else {
-          await addLikePost({ postId });
-        }
-      } catch {
-        // rollback em caso de erro
-        setPosts((rows) =>
-          rows.map((p) => {
-            if (p.id !== postId) return p;
-            const liked = !!p.likes.find((l) => l.id === me?.id);
-            const nextLikes = liked
-              ? p.likes.filter((l) => l.id !== me?.id)
-              : [...p.likes, { id: me?.id, username: me?.username, name: me?.name, email: me?.email, avatar: me?.avatar }];
-            return { ...p, likes: nextLikes };
-          })
-        );
-      }
-    },
-    [me, posts]
-  );
-
-  const handleAddComment = useCallback(
-    async (postId, text) => {
-      const t = typeof text === "string" ? text.trim() : "";
-      if (!me || !t) return;
-
-      // otimista
-      const temp = {
-        id: "temp-" + Math.random().toString(36).slice(2),
-        text: t,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        author: { id: me.id, username: me.username, name: me.name, email: me.email, avatar: me.avatar },
-        replies: [],
-      };
-      setPosts((rows) =>
-        rows.map((p) => (p.id === postId ? { ...p, comments: [temp, ...(p.comments || [])] } : p))
-      );
-
-      try {
-        await addCommentPost({ postId, message: t /* sem parentId = raiz */ });
-        // recarrega somente este post (ou, se preferir, manter otimista)
-        // Para simplicidade, deixamos otimista.
-      } catch {
-        // rollback simples
-        setPosts((rows) =>
-          rows.map((p) =>
-            p.id === postId
-              ? { ...p, comments: (p.comments || []).filter((c) => c.id !== temp.id) }
-              : p
-          )
-        );
-      }
-    },
-    [me]
-  );
-
-  const handleReplyComment = useCallback(
-    async (postId, parentCommentId, text) => {
-      const t = typeof text === "string" ? text.trim() : "";
-      if (!me || !t) return;
-
-      const temp = {
-        id: "temp-r-" + Math.random().toString(36).slice(2),
-        text: t,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        author: { id: me.id, username: me.username, name: me.name, email: me.email, avatar: me.avatar },
-      };
-
-      // otimista
-      setPosts((rows) =>
-        rows.map((p) => {
-          if (p.id !== postId) return p;
-          const next = (p.comments || []).map((c) =>
-            c.id === parentCommentId ? { ...c, replies: [temp, ...(c.replies || [])] } : c
-          );
-          return { ...p, comments: next };
-        })
-      );
-
-      try {
-        await addCommentPost({ postId, message: t, parentId: parentCommentId });
-      } catch {
-        // rollback
-        setPosts((rows) =>
-          rows.map((p) => {
-            if (p.id !== postId) return p;
-            const next = (p.comments || []).map((c) =>
-              c.id === parentCommentId
-                ? { ...c, replies: (c.replies || []).filter((r) => r.id !== temp.id) }
-                : c
-            );
-            return { ...p, comments: next };
-          })
-        );
-      }
-    },
-    [me]
-  );
-
-  const handleOpenEdit = (post) => setEdit({ open: true, post });
-  const handleSaveEdit = () => setEdit({ open: false, post: null });
-
-  const handleDelete = async (post) => {
-    let ok = true;
-    if (confirm) {
-      ok = await confirm({
-        title: "Remover postagem",
-        description: "Essa ação não pode ser desfeita. Confirmar exclusão?",
-        confirmText: "Remover",
-        tone: "danger",
-      });
-    } else {
-      ok = window.confirm("Remover esta postagem?");
-    }
-    if (!ok) return;
-
-    // otimista
-    const prev = posts;
-    setPosts((rows) => rows.filter((p) => p.id !== post.id));
     try {
-      await apiDeletePost({ postId: post.id });
-    } catch {
-      setPosts(prev);
+      // Se o usuário só anexou imagens via preview (arrastar ou outra origem),
+      // garantimos que também temos Files (fallback: converter dataURL -> File)
+      let medias = files.slice();
+      if (medias.length === 0 && images.length > 0) {
+        medias = images.map((d, i) => dataUrlToFile(d, `media_${i + 1}.jpg`));
+      }
+
+      await createPost({
+        subtitle: String(text || ""),
+        pets: taggedPets.map(String),
+        medias, // File[]
+      });
+
+      // Limpa o formulário
+      setText("");
+      setImages([]);
+      setFiles([]);
+      setTaggedPets([]);
+
+      // Notifica o Feed para recarregar a página 1
+      window.dispatchEvent(new CustomEvent("patanet:feed-new-post"));
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Não foi possível publicar.";
+      setError(String(msg));
+    } finally {
+      setSending(false);
     }
-  };
-
-  const handleOpenStats = (post) => setStats({ open: true, post });
-  const toggleComments = (postId) =>
-    setOpenComments((m) => ({ ...m, [postId]: !m[postId] }));
-
-  // -------------------- Render --------------------
-  if (loadingMe) {
-    return <div className="mx-auto w-full max-w-3xl">Carregando…</div>;
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      {/* Mantido: o Composer usa o layout atual; ele deve chamar a API createPost internamente.
-         Caso o seu FeedComposer ainda persista no storage local, me diga que eu envio a ponte para API. */}
-      <FeedComposer user={me} />
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <textarea
+        className="w-full resize-none rounded-lg border border-zinc-300 bg-white/80 p-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
+        rows={3}
+        placeholder="Compartilhe algo com a comunidade…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
 
-      <div className="mt-6 space-y-4">
-        {items.map((post) => {
-          const likesArr = normLikes(post.likes);
-          const likedByMe = !!likesArr.find((l) => l.id === me?.id);
-          const isMine = me && me.id === post?.author?.id;
-          const isEdited = (post.updatedAt || 0) > (post.createdAt || 0);
-          const commentsCount = (post.comments && post.comments.length) || 0;
-          const showComments = !!openComments[post.id];
-
-          const taggedIds = Array.isArray(post.taggedPets) ? post.taggedPets : [];
-
-          return (
-            <article
-              key={post.id}
-              className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              {/* Cabeçalho */}
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Link
-                    to={`/perfil/${post.author?.id}`}
-                    className="shrink-0"
-                    title={`Ver perfil de ${post.author?.username || post.author?.name || "usuário"}`}
-                  >
-                    <AvatarCircle
-                      src={post.author?.avatar || ""}
-                      alt={post.author?.username || post.author?.name || "Autor"}
-                      size={40}
-                    />
-                  </Link>
-
-                  <Link
-                    to={`/perfil/${post.author?.id}`}
-                    className="leading-tight hover:opacity-90"
-                    title={`Ver perfil de ${post.author?.username || post.author?.name || "usuário"}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm font-semibold">
-                        {post.author?.username || post.author?.name || "user"}
-                      </div>
-                      {isEdited && <span className="text-xs text-zinc-500">(editado)</span>}
-                    </div>
-                    <div className="text-xs text-zinc-500">
-                      {new Date(post.createdAt).toLocaleString()}
-                    </div>
-                  </Link>
-                </div>
-
-                {isMine && (
-                  <DotsMenu
-                    onEdit={() => handleOpenEdit(post)}
-                    onStats={() => handleOpenStats(post)}
-                    onDelete={() => handleDelete(post)}
-                  />
-                )}
-              </div>
-
-              {/* Texto */}
-              {post.text && <p className="mb-3 whitespace-pre-wrap text-sm">{post.text}</p>}
-
-              {/* Mídias */}
-              {!!post.images?.length && (
-                <div
-                  className={`mb-2 grid gap-2 ${post.images.length > 1 ? "grid-cols-2" : ""}`}
-                >
-                  {post.images.map((src, i) => {
-                    const title =
-                      (post.text || "").trim().slice(0, 80) ||
-                      `${post.author?.username || post.author?.name || "Post"} • ${new Date(
-                        post.createdAt
-                      ).toLocaleString()}`;
-
-                    return (
-                      <div key={i} className="overflow-hidden rounded-xl">
-                        <img
-                          src={src || undefined}
-                          alt=""
-                          className="max-h-[520px] w-full cursor-zoom-in object-cover"
-                          onClick={() => {
-                            const slides = (post.images || []).map((u, idx) => ({
-                              id: String(idx),
-                              url: u,
-                              title,
-                            }));
-                            setLightbox({ open: true, slides, index: i });
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Pets marcados */}
-              <TaggedPetsBar petIds={taggedIds} petThumbs={petThumbs} />
-
-              {/* Ações */}
-              <FeedPostActions
-                liked={likedByMe}
-                likes={likesArr.length}
-                comments={commentsCount}
-                onLike={() => handleToggleLike(post.id)}
-                onComment={() => toggleComments(post.id)}
-                onStats={() => handleOpenStats(post)}
+      {/* Galeria prévia */}
+      {!!images.length && (
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+          {images.map((src, i) => (
+            <div key={i} className="overflow-hidden rounded-xl">
+              <img
+                src={src || null}
+                alt=""
+                className="aspect-video w-full object-cover"
               />
-
-              {/* Comentários */}
-              {showComments && (
-                <CommentsBlock
-                  post={post}
-                  user={me}
-                  onAddComment={(text) => handleAddComment(post.id, text)}
-                  onReply={(parentId, text) => handleReplyComment(post.id, parentId, text)}
-                />
-              )}
-            </article>
-          );
-        })}
-
-        {/* Sentinel para carregar mais */}
-        <div ref={sentinelRef} className="h-8 w-full" />
-      </div>
-
-      {/* Lightbox */}
-      {lightbox.open && (
-        <Lightbox
-          open={lightbox.open}
-          slides={lightbox.slides}
-          index={lightbox.index}
-          onIndexChange={(i) => setLightbox((s) => ({ ...s, index: i }))}
-          onClose={() => setLightbox({ open: false, slides: [], index: 0 })}
-        />
-      )}
-
-      {/* Editar */}
-      <EditPostModal
-        open={edit.open}
-        post={edit.post}
-        onClose={() => setEdit({ open: false, post: null })}
-        onSave={handleSaveEdit}
-      />
-
-      {/* Estatísticas */}
-      <StatsModal
-        open={stats.open}
-        post={stats.post}
-        onClose={() => setStats({ open: false, post: null })}
-      />
-    </div>
-  );
-}
-
-// -------------------- Comentários --------------------
-function CommentsBlock({ post, user, onAddComment, onReply }) {
-  const [text, setText] = useState("");
-  const [editing, setEditing] = useState(null);
-  const [editingText, setEditingText] = useState("");
-
-  const canComment = !!user;
-
-  const startEdit = (comment, isReply = false) => {
-    setEditing({ id: comment.id, isReply });
-    setEditingText(comment.text || "");
-  };
-  const cancelEdit = () => {
-    setEditing(null);
-    setEditingText("");
-  };
-  const saveEdit = () => {
-    // Sem endpoint de edição de comentário no momento.
-    setEditing(null);
-    setEditingText("");
-  };
-
-  return (
-    <div className="mt-3">
-      {canComment && (
-        <div className="mb-2 flex items-start gap-2">
-          <AvatarCircle
-            src={user?.avatar || user?.image || ""}
-            alt={user?.username || user?.name || user?.email}
-            size={32}
-          />
-          <div className="flex-1">
-            <textarea
-              className="w-full rounded-lg border border-zinc-300 bg-white/80 p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
-              placeholder="Escreva um comentário…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={2}
-            />
-            <div className="mt-1 flex justify-end">
-              <button
-                className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                disabled={!text.trim()}
-                onClick={() => {
-                  const t = typeof text === "string" ? text.trim() : "";
-                  if (!t) return;
-                  onAddComment(t);
-                  setText("");
-                }}
-              >
-                Comentar
-              </button>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
-      <ul className="space-y-3">
-        {(post.comments || []).map((c) => {
-          const isMine = user && user.id === c.author?.id;
-          const isEditingThis = editing?.id === c.id && !editing?.isReply;
-
-          return (
-            <li key={c.id} className="rounded-lg bg-zinc-50 p-2 dark:bg-zinc-800/50">
-              <div className="flex items-start gap-2">
-                <Link
-                  to={`/perfil/${c.author?.id}`}
-                  className="shrink-0"
-                  title={`Ver perfil de ${c.author?.username || c.author?.name || "usuário"}`}
+      {/* Seleção de pets (aparece se o usuário tem pets) */}
+      {myPets.length > 0 ? (
+        <div className="mt-3">
+          <div className="mb-1 inline-flex items-center gap-2 text-xs font-medium opacity-80">
+            <PawPrint className="h-4 w-4" />
+            Marcar pets (opcional)
+          </div>
+          <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
+            {myPets.map((p) => {
+              const active = taggedPets.includes(p.id);
+              const src = petThumbs[p.id]?.avatarUrl || undefined;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => togglePet(p.id)}
+                  title={petThumbs[p.id]?.name || p.name || "Pet"}
+                  className={`group inline-flex items-center gap-2 rounded-full px-2 py-1 ring-1 text-xs transition ${
+                    active
+                      ? "bg-[#f77904] text-white ring-[#f77904]"
+                      : "bg-zinc-50 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-800 dark:ring-zinc-700"
+                  }`}
                 >
-                  <AvatarCircle
-                    src={c.author?.avatar || ""}
-                    alt={c.author?.username || c.author?.name || c.author?.email}
-                    size={32}
-                  />
-                </Link>
+                  <PetChipAvatar src={src} />
+                  <span className="pr-1">{p.name || "Pet"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        // não bloqueia o post — só informa
+        <div className="mt-3 rounded-lg border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700">
+          Você ainda não marcou pets neste dispositivo. Cadastre seus pets em{" "}
+          <span className="font-medium">Meus Pets</span> para poder marcá-los
+          nas postagens (opcional).
+        </div>
+      )}
 
-                <div className="flex-1">
-                  <div className="mb-1 flex items-center gap-2 text-xs text-zinc-500">
-                    <Link
-                      to={`/perfil/${c.author?.id}`}
-                      className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
-                      title={`Ver perfil de ${c.author?.username || c.author?.name || "usuário"}`}
-                    >
-                      {c.author?.username || c.author?.name || c.author?.email}
-                    </Link>
-                    <span>· {new Date(c.createdAt).toLocaleString?.() || ""}</span>
-                    {(c.updatedAt || 0) > (c.createdAt || 0) && <span>(editado)</span>}
-                  </div>
+      {/* Ações */}
+      <div className="mt-3 flex items-center justify-between">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800">
+          <ImagePlus className="h-4 w-4" />
+          Adicionar mídia
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={onPickFiles}
+            className="hidden"
+          />
+        </label>
 
-                  {!isEditingThis ? (
-                    <div className="whitespace-pre-wrap text-sm">{c.text}</div>
-                  ) : (
-                    <div className="mt-1">
-                      <textarea
-                        className="w-full rounded-lg border border-zinc-300 bg-white/80 p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900/60"
-                        rows={2}
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                      />
-                      <div className="mt-1 flex gap-2">
-                        <button
-                          className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
-                          onClick={saveEdit}
-                        >
-                          <Check className="h-3.5 w-3.5" /> Salvar
-                        </button>
-                        <button
-                          className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
-                          onClick={cancelEdit}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
+        <button
+          type="submit"
+          disabled={!canPost()}
+          className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+        >
+          Publicar
+        </button>
+      </div>
 
-                  <div className="mt-1 flex items-center gap-2">
-                    {user && (
-                      <button
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                        onClick={() => {
-                          const replyText = prompt("Responder:");
-                          const t = typeof replyText === "string" ? replyText.trim() : "";
-                          if (t) onReply(c.id, t);
-                        }}
-                      >
-                        <CornerUpRight className="h-3.5 w-3.5" /> Responder
-                      </button>
-                    )}
-                    {isMine && !isEditingThis && (
-                      <button
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                        onClick={() => startEdit(c, false)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" /> Editar
-                      </button>
-                    )}
-                  </div>
+      {!!error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
+          {error}
+        </div>
+      )}
+    </form>
+  );
+}
 
-                  {!!c.replies?.length && (
-                    <ul className="mt-2 space-y-2 pl-6">
-                      {c.replies.map((r) => {
-                        const isMineR = user && user.id === r.author?.id;
-                        const isEditingR = editing?.id === r.id && editing?.isReply;
-                        return (
-                          <li key={r.id}>
-                            <div className="flex items-start gap-2">
-                              <Link
-                                to={`/perfil/${r.author?.id}`}
-                                className="shrink-0"
-                                title={`Ver perfil de ${r.author?.username || r.author?.name || "usuário"}`}
-                              >
-                                <AvatarCircle
-                                  src={r.author?.avatar || ""}
-                                  alt={r.author?.username || r.author?.name || r.author?.email}
-                                  size={28}
-                                />
-                              </Link>
-                              <div className="flex-1 rounded-lg bg-zinc-50 p-2 text-sm dark:bg-zinc-800/50">
-                                <div className="mb-1 text-xs text-zinc-500">
-                                  <Link
-                                    to={`/perfil/${r.author?.id}`}
-                                    className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
-                                    title={`Ver perfil de ${r.author?.username || r.author?.name || "usuário"}`}
-                                  >
-                                    {r.author?.username || r.author?.name || r.author?.email}
-                                  </Link>{" "}
-                                  · {new Date(r.createdAt).toLocaleString?.() || ""}{" "}
-                                  {(r.updatedAt || 0) > (r.createdAt || 0) && <span>(editado)</span>}
-                                </div>
-                                {!isEditingR ? (
-                                  <div className="whitespace-pre-wrap">{r.text}</div>
-                                ) : (
-                                  <div className="mt-1">
-                                    <textarea
-                                      className="w-full rounded-lg border border-zinc-300 bg-white/80 p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900/60"
-                                      rows={2}
-                                      value={editingText}
-                                      onChange={(e) => setEditingText(e.target.value)}
-                                    />
-                                    <div className="mt-1 flex gap-2">
-                                      <button
-                                        className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
-                                        onClick={saveEdit}
-                                      >
-                                        <Check className="h-3.5 w-3.5" /> Salvar
-                                      </button>
-                                      <button
-                                        className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
-                                        onClick={cancelEdit}
-                                      >
-                                        Cancelar
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-                                {isMineR && !isEditingR && (
-                                  <div className="mt-1">
-                                    <button
-                                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                                      onClick={() => startEdit(r, true)}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" /> Editar
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+function PetChipAvatar({ src }) {
+  if (!src) {
+    return (
+      <span className="inline-block h-6 w-6 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+    );
+  }
+  return (
+    <img
+      src={src || undefined}
+      alt=""
+      className="h-6 w-6 rounded-full object-cover ring-1 ring-white dark:ring-zinc-900"
+    />
   );
 }

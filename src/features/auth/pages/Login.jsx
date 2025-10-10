@@ -1,5 +1,5 @@
 // src/features/auth/pages/Login.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/store/theme";
 import { Sun, Moon } from "lucide-react";
@@ -8,6 +8,7 @@ import dogImg from "@/assets/dog.png";
 // APIs (imutáveis conforme combinado)
 import { signIn } from "@/api/auth.api.js";
 import { http } from "@/api/axios.js";
+import { getMyProfile } from "@/api/user.api.js";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -17,7 +18,7 @@ export default function Login() {
 
   // compartilhados
   const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(""); // segue existente para signup (opcional)
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [terms, setTerms] = useState(false);
@@ -64,9 +65,72 @@ export default function Login() {
 
   const canSubmit = useMemo(() => {
     if (submitting) return false;
-    if (mode === "login") return (email || username) && password;
-    return name && (email || username) && password && terms;
+    if (mode === "login") return !!email && !!password; // APENAS EMAIL
+    return !!name && (!!email || !!username) && !!password && terms;
   }, [mode, name, email, username, password, terms, submitting]);
+
+  // -------- Helpers de imagem (compressão/redimensionamento) --------
+  const IMAGE_MAX_BYTES = 2.5 * 1024 * 1024; // 2.5 MB
+  const IMAGE_MAX_DIM = 1600; // maior lado
+  async function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = (e) => {
+        URL.revokeObjectURL(url);
+        reject(e);
+      };
+      img.src = url;
+    });
+  }
+  function drawToCanvas(img, maxDim = IMAGE_MAX_DIM, fill = "#ffffff") {
+    const { naturalWidth: w0, naturalHeight: h0 } = img;
+    const scale = Math.min(1, maxDim / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas;
+  }
+  async function toJpegBlob(canvas, quality = 0.85) {
+    return new Promise((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+    );
+  }
+  async function compressImageIfNeeded(file) {
+    // Se já for pequeno, mantém
+    if (file.size <= IMAGE_MAX_BYTES) return file;
+
+    // Carrega imagem e redesenha em canvas (remove transparência -> fundo branco)
+    const img = await loadImageFromFile(file);
+    const canvas = drawToCanvas(img, IMAGE_MAX_DIM, "#ffffff");
+
+    // Tenta qualidades decrescentes até ficar <= limite
+    let quality = 0.9;
+    let blob = await toJpegBlob(canvas, quality);
+    while (blob && blob.size > IMAGE_MAX_BYTES && quality > 0.5) {
+      quality -= 0.1;
+      blob = await toJpegBlob(canvas, quality);
+    }
+
+    // Se ainda estiver grande, aceita assim mesmo (melhor do que falhar silenciosamente)
+    const out = blob || (await toJpegBlob(canvas, 0.8));
+
+    // Retorna como File para manter nome/extensão coerentes
+    const name = (file.name || "avatar").replace(/\.(png|webp|gif|bmp)$/i, "") + ".jpg";
+    return new File([out], name, { type: "image/jpeg", lastModified: Date.now() });
+  }
 
   function onPickAvatar(e) {
     const file = e.target.files?.[0];
@@ -75,17 +139,55 @@ export default function Login() {
       setPreview("");
       return;
     }
-    setPickedFile(file);
-    setPreview(URL.createObjectURL(file));
+
+    // Gera preview imediata
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+
+    // Comprime/normaliza em background
+    (async () => {
+      try {
+        const processed = await compressImageIfNeeded(file);
+        setPickedFile(processed);
+      } catch {
+        // Se algo falhar, usa o original mesmo
+        setPickedFile(file);
+      }
+    })();
   }
 
-  async function handleLogin({ login, password }) {
-    const usernameOrEmail = (login || "").trim();
-    const pass = password || "";
-    const {  } = await signIn({
-      username: usernameOrEmail,
-      password: pass,
+  // Redireciona se já estiver autenticado
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const me = await getMyProfile();
+        const ok =
+          !!me &&
+          typeof me === "object" &&
+          (me.id || (me.email && String(me.email).includes("@")) || me.username);
+        if (alive && ok) {
+          navigate("/feed", { replace: true });
+        }
+      } catch {
+        // silencioso: permanece na tela de auth
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [navigate]);
+
+  async function handleLogin({ email, password }) {
+    // A API espera "username", então enviamos o e-mail neste campo
+    await signIn({
+      username: String(email || "").trim(),
+      password: String(password || ""),
     });
+
+    // informa o AppShell para revalidar a sessão
+    window.dispatchEvent(new CustomEvent("patanet:auth-updated"));
+
     navigate("/feed", { replace: true });
   }
 
@@ -97,20 +199,14 @@ export default function Login() {
     fd.append("password", payload.password);
 
     if (payload.imageFile) {
-      fd.append("image", payload.imageFile); 
+      // arquivo já vem possivelmente comprimido
+      fd.append("image", payload.imageFile);
     }
 
-    const res = await http.post("/users", fd, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
+    await http.post("/users", fd); // sem forçar Content-Type (Axios define)
 
-    if (!res?.data?.access_token) {
-      const loginField = payload.email?.trim() || payload.username?.trim();
-      await handleLogin({ login: loginField, password: payload.password });
-      return;
-    }
-
-    navigate("/feed", { replace: true });
+    // Após criar, efetua login automático com EMAIL + SENHA
+    await handleLogin({ email: payload.email, password: payload.password });
   }
 
   async function onSubmit(e) {
@@ -123,6 +219,10 @@ export default function Login() {
           setError("Você precisa aceitar os termos.");
           return;
         }
+        if (!name || !email || !password) {
+          setError("Preencha nome, e-mail e senha.");
+          return;
+        }
         await handleSignup({
           name,
           username,
@@ -131,19 +231,27 @@ export default function Login() {
           imageFile: pickedFile || null,
         });
       } else {
-        const loginField = (email || username || "").trim();
-        if (!loginField || !password) {
-          setError("Informe email/usuário e senha.");
+        // LOGIN APENAS COM EMAIL
+        const emailField = String(email || "").trim();
+        if (!emailField || !password) {
+          setError("Informe email e senha.");
           return;
         }
-        await handleLogin({ login: loginField, password });
+        await handleLogin({ email: emailField, password });
       }
     } catch (err) {
-      const msg =
+      const status = err?.response?.status;
+      const rawMsg =
         err?.response?.data?.message ||
         err?.message ||
         "Não foi possível autenticar.";
-      setError(msg);
+
+      // Mensagem mais clara para casos de payload grande (muitas vezes aparece como CORS)
+      if (status === 413 || /payload too large/i.test(rawMsg)) {
+        setError("Imagem muito grande para envio. Tente uma foto menor.");
+      } else {
+        setError(rawMsg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -187,7 +295,7 @@ export default function Login() {
                 <svg width="24" height="24" viewBox="0 0 24 24">
                   <path
                     fill="currentColor"
-                    d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5Zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5Z"
+                    d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5Zm0 2c-4.418 0  -8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5Z"
                   />
                 </svg>
               </div>

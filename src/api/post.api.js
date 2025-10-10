@@ -7,13 +7,13 @@ export async function createPost({ subtitle, pets, medias }) {
 
   if (Array.isArray(pets)) {
     for (const pet of pets) {
-      formData.append('pets[]', pet)
+      formData.append('pets', pet)
     }
   }
 
   if (Array.isArray(medias)) {
     for (const media of medias) {
-      formData.append('medias[]', media)
+      formData.append('medias', media)
     }
   }
 

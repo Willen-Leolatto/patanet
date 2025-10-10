@@ -1,3 +1,4 @@
+// src/api/axios.js
 import axios from "axios";
 import {
   ACCESS_TOKEN_KEY,
@@ -8,17 +9,21 @@ import {
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  // Removido o Content-Type global. Deixe o Axios definir automaticamente
+  // conforme o corpo (JSON, FormData, etc.). Isso evita headers desnecessários
+  // no preflight e problemas com multipart/form-data.
 });
 
 http.interceptors.request.use(async (config) => {
   const access_token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
   const refresh_token = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+
   if (access_token) {
+    config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${access_token}`;
-    config.headers["refresh-token"] = refresh_token;
+    if (refresh_token) {
+      config.headers["refresh-token"] = refresh_token;
+    }
   }
   return config;
 });
@@ -28,7 +33,7 @@ http.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error?.response?.status === 401 && !originalRequest?._retry) {
       originalRequest._retry = true;
       const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
       if (!refreshToken) {
@@ -48,4 +53,5 @@ http.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
 export { http };

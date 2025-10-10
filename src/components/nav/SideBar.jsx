@@ -51,10 +51,10 @@ export default function Sidebar() {
         const me = await getMyProfile();
         if (!cancelled) setUser(me || null);
       } catch (err) {
-        // Se o token estiver inválido/expirado, volta pro login.
+        // Se o token estiver inválido/expirado, limpa e vai pro auth.
         if (!cancelled) {
           try { clearTokens(); } catch {}
-          navigate("/login", { replace: true });
+          navigate("/auth", { replace: true });
         }
       } finally {
         if (!cancelled) setLoadingUser(false);
@@ -169,6 +169,13 @@ export default function Sidebar() {
     }
   }, [pathname, isMdUp]);
 
+  // Logout via API
+  function logout() {
+    try { clearTokens(); } catch {}
+    window.dispatchEvent(new CustomEvent("patanet:auth-updated"));
+    navigate("/auth", { replace: true });
+  }
+
   const NavItem = ({ to, icon: Ico, label }) => {
     const active =
       to === "/"
@@ -204,19 +211,6 @@ export default function Sidebar() {
     };
   }, [myPets.length]);
 
-  const userAvatar = user?.image || user?.photoURL || user?.avatar || "";
-  const userName =
-    user?.username ||
-    user?.displayName ||
-    user?.name ||
-    user?.email ||
-    (loadingUser ? "Carregando..." : "Usuário");
-
-  const doLogout = () => {
-    try { clearTokens(); } catch {}
-    navigate("/login", { replace: true });
-  };
-
   return (
     <>
       {/* Backdrop para mobile */}
@@ -248,7 +242,7 @@ export default function Sidebar() {
             }}
             className="md:hidden absolute right-3 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm"
             style={{
-              top: "calc(env(safe-area-inset-top, 0px) + 14px)",
+              top: "calc(env(safe-area-inset-top, 0px) + 14px)", // desce o botão
             }}
             aria-label="Fechar menu"
             title="Fechar"
@@ -335,7 +329,11 @@ export default function Sidebar() {
           {/* Navegação secundária */}
           <nav className="flex flex-col gap-1">
             <NavItem to="/perfil" icon={User} label="Perfil" />
-            {/* <NavItem to="/dashboard/configuracoes" icon={Settings} label="Configurações" /> */}
+            {/* <NavItem
+              to="/dashboard/configuracoes"
+              icon={Settings}
+              label="Configurações"
+            /> */}
           </nav>
 
           <div className="mt-auto" />
@@ -353,7 +351,9 @@ export default function Sidebar() {
               <div className="flex-1">
                 <div className="text-xs opacity-80">Olá</div>
                 <div className="text-sm font-medium">
-                  {userName}
+                  {user
+                    ? user.username || user.displayName || user.name || user.email
+                    : "Visitante"}
                 </div>
               </div>
 
@@ -362,13 +362,17 @@ export default function Sidebar() {
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/10"
                 title="Alternar tema"
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
               </button>
 
               {user ? (
                 <button
                   onClick={() => {
-                    doLogout();
+                    logout();
                     closeIfMobile();
                   }}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-white/10 px-2 text-xs"
@@ -379,7 +383,7 @@ export default function Sidebar() {
                 </button>
               ) : (
                 <Link
-                  to="/login"
+                  to="/auth"
                   onClick={closeIfMobile}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-white/10 px-2 text-xs"
                   title="Entrar"
@@ -391,20 +395,25 @@ export default function Sidebar() {
             </div>
           </div>
 
-          {/* Botão retrair/expandir no DESKTOP (sem persistência em LS) */}
+          {/* Botão retrair/expandir no DESKTOP */}
           <button
             type="button"
             onClick={() => {
               const next = !open;
               setOpen(next);
               applyContentSpacing(next, true);
+              // sem persistência em localStorage
             }}
             className="hidden md:flex absolute -right-3 top-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[var(--sidebar-bg)] text-[var(--sidebar-fg)] shadow transition-opacity hover:opacity-100"
             title={open ? "Retrair menu" : "Expandir menu"}
             aria-label="Retrair menu"
             aria-expanded={open}
           >
-            {open ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            {open ? (
+              <ChevronLeft className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
           </button>
         </div>
       </aside>
