@@ -1,15 +1,13 @@
+// src/components/SideBar.jsx
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
-// compatível com Context ou Zustand
-import { useAuth } from "@/store/auth";
 import { useTheme } from "@/store/theme";
-
 import {
   Home as HomeIcon,
   PawPrint,
   User,
-  Settings,
+  // Settings,
   LogIn,
   LogOut,
   Plus,
@@ -20,20 +18,20 @@ import {
   X,
 } from "lucide-react";
 
-import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
+import { getMyProfile } from "@/api/user.api.js";
+import { clearTokens } from "@/api/auth.api.js";
 import AvatarCircle from "@/components/AvatarCircle";
+// Esses utilitários continuam opcionais — se mais tarde migrarmos pets para API, é só trocar aqui.
+import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
 
 const SIDEBAR_W = 280;
-const LS_DESKTOP_OPEN_KEY = "patanet:sidebar:desktop-open";
 
 export default function Sidebar() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   // não renderiza em rotas de auth
   if (/^\/(login|signup|auth)\b/.test(pathname)) return null;
-
-  const user = useAuth((s) => s.user);
-  const logout = useAuth((s) => s.logout);
 
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
@@ -41,78 +39,42 @@ export default function Sidebar() {
   const [open, setOpen] = useState(true);
   const [isMdUp, setIsMdUp] = useState(false);
 
+  // ==== USER via API ====
+  const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchMe() {
+      try {
+        setLoadingUser(true);
+        const me = await getMyProfile();
+        if (!cancelled) setUser(me || null);
+      } catch (err) {
+        // Se o token estiver inválido/expirado, volta pro login.
+        if (!cancelled) {
+          try { clearTokens(); } catch {}
+          navigate("/login", { replace: true });
+        }
+      } finally {
+        if (!cancelled) setLoadingUser(false);
+      }
+    }
+    fetchMe();
+    return () => { cancelled = true; };
+  }, [navigate]);
+
+  // ==== PETS (mantém a UI; a fonte pode ser trocada depois para a API) ====
   const [myPets, setMyPets] = useState([]);
   const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { avatarUrl, coverUrl } }
-
-  const [overflow, setOverflow] = useState(false);
   const railRef = useRef(null);
+  const [overflow, setOverflow] = useState(false);
 
-  const currentUserId =
-    user?.id || user?.uid || user?.email || user?.username || null;
+  const currentUserId = user?.id || user?.uid || user?.email || user?.username || null;
 
-  function applyContentSpacing(nextOpen, mdUp) {
-    const ml = nextOpen && mdUp ? `${SIDEBAR_W}px` : "0px";
-    document.documentElement.style.setProperty("--sidebar-ml", ml);
-  }
-
-  // fecha o menu se for mobile
-  const closeIfMobile = () => {
-    if (!isMdUp) {
-      setOpen(false);
-      applyContentSpacing(false, false);
-    }
-  };
-
-  // estado inicial e reação ao breakpoint
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
-    const handle = () => {
-      const md = mq.matches;
-      setIsMdUp(md);
-
-      if (md) {
-        // desktop: respeita a última preferência do usuário (persistida)
-        const stored = localStorage.getItem(LS_DESKTOP_OPEN_KEY);
-        const wantOpen = stored == null ? true : stored === "1";
-        setOpen(wantOpen);
-        applyContentSpacing(wantOpen, true);
-      } else {
-        // mobile: sempre fechado por padrão
-        setOpen(false);
-        applyContentSpacing(false, false);
-      }
-    };
-    handle();
-    mq.addEventListener("change", handle);
-    return () => mq.removeEventListener("change", handle);
-  }, []);
-
-  // evento global para abrir/fechar via botão de hambúrguer (caso exista)
-  useEffect(() => {
-    const onToggle = () => {
-      setOpen((v) => {
-        const next = !v;
-        applyContentSpacing(next, isMdUp);
-        if (isMdUp) localStorage.setItem(LS_DESKTOP_OPEN_KEY, next ? "1" : "0");
-        return next;
-      });
-    };
-    window.addEventListener("patanet:sidebar-toggle", onToggle);
-    return () => window.removeEventListener("patanet:sidebar-toggle", onToggle);
-  }, [isMdUp]);
-
-  // FECHA ao mudar de rota no mobile
-  useEffect(() => {
-    if (!isMdUp) {
-      setOpen(false);
-      applyContentSpacing(false, false);
-    }
-  }, [pathname, isMdUp]);
-
-  // carregar pets do usuário logado
   useEffect(() => {
     const refresh = () => {
-      const all = loadPets();
+      const all = loadPets(); // se depois vier API, trocar essa linha
       const mine = currentUserId
         ? all.filter((p) => (p.ownerId || p.userId || p.createdBy) === currentUserId)
         : [];
@@ -123,7 +85,6 @@ export default function Sidebar() {
     return () => window.removeEventListener("patanet:pets-updated", refresh);
   }, [currentUserId]);
 
-  // resolver avatar/cover dos pets via IndexedDB (avatarId / coverId)
   useEffect(() => {
     let cancelled = false;
 
@@ -132,19 +93,11 @@ export default function Sidebar() {
         (myPets || []).map(async (p) => {
           let coverUrl = p.cover || "";
           if (!coverUrl && p.coverId) {
-            try {
-              coverUrl = await mediaGetUrl(p.coverId);
-            } catch {
-              coverUrl = "";
-            }
+            try { coverUrl = await mediaGetUrl(p.coverId); } catch { coverUrl = ""; }
           }
           let avatarUrl = p.avatar || "";
           if (!avatarUrl && p.avatarId) {
-            try {
-              avatarUrl = await mediaGetUrl(p.avatarId);
-            } catch {
-              avatarUrl = "";
-            }
+            try { avatarUrl = await mediaGetUrl(p.avatarId); } catch { avatarUrl = ""; }
           }
           if (!avatarUrl) avatarUrl = coverUrl;
           return [p.id, { coverUrl, avatarUrl }];
@@ -159,20 +112,62 @@ export default function Sidebar() {
     }
 
     resolveThumbs();
-    return () => {
-      cancelled = true;
-      Object.values(petThumbs).forEach(({ avatarUrl, coverUrl }) => {
-        [avatarUrl, coverUrl].forEach((u) => {
-          if (u && typeof u === "string" && u.startsWith("blob:")) {
-            try {
-              URL.revokeObjectURL(u);
-            } catch {}
-          }
-        });
-      });
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myPets.length]);
+
+  // ==== Layout e comportamento (inalterados visualmente) ====
+  function applyContentSpacing(nextOpen, mdUp) {
+    const ml = nextOpen && mdUp ? `${SIDEBAR_W}px` : "0px";
+    document.documentElement.style.setProperty("--sidebar-ml", ml);
+  }
+
+  const closeIfMobile = () => {
+    if (!isMdUp) {
+      setOpen(false);
+      applyContentSpacing(false, false);
+    }
+  };
+
+  // estado inicial e reação ao breakpoint (sem persistir em localStorage)
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const handle = () => {
+      const md = mq.matches;
+      setIsMdUp(md);
+      if (md) {
+        setOpen(true); // desktop: aberto por padrão
+        applyContentSpacing(true, true);
+      } else {
+        setOpen(false); // mobile: fechado por padrão
+        applyContentSpacing(false, false);
+      }
+    };
+    handle();
+    mq.addEventListener("change", handle);
+    return () => mq.removeEventListener("change", handle);
+  }, []);
+
+  // evento global para abrir/fechar via botão de hambúrguer (caso exista)
+  useEffect(() => {
+    const onToggle = () => {
+      setOpen((v) => {
+        const next = !v;
+        applyContentSpacing(next, isMdUp);
+        return next;
+      });
+    };
+    window.addEventListener("patanet:sidebar-toggle", onToggle);
+    return () => window.removeEventListener("patanet:sidebar-toggle", onToggle);
+  }, [isMdUp]);
+
+  // FECHA ao mudar de rota no mobile
+  useEffect(() => {
+    if (!isMdUp) {
+      setOpen(false);
+      applyContentSpacing(false, false);
+    }
+  }, [pathname, isMdUp]);
 
   const NavItem = ({ to, icon: Ico, label }) => {
     const active =
@@ -215,7 +210,12 @@ export default function Sidebar() {
     user?.displayName ||
     user?.name ||
     user?.email ||
-    "Usuário";
+    (loadingUser ? "Carregando..." : "Usuário");
+
+  const doLogout = () => {
+    try { clearTokens(); } catch {}
+    navigate("/login", { replace: true });
+  };
 
   return (
     <>
@@ -248,7 +248,7 @@ export default function Sidebar() {
             }}
             className="md:hidden absolute right-3 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm"
             style={{
-              top: "calc(env(safe-area-inset-top, 0px) + 14px)", // desce o botão
+              top: "calc(env(safe-area-inset-top, 0px) + 14px)",
             }}
             aria-label="Fechar menu"
             title="Fechar"
@@ -335,11 +335,7 @@ export default function Sidebar() {
           {/* Navegação secundária */}
           <nav className="flex flex-col gap-1">
             <NavItem to="/perfil" icon={User} label="Perfil" />
-            {/* <NavItem
-              to="/dashboard/configuracoes"
-              icon={Settings}
-              label="Configurações"
-            /> */}
+            {/* <NavItem to="/dashboard/configuracoes" icon={Settings} label="Configurações" /> */}
           </nav>
 
           <div className="mt-auto" />
@@ -357,9 +353,7 @@ export default function Sidebar() {
               <div className="flex-1">
                 <div className="text-xs opacity-80">Olá</div>
                 <div className="text-sm font-medium">
-                  {user
-                    ? user.username || user.displayName || user.name || user.email
-                    : "Visitante"}
+                  {userName}
                 </div>
               </div>
 
@@ -368,17 +362,13 @@ export default function Sidebar() {
                 className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/10"
                 title="Alternar tema"
               >
-                {theme === "dark" ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </button>
 
               {user ? (
                 <button
                   onClick={() => {
-                    logout();
+                    doLogout();
                     closeIfMobile();
                   }}
                   className="inline-flex h-8 items-center gap-1 rounded-md bg-white/10 px-2 text-xs"
@@ -401,25 +391,20 @@ export default function Sidebar() {
             </div>
           </div>
 
-          {/* Botão retrair/expandir no DESKTOP */}
+          {/* Botão retrair/expandir no DESKTOP (sem persistência em LS) */}
           <button
             type="button"
             onClick={() => {
               const next = !open;
               setOpen(next);
               applyContentSpacing(next, true);
-              localStorage.setItem(LS_DESKTOP_OPEN_KEY, next ? "1" : "0");
             }}
             className="hidden md:flex absolute -right-3 top-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[var(--sidebar-bg)] text-[var(--sidebar-fg)] shadow transition-opacity hover:opacity-100"
             title={open ? "Retrair menu" : "Expandir menu"}
             aria-label="Retrair menu"
             aria-expanded={open}
           >
-            {open ? (
-              <ChevronLeft className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
+            {open ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
         </div>
       </aside>

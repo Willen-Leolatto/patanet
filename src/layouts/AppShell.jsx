@@ -2,13 +2,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import SideBar from "@/components/nav/SideBar";
-import { useAuth } from "@/store/auth";
 
-// 👇 adicionados
+// Capacitor (mantido)
 import { Capacitor } from "@capacitor/core";
 import { App as CapApp } from "@capacitor/app";
 
-// Handlers globais para interceptar o botão voltar (ex.: Lightbox / Modais)
+// API: probe de sessão
+import { getMyProfile } from "@/api/user.api.js";
+
+// ===== Back handlers globais (mantido) =====
 const _backHandlers = new Set();
 /** Registre uma função que retorna true se tratou o back (ex.: fechar modal) */
 export function registerBackHandler(fn) {
@@ -20,50 +22,74 @@ export default function AppShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
 
-  // Pode existir (seu store novo) ou não (store antigo/sem flag)
-  const hydratedFromStore = useAuth((s) => s.hydrated);
-  const user = useAuth((s) => s.user);
+  // ===== Sessão via API (sem Zustand/localStorage) =====
+  const [me, setMe] = useState(null);
+  const [probing, setProbing] = useState(true);  // carregando estado de sessão
+  const [bootWait, setBootWait] = useState(true); // janelinha anti-flicker
 
-  // Se a flag não existir (undefined), consideramos "true" por padrão.
-  // Se existir e for false, aguardamos um curto período (até 300ms) para evitar flicker.
-  const [bootWait, setBootWait] = useState(true);
+  // Pequeno atraso para evitar “piscar” ao montar
   useEffect(() => {
-    const t = setTimeout(() => setBootWait(false), 300);
+    const t = setTimeout(() => setBootWait(false), 250);
     return () => clearTimeout(t);
   }, []);
 
-  const isHydrated = useMemo(() => {
-    if (typeof hydratedFromStore === "boolean") return hydratedFromStore || !bootWait;
-    return true; // sem flag -> já tratamos como hidratado
-  }, [hydratedFromStore, bootWait]);
-
-  const isAuthRoute = pathname === "/auth" || pathname.startsWith("/auth/");
-
-  // Regras de navegação (tolerantes à hidratação)
+  // Probe inicial da sessão + re-probe on demand
   useEffect(() => {
-    if (!isHydrated) return;
+    let cancelled = false;
 
-    // Não autenticado em rota protegida -> /auth
-    if (!user && !isAuthRoute) {
-      navigate("/auth", { replace: true, state: { from: pathname } });
+    async function probe() {
+      try {
+        setProbing(true);
+        const u = await getMyProfile(); // /users/me
+        if (!cancelled) setMe(u || null);
+      } catch {
+        if (!cancelled) setMe(null);
+      } finally {
+        if (!cancelled) setProbing(false);
+      }
+    }
+
+    probe();
+
+    // Caso o login/logout emita este evento, revalidamos
+    const onAuthChange = () => probe();
+    window.addEventListener("patanet:auth-updated", onAuthChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("patanet:auth-updated", onAuthChange);
+    };
+  }, []);
+
+  const isAuthRoute = useMemo(
+    () => /^\/(login|signup|auth)(\/|$)/i.test(pathname),
+    [pathname]
+  );
+
+  // Regras de navegação (somente após probe concluído)
+  useEffect(() => {
+    if (probing) return; // não decide enquanto carrega sessão
+
+    // Sem sessão e fora das rotas públicas -> vai para /login
+    if (!me && !isAuthRoute) {
+      navigate("/login", { replace: true, state: { from: pathname } });
       return;
     }
 
-    // Autenticado em /auth -> /feed
-    if (user && isAuthRoute) {
+    // Com sessão e em rota de auth -> manda para /feed
+    if (me && isAuthRoute) {
       navigate("/feed", { replace: true });
-      return;
     }
-  }, [isHydrated, user, isAuthRoute, pathname, navigate]);
+  }, [probing, me, isAuthRoute, pathname, navigate]);
 
-  // Ajuste de deslocamento quando a sidebar não deve aparecer
+  // Ajuste do deslocamento quando a sidebar não deve aparecer
   useEffect(() => {
-    if (isAuthRoute || !user) {
+    if (isAuthRoute || !me) {
       document.documentElement.style.setProperty("--sidebar-ml", "0px");
     }
-  }, [isAuthRoute, user]);
+  }, [isAuthRoute, me]);
 
-  // 👇 Listener do botão voltar (Android/Capacitor)
+  // ===== Botão voltar (Capacitor) — mantido =====
   const exitArmedRef = useRef(false);
   useEffect(() => {
     if (!Capacitor.isNativePlatform?.()) return;
@@ -76,8 +102,8 @@ export default function AppShell() {
         } catch {}
       }
 
-      // 2) Navegação (evita voltar pra /auth)
-      const onAuth = /^\/auth(\/|$)/.test(pathname);
+      // 2) Navegação (evita voltar pra /login)
+      const onAuth = /^\/(login|signup|auth)(\/|$)/i.test(pathname);
       if (canGoBack && !onAuth) {
         navigate(-1);
         return;
@@ -86,8 +112,6 @@ export default function AppShell() {
       // 3) Raiz → duplo toque para sair
       if (!exitArmedRef.current) {
         exitArmedRef.current = true;
-        // Feedback mínimo sem UI extra:
-        // eslint-disable-next-line no-console
         console.log("Pressione voltar novamente para sair.");
         setTimeout(() => (exitArmedRef.current = false), 1500);
       } else {
@@ -100,8 +124,10 @@ export default function AppShell() {
     };
   }, [pathname, navigate]);
 
-  // Enquanto esperamos curta janela de hidratação, mostra loader simples
-  if (!isHydrated) {
+  // ===== Loaders =====
+  const isHydrating = bootWait || probing;
+
+  if (isHydrating) {
     return (
       <div className="min-h-dvh w-full grid place-items-center">
         <div className="animate-pulse text-sm text-zinc-500 dark:text-zinc-400">
@@ -111,8 +137,8 @@ export default function AppShell() {
     );
   }
 
-  // Layout sem sidebar (auth)
-  if (isAuthRoute || !user) {
+  // ===== Layout sem sidebar (rotas de auth ou sem sessão) =====
+  if (isAuthRoute || !me) {
     return (
       <div className="min-h-dvh w-full">
         <main className="min-h-dvh w-full grid place-items-center px-4 md:px-6">
@@ -122,7 +148,7 @@ export default function AppShell() {
     );
   }
 
-  // Layout autenticado com Sidebar
+  // ===== Layout autenticado com Sidebar (mantido) =====
   function toggleSidebar() {
     window.dispatchEvent(new CustomEvent("patanet:sidebar-toggle"));
   }

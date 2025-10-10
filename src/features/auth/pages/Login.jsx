@@ -1,15 +1,16 @@
 // src/features/auth/pages/Login.jsx
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/store/auth";
 import { useTheme } from "@/store/theme";
 import { Sun, Moon } from "lucide-react";
-import { upsertUser } from "@/features/users/services/userStorage";
 import dogImg from "@/assets/dog.png";
+
+// APIs (imutáveis conforme combinado)
+import { signIn } from "@/api/auth.api.js";
+import { http } from "@/api/axios.js";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
 
   const [mode, setMode] = useState("login"); // 'login' | 'signup'
   const [showPass, setShowPass] = useState(false);
@@ -21,10 +22,12 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [terms, setTerms] = useState(false);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // imagem de perfil (signup)
-  const [image, setImage] = useState(""); // DataURL
   const [preview, setPreview] = useState("");
+  const [pickedFile, setPickedFile] = useState(null);
+
   const theme = useTheme((s) => s.theme);
   const toggleTheme = useTheme((s) => s.toggle);
 
@@ -60,115 +63,89 @@ export default function Login() {
     );
 
   const canSubmit = useMemo(() => {
-    if (mode === "login") return email && password;
-    return name && email && password && terms;
-  }, [mode, name, email, password, terms]);
+    if (submitting) return false;
+    if (mode === "login") return (email || username) && password;
+    return name && (email || username) && password && terms;
+  }, [mode, name, email, username, password, terms, submitting]);
 
-  async function readAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(fr.result);
-      fr.onerror = reject;
-      fr.readAsDataURL(file);
-    });
-  }
-
-  async function onPickAvatar(e) {
+  function onPickAvatar(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const dataUrl = await readAsDataURL(file);
-      setImage(dataUrl);
-      setPreview(URL.createObjectURL(file));
-    } catch {
-      // ignora
+    if (!file) {
+      setPickedFile(null);
+      setPreview("");
+      return;
     }
+    setPickedFile(file);
+    setPreview(URL.createObjectURL(file));
   }
 
-  function deriveUsernameFallback(rawUsername, rawEmail) {
-    const u = (rawUsername || "").trim();
-    if (u) return u;
-    const em = (rawEmail || "").trim();
-    if (em.includes("@")) return em.split("@")[0];
-    return "";
+  async function handleLogin({ login, password }) {
+    const usernameOrEmail = (login || "").trim();
+    const pass = password || "";
+    const {  } = await signIn({
+      username: usernameOrEmail,
+      password: pass,
+    });
+    navigate("/feed", { replace: true });
   }
 
-  function toCatalogUser(raw, base) {
-    const id =
-      raw?.id ||
-      raw?.uid ||
-      raw?.email ||
-      raw?.username ||
-      base?.email ||
-      base?.username ||
-      null;
+  async function handleSignup(payload) {
+    const fd = new FormData();
+    fd.append("name", payload.name.trim());
+    if (payload.username?.trim()) fd.append("username", payload.username.trim());
+    if (payload.email?.trim()) fd.append("email", payload.email.trim().toLowerCase());
+    fd.append("password", payload.password);
 
-    return {
-      id,
-      name: raw?.name ?? base?.name ?? "",
-      username:
-        raw?.username ?? deriveUsernameFallback(base?.username, base?.email),
-      email: (raw?.email ?? base?.email ?? "").toLowerCase(),
-      image: raw?.image ?? raw?.avatar ?? base?.image ?? "",
-      createdAt: raw?.createdAt ?? Date.now(),
-    };
+    if (payload.imageFile) {
+      fd.append("image", payload.imageFile); 
+    }
+
+    const res = await http.post("/users", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    if (!res?.data?.access_token) {
+      const loginField = payload.email?.trim() || payload.username?.trim();
+      await handleLogin({ login: loginField, password: payload.password });
+      return;
+    }
+
+    navigate("/feed", { replace: true });
   }
 
   async function onSubmit(e) {
-    const fileInput = e.currentTarget?.imageFile;
-    const pickedFile = fileInput?.files?.[0] || null;
-    const imageDataURL = pickedFile ? await readAsDataURL(pickedFile) : "";
     e.preventDefault();
     setError("");
+    setSubmitting(true);
     try {
-      const basePayload = {
-        name: (name || "").trim(),
-        username: (username || "").trim(),
-        email: (email || "").trim().toLowerCase(),
-        password: password || "",
-        image: imageDataURL || image || "", // prioriza o arquivo escolhido no form
-      };
-
-      let sessionUser;
-
       if (mode === "signup") {
-        if (
-          !basePayload.name ||
-          !(basePayload.email || basePayload.username) ||
-          !basePayload.password ||
-          !terms
-        ) {
-          setError("Preencha nome, email/usuário, senha e aceite os termos.");
+        if (!terms) {
+          setError("Você precisa aceitar os termos.");
           return;
         }
-        // o register deve persistir e retornar o usuário de sessão
-        sessionUser = await register(basePayload);
+        await handleSignup({
+          name,
+          username,
+          email,
+          password,
+          imageFile: pickedFile || null,
+        });
       } else {
-        if (
-          !(basePayload.email || basePayload.username) ||
-          !basePayload.password
-        ) {
+        const loginField = (email || username || "").trim();
+        if (!loginField || !password) {
           setError("Informe email/usuário e senha.");
           return;
         }
-        const loginField = basePayload.email || basePayload.username;
-        sessionUser = await login({
-          login: loginField,
-          password: basePayload.password,
-        });
+        await handleLogin({ login: loginField, password });
       }
-
-      // --- NOVO: garantir usuário no catálogo userStorage ---
-      try {
-        const userCatalog = toCatalogUser(sessionUser, basePayload);
-        if (userCatalog?.id) upsertUser(userCatalog);
-      } catch {
-        // não bloqueia o login caso falhe
-      }
-
-      navigate("/feed", { replace: true });
     } catch (err) {
-      setError(err?.message || "Não foi possível autenticar.");
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Não foi possível autenticar.";
+      setError(msg);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -199,14 +176,11 @@ export default function Login() {
                 aria-label="Alternar tema"
                 title="Alternar tema"
               >
-                {theme === "dark" ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 {theme === "dark" ? "Claro" : "Escuro"}
               </button>
             </div>
+
             {/* badge topo */}
             <div className="absolute -top-8 left-1/2 -translate-x-1/2 rounded-full border border-white/40 bg-white p-2 shadow-md dark:border-white/10 dark:bg-white/10">
               <div className="flex h-14 w-14 items-center justify-center rounded-full border border-orange-500/30 bg-white text-orange-500 dark:bg-white/5">
@@ -236,7 +210,6 @@ export default function Login() {
                       <img
                         src={
                           preview ||
-                          image ||
                           "https://api.dicebear.com/8.x/identicon/svg?seed=patanet"
                         }
                         className="h-16 w-16 rounded-full object-cover ring-2 ring-orange-500/30"
@@ -248,7 +221,7 @@ export default function Login() {
                           accept="image/*"
                           className="hidden"
                           onChange={onPickAvatar}
-                          name="imageFile"
+                          name="image"
                         />
                         <svg width="16" height="16" viewBox="0 0 24 24">
                           <path
@@ -357,7 +330,7 @@ export default function Login() {
                 disabled={!canSubmit}
                 className="mt-2 w-full rounded-xl bg-orange-500 px-5 py-3 font-semibold text-white shadow-md transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {cta}
+                {submitting ? "Enviando..." : cta}
               </button>
             </form>
 
