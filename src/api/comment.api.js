@@ -9,7 +9,7 @@ export async function addCommentPost({ postId, message, parentId }) {
 }
 
 export async function updateCommentPost({ postId, commentId, message }) {
-  const response = await http.post(`posts/${postId}/comment/${commentId}`, {
+  const response = await http.patch(`/posts/${postId}/comment/${commentId}`, {
     message
   })
   return response.data

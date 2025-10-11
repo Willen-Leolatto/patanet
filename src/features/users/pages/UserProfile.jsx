@@ -23,6 +23,7 @@ import {
   followUser,
   unfollowUser,
   summaryUserConnections,
+  userFolloweds, // <- para inferir iFollow quando necessário
 } from "@/api/connection.api.ts.js";
 
 /* --------------------------------- utils UI -------------------------------- */
@@ -51,7 +52,8 @@ function Avatar({ src, alt, size = 96, className = "" }) {
 }
 
 const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "—");
-const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "—");
+const fmtDate = (iso) =>
+  iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
 function fmtMemberSince(u) {
   const ts = u?.createdAt;
   try {
@@ -66,6 +68,7 @@ function fmtMemberSince(u) {
 export default function UserProfile() {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const isTogglingFollowRef = useRef(false);
 
   // quem sou eu (logado)
   const [me, setMe] = useState(null);
@@ -86,6 +89,39 @@ export default function UserProfile() {
   });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profileExtras);
+
+  // Coloque dentro do componente, antes dos effects
+  async function computeIFollow(viewedRealId, meId) {
+    if (!viewedRealId || !meId) return false;
+    try {
+      const resp = await userFolloweds({ id: meId, page: 1, perPage: 1000 });
+      // aceita vários formatos possíveis
+      const arr =
+        (resp && Array.isArray(resp.data) && resp.data) ||
+        (Array.isArray(resp) && resp) ||
+        (resp && Array.isArray(resp.users) && resp.users) ||
+        (resp && resp.results && Array.isArray(resp.results) && resp.results) ||
+        [];
+
+      return arr.some((u) => {
+        const candIds = [
+          u?.id,
+          u?._id,
+          u?.user?.id,
+          u?.user?._id,
+          u?.followed?.id,
+          u?.followed?._id,
+          u?.followedId,
+        ]
+          .filter(Boolean)
+          .map(String);
+        return candIds.includes(String(viewedRealId));
+      });
+    } catch {
+      return false;
+    }
+  }
+
   useEffect(() => setDraft(profileExtras), [profileExtras]);
 
   // pets do usuário visualizado
@@ -120,17 +156,19 @@ export default function UserProfile() {
   }, [navigate, userId]);
 
   const currentId = me?.id || me?._id || me?.email || me?.username || null;
-  const viewedId = userId || currentId;
-  const isOwn = !!currentId && String(viewedId) === String(currentId);
+  const viewedParam = userId || currentId;
 
-  // carregar perfil visualizado
+  // carregar perfil visualizado (se a rota vier com username/slugs, a API resolve)
   useEffect(() => {
     let cancel = false;
     (async () => {
-      if (!viewedId) return;
+      if (!viewedParam) return;
       try {
-        let u = isOwn ? me : await getUserProfile({ id: viewedId });
-        if (!u && isOwn) u = me;
+        // se é meu próprio perfil, usa meu objeto; senão busca por id/slug
+        const isOwnParam =
+          !!currentId && String(viewedParam) === String(currentId);
+        let u = isOwnParam ? me : await getUserProfile({ id: viewedParam });
+        if (!u && isOwnParam) u = me;
         if (!cancel) setViewedUser(u || null);
       } catch {
         if (!cancel) setViewedUser(null);
@@ -139,7 +177,15 @@ export default function UserProfile() {
     return () => {
       cancel = true;
     };
-  }, [viewedId, isOwn, me]);
+  }, [viewedParam, currentId, me]);
+
+  // agora que temos viewedUser, sabemos o id real
+  const viewedRealId = viewedUser?.id || viewedUser?._id || null;
+  const isOwn = !!(
+    me?.id &&
+    viewedRealId &&
+    String(me.id) === String(viewedRealId)
+  );
 
   // resolver avatar/capa a partir do perfil
   useEffect(() => {
@@ -150,30 +196,44 @@ export default function UserProfile() {
     setAvatarUrl(avatar || "");
   }, [viewedUser]);
 
-  // resumo de conexões (seguidores/seguidos + se eu sigo)
+  // resumo de conexões (seguidores/seguidos + se eu sigo) — usa SEMPRE o ID REAL
+  const refetchConnections = useRef(null);
+
   useEffect(() => {
     let cancel = false;
-    (async () => {
-      if (!viewedId) return;
+
+    refetchConnections.current = async () => {
+      if (!viewedRealId) return;
       try {
-        const summary = await summaryUserConnections({ id: viewedId });
-        // tentativas de leitura tolerantes ao shape
+        const summary = await summaryUserConnections({ id: viewedRealId });
+
+        // backend retorna com typos:
         const followers =
+          summary?.follwers ??
           summary?.followers ??
           summary?.followersCount ??
           summary?.data?.followers ??
           0;
+
         const followeds =
+          summary?.follweds ??
           summary?.followeds ??
           summary?.following ??
           summary?.followedsCount ??
           summary?.data?.followeds ??
           0;
-        const amIFollowing =
-          summary?.iFollow ??
-          summary?.amIFollowing ??
-          summary?.data?.iFollow ??
-          false;
+
+        // tenta vir do backend; se não vier, inferimos perguntando meus "followeds"
+        let amIFollowing =
+          summary?.iFollow ?? summary?.amIFollowing ?? summary?.data?.iFollow;
+
+        if (
+          amIFollowing === undefined &&
+          me?.id &&
+          String(me.id) !== String(viewedRealId)
+        ) {
+          amIFollowing = await computeIFollow(viewedRealId, me.id);
+        }
 
         if (!cancel) {
           setFollowersCount(Number(followers) || 0);
@@ -187,22 +247,27 @@ export default function UserProfile() {
           setIFollow(false);
         }
       }
-    })();
+    };
+
+    refetchConnections.current();
     return () => {
       cancel = true;
     };
-  }, [viewedId]);
+  }, [viewedRealId, me?.id]);
 
-  // carregar pets do usuário visualizado (lista)
+  // carregar pets do usuário visualizado
   useEffect(() => {
     let cancel = false;
     (async () => {
-      if (!viewedId) return;
+      if (!viewedRealId) return;
       try {
-        // Lista por usuário – mantém fallback direto
-        const { data } = await http.get(`/animals/user/${viewedId}`);
+        const { data } = await http.get(`/animals/user/${viewedRealId}`);
         if (cancel) return;
-        const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+        const list = Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data)
+          ? data
+          : [];
         setPets(
           list.map((p) => ({
             id: p.id || p._id,
@@ -223,7 +288,7 @@ export default function UserProfile() {
     return () => {
       cancel = true;
     };
-  }, [viewedId]);
+  }, [viewedRealId]);
 
   // construir thumbs (com fetch individual se necessário)
   useEffect(() => {
@@ -235,13 +300,11 @@ export default function UserProfile() {
         let coverUrl = p.imageCover || "";
         if (!avatarUrl || !coverUrl) {
           try {
-            // resolve com fetch individual quando algo vier faltando
             const pet = await fetchAnimalsById({ animalId: p.id });
             avatarUrl = avatarUrl || pet?.image?.url || pet?.image || "";
-            coverUrl = coverUrl || pet?.imageCover?.url || pet?.imageCover || "";
-          } catch {
-            // ignora
-          }
+            coverUrl =
+              coverUrl || pet?.imageCover?.url || pet?.imageCover || "";
+          } catch {}
         }
         map[p.id] = { avatarUrl, coverUrl };
       }
@@ -263,38 +326,47 @@ export default function UserProfile() {
 
   const fileRef = useRef(null);
   const onPickCover = async (e) => {
-    // Mantém o fluxo/visual do botão; sem persistência local aqui.
     e.target.value = "";
   };
 
   const displayName =
-    viewedUser?.name || viewedUser?.displayName || viewedUser?.username || "Usuário";
+    viewedUser?.name ||
+    viewedUser?.displayName ||
+    viewedUser?.username ||
+    "Usuário";
   const displayUsername = viewedUser?.username
     ? `@${viewedUser.username}`
     : viewedUser?.email || "";
 
-  // seguir / desseguir
+  // seguir / desseguir — usa SEMPRE o ID REAL do perfil visualizado
+  // substitua a função inteira
   async function handleToggleFollow() {
-    if (!me || isOwn || !viewedId) return;
+    if (!me || isOwn || !viewedRealId) return;
+    if (isTogglingFollowRef.current) return;
+    isTogglingFollowRef.current = true;
+
     const prevIFollow = iFollow;
-    const delta = prevIFollow ? -1 : 1;
-    // optimistic
-    setIFollow(!prevIFollow);
-    setFollowersCount((c) => Math.max(0, c + delta));
+    const willFollow = !prevIFollow;
+
+    setIFollow(willFollow);
+    setFollowersCount((c) => Math.max(0, c + (willFollow ? 1 : -1)));
+
     try {
       if (prevIFollow) {
-        await unfollowUser({ id: viewedId });
+        await unfollowUser({ id: viewedRealId });
       } else {
-        await followUser({ id: viewedId });
+        await followUser({ id: viewedRealId });
       }
+      await refetchConnections.current?.(); // sincroniza com o backend
     } catch {
       // rollback
       setIFollow(prevIFollow);
-      setFollowersCount((c) => Math.max(0, c - delta));
+      setFollowersCount((c) => Math.max(0, c + (prevIFollow ? 1 : -1)));
+    } finally {
+      isTogglingFollowRef.current = false;
     }
   }
-
-  if (loadingMe && !viewedId) {
+  if (loadingMe && !viewedRealId) {
     return (
       <div className="min-h-dvh w-full grid place-items-center">
         <div className="animate-pulse text-sm text-zinc-500 dark:text-zinc-400">
@@ -326,7 +398,13 @@ export default function UserProfile() {
               className="h-full w-full object-cover"
               onClick={() =>
                 openLightbox(
-                  [{ id: "cover", url: coverUrl, title: viewedUser.username || viewedUser.name }],
+                  [
+                    {
+                      id: "cover",
+                      url: coverUrl,
+                      title: viewedUser.username || viewedUser.name,
+                    },
+                  ],
                   0
                 )
               }
@@ -335,16 +413,8 @@ export default function UserProfile() {
             <div className="h-full w-full" />
           )}
 
-          {isOwn && (
-            <button
-              className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white backdrop-blur hover:bg-black/70"
-              onClick={() => fileRef.current?.click()}
-              title="Alterar capa do perfil"
-            >
-              <Camera className="h-4 w-4" /> Alterar capa
-            </button>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickCover} />
+          {/* edição de capa desabilitada visualmente por enquanto */}
+          {/* <button .../> */}
 
           <div className="absolute left-6 -bottom-12 z-10">
             <Avatar src={avatarUrl} alt={displayName} size={104} />
@@ -370,10 +440,16 @@ export default function UserProfile() {
                 <button
                   onClick={handleToggleFollow}
                   className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${
-                    iFollow ? "bg-zinc-700 hover:bg-zinc-800" : "bg-[#f77904] hover:opacity-90"
+                    iFollow
+                      ? "bg-zinc-700 hover:bg-zinc-800"
+                      : "bg-[#f77904] hover:opacity-90"
                   }`}
                 >
-                  {iFollow ? <UserCheck className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+                  {iFollow ? (
+                    <UserCheck className="h-4 w-4" />
+                  ) : (
+                    <UserPlus className="h-4 w-4" />
+                  )}
                   {iFollow ? "Seguindo" : "Seguir"}
                 </button>
               ) : (
@@ -388,7 +464,7 @@ export default function UserProfile() {
             </div>
           </div>
 
-          {/* bio / website / location – mantém layout; bio usa API (about) */}
+          {/* bio / metadados */}
           <div className="mt-4 border-t border-zinc-200 pt-4 text-sm dark:border-zinc-800">
             {!editing ? (
               <div className="grid gap-4 md:grid-cols-3">
@@ -402,25 +478,6 @@ export default function UserProfile() {
                 </div>
 
                 <div className="space-y-2">
-                  {/* <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
-                    <MapPin className="h-4 w-4 opacity-70" />
-                    <span className="truncate">{profileExtras.location || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
-                    <LinkIcon className="h-4 w-4 opacity-70" />
-                    {profileExtras.website ? (
-                      <a
-                        href={profileExtras.website}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        {profileExtras.website}
-                      </a>
-                    ) : (
-                      <span>—</span>
-                    )}
-                  </div> */}
                   <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
                     <CalendarDays className="h-4 w-4 opacity-70" />
                     <span>Membro desde {fmtMemberSince(viewedUser)}</span>
@@ -435,74 +492,8 @@ export default function UserProfile() {
                   setEditing(false);
                   setProfileExtras(draft);
                 }}
-              >
-                {/* Mantém edição visual local de website/location para não quebrar layout */}
-                {/* <div className="md:col-span-2">
-                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Sobre 
-                  </label>
-                  <textarea
-                    className="w-full rounded-lg border border-zinc-200 bg-white p-2 outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
-                    rows={3}
-                    maxLength={280}
-                    value={draft.bioLegacy}
-                    onChange={(e) => setDraft((d) => ({ ...d, bioLegacy: e.target.value }))}
-                  />
-                </div> */}
-
-                {/* <div className="space-y-2">
-                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Localização
-                  </label>
-                  <input
-                    type="text"
-                    className="mb-2 w-full rounded-lg border border-zinc-200 bg-white p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
-                    value={draft.location}
-                    onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))}
-                  />
-                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Website
-                  </label>
-                  <input
-                    type="url"
-                    className="w-full rounded-lg border border-zinc-200 bg-white p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
-                    placeholder="https://…"
-                    value={draft.website}
-                    onChange={(e) => setDraft((d) => ({ ...d, website: e.target.value }))}
-                  />
-                </div> */}
-
-                {/* <div className="md:col-span-3 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
-                    onClick={() => {
-                      setEditing(false);
-                      setDraft(profileExtras);
-                    }}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white"
-                  >
-                    Salvar
-                  </button>
-                </div> */}
-              </form>
+              />
             )}
-
-            {/* {isOwn && !editing && (
-              <div className="mt-3 flex justify-end">
-                <button
-                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
-                  onClick={() => setEditing(true)}
-                >
-                  <Edit3 className="h-4 w-4" /> Editar seção “Sobre”
-                </button>
-              </div>
-            )} */}
           </div>
         </div>
       </section>
@@ -548,7 +539,16 @@ export default function UserProfile() {
                           className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
                           onClick={(e) => {
                             e.preventDefault();
-                            openLightbox([{ id: p.id + "-cover", url: cover, title: p.name }], 0);
+                            openLightbox(
+                              [
+                                {
+                                  id: p.id + "-cover",
+                                  url: cover,
+                                  title: p.name,
+                                },
+                              ],
+                              0
+                            );
                           }}
                         />
                       ) : (
@@ -567,7 +567,16 @@ export default function UserProfile() {
                           alt=""
                           className="h-12 w-12 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900"
                           onClick={() =>
-                            openLightbox([{ id: p.id + "-avatar", url: avatar, title: p.name }], 0)
+                            openLightbox(
+                              [
+                                {
+                                  id: p.id + "-avatar",
+                                  url: avatar,
+                                  title: p.name,
+                                },
+                              ],
+                              0
+                            )
                           }
                         />
                       ) : (
@@ -575,13 +584,17 @@ export default function UserProfile() {
                       )}
 
                       <div className="min-w-0">
-                        <Link to={`/pets/${p.id}`} className="group inline-flex items-center gap-1">
+                        <Link
+                          to={`/pets/${p.id}`}
+                          className="group inline-flex items-center gap-1"
+                        >
                           <h3 className="truncate text-base font-semibold leading-5 group-hover:underline">
                             {p.name || "Sem nome"}
                           </h3>
                         </Link>
                         <p className="truncate text-xs opacity-70">
-                          {title(p.species)} • {title(p.breed)} • {title(p.gender)}
+                          {title(p.species)} • {title(p.breed)} •{" "}
+                          {title(p.gender)}
                         </p>
                       </div>
                     </div>
@@ -603,8 +616,9 @@ export default function UserProfile() {
                           <button
                             onClick={() => {
                               if (window.confirm(`Remover "${p.name}"?`)) {
-                                // Sem endpoint de remoção aqui para lista do usuário; visual rápido
-                                setPets((list) => list.filter((x) => x.id !== p.id));
+                                setPets((list) =>
+                                  list.filter((x) => x.id !== p.id)
+                                );
                               }
                             }}
                             title="Remover"

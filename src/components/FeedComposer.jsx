@@ -1,20 +1,49 @@
 // src/components/FeedComposer.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { ImagePlus, PawPrint } from "lucide-react";
-// Removidos: addPost (storage local)
+// (mantive a UI/fluxo igual; se quiser, depois trocamos pets para API)
 import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
-// API real
 import { createPost } from "@/api/post.api.js";
+
+/* ---------- utils: compressão igual ao registro ---------- */
+async function compressImage(file, { maxW = 1600, maxH = 1600, quality = 0.85 } = {}) {
+  if (!(file instanceof File)) return file;
+  const bitmap = await createImageBitmap(file);
+  let { width, height } = bitmap;
+  const ratio = Math.min(maxW / width, maxH / height, 1);
+  const w = Math.round(width * ratio);
+  const h = Math.round(height * ratio);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+  if (!blob) return file;
+  return new File([blob], file.name.replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
+}
+
+function dataUrlToFile(dataUrl, name = "media.jpg") {
+  const arr = dataUrl.split(",");
+  const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+  const bstr = atob(arr[1] || "");
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) u8arr[n] = bstr.charCodeAt(n);
+  return new File([u8arr], name, { type: mime });
+}
 
 export default function FeedComposer({ user }) {
   const [text, setText] = useState("");
-  const [images, setImages] = useState([]); // dataURLs (para UI)
-  const [files, setFiles] = useState([]);   // File[] (para API)
-  const [taggedPets, setTaggedPets] = useState([]); // ids de pets marcados
+  const [images, setImages] = useState([]); // dataURLs (UI)
+  const [files, setFiles] = useState([]);   // File[] (API)
+  const [taggedPets, setTaggedPets] = useState([]); // ids
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
-  // todos os ids possíveis do usuário (cobre contas antigas)
+  // ids possíveis do usuário
   const myIds = useMemo(
     () =>
       [user?.id, user?.uid, user?.email, user?.username]
@@ -26,7 +55,7 @@ export default function FeedComposer({ user }) {
   const [allPets, setAllPets] = useState([]);
   const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { name, avatarUrl } }
 
-  // Carrega pets e revalida quando atualizar no sistema
+  // Carrega pets (mesmo layout/fluxo)
   useEffect(() => {
     const refresh = () => setAllPets(loadPets() || []);
     refresh();
@@ -34,7 +63,6 @@ export default function FeedComposer({ user }) {
     return () => window.removeEventListener("patanet:pets-updated", refresh);
   }, []);
 
-  // Filtra apenas os pets do usuário logado (compatível com registros antigos)
   const myPets = useMemo(() => {
     if (!myIds.length) return [];
     return (allPets || []).filter((p) => {
@@ -43,7 +71,6 @@ export default function FeedComposer({ user }) {
     });
   }, [allPets, myIds]);
 
-  // Resolve avatar do pet (avatarId -> blob) com fallback para cover
   useEffect(() => {
     let cancelled = false;
     async function resolve() {
@@ -91,38 +118,27 @@ export default function FeedComposer({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myPets.length]);
 
-  // utils
-  function dataUrlToFile(dataUrl, name = "media.jpg") {
-    const arr = dataUrl.split(",");
-    const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-    const bstr = atob(arr[1] || "");
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    return new File([u8arr], name, { type: mime });
-  }
-
-  function onPickFiles(e) {
+  async function onPickFiles(e) {
     const selected = Array.from(e.target.files || []);
+    e.target.value = ""; // permite selecionar o mesmo arquivo novamente
     if (!selected.length) return;
 
-    // Previews (dataURL) para UI
-    Promise.all(
-      selected.map(
-        (f) =>
-          new Promise((res, rej) => {
-            const fr = new FileReader();
-            fr.onload = () => res(fr.result);
-            fr.onerror = rej;
-            fr.readAsDataURL(f);
-          })
-      )
-    )
-      .then((arr) => {
-        setImages((g) => [...g, ...arr]);
-        setFiles((g) => [...g, ...selected]);
-      })
-      .catch(() => {});
+    // Compressão + previews
+    const previews = [];
+    const compressed = [];
+    for (const f of selected) {
+      const cf = await compressImage(f);
+      compressed.push(cf);
+      previews.push(await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(cf);
+      }));
+    }
+
+    setImages((g) => [...g, ...previews]);
+    setFiles((g) => [...g, ...compressed]);
   }
 
   function togglePet(pid) {
@@ -143,14 +159,14 @@ export default function FeedComposer({ user }) {
     setError("");
 
     try {
-      // Se o usuário só anexou imagens via preview (arrastar ou outra origem),
-      // garantimos que também temos Files (fallback: converter dataURL -> File)
+      // Garante Files (se só houver dataURL)
       let medias = files.slice();
       if (medias.length === 0 && images.length > 0) {
         medias = images.map((d, i) => dataUrlToFile(d, `media_${i + 1}.jpg`));
       }
 
-      await createPost({
+      // Chamada de criação
+      const created = await createPost({
         subtitle: String(text || ""),
         pets: taggedPets.map(String),
         medias, // File[]
@@ -162,8 +178,11 @@ export default function FeedComposer({ user }) {
       setFiles([]);
       setTaggedPets([]);
 
-      // Notifica o Feed para recarregar a página 1
-      window.dispatchEvent(new CustomEvent("patanet:feed-new-post"));
+      // Notifica o Feed para atualizar imediatamente
+      // Se a API retornar o post criado, enviamos no detail.
+      window.dispatchEvent(
+        new CustomEvent("patanet:feed-new-post", { detail: created })
+      );
     } catch (err) {
       const msg =
         err?.response?.data?.message ||
@@ -203,7 +222,7 @@ export default function FeedComposer({ user }) {
         </div>
       )}
 
-      {/* Seleção de pets (aparece se o usuário tem pets) */}
+      {/* Seleção de pets (opcional) */}
       {myPets.length > 0 ? (
         <div className="mt-3">
           <div className="mb-1 inline-flex items-center gap-2 text-xs font-medium opacity-80">
@@ -234,7 +253,6 @@ export default function FeedComposer({ user }) {
           </div>
         </div>
       ) : (
-        // não bloqueia o post — só informa
         <div className="mt-3 rounded-lg border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700">
           Você ainda não marcou pets neste dispositivo. Cadastre seus pets em{" "}
           <span className="font-medium">Meus Pets</span> para poder marcá-los
