@@ -11,11 +11,9 @@ export async function removeOwner({ ownerId, animalId }) {
 }
 
 export async function fetchAnimalsByOwner({ userId, query, page = 1, perPage = 10 }) {
-  const response = await http.get(`/animals/owner/${userId}`, {
+  const response = await http.get(`/animals/owners/${userId}`, {
     params: {
       query,
-      page,
-      perPage
     }
   })
   return response.data

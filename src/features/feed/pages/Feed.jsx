@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useLayoutEffect,
 } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -15,6 +16,7 @@ import {
   Pencil,
   Check,
   Image as ImageIcon,
+  PawPrint,
 } from "lucide-react";
 import FeedComposer from "@/components/FeedComposer";
 import FeedPostActions from "@/components/FeedPostActions";
@@ -27,9 +29,14 @@ import {
   deletePost as apiDeletePost,
 } from "@/api/post.api.js";
 import { addLikePost, removeLikePost } from "@/api/like.api.js";
-import { addCommentPost, updateCommentPost } from "@/api/comment.api.js";
+import {
+  addCommentPost,
+  updateCommentPost,
+  removeCommentPost,
+} from "@/api/comment.api.js";
+import { fetchAnimalsById } from "@/api/animal.api.js";
 
-/* -------------------- utils: compress image (same idea as register) -------------------- */
+/* -------------------- utils: compress image -------------------- */
 async function compressImage(
   file,
   { maxW = 1600, maxH = 1600, quality = 0.85 } = {}
@@ -75,7 +82,7 @@ const normAuthor = (a) => ({
   username: a?.username ?? "",
   name: a?.name ?? "",
   email: (a?.email || "").toLowerCase(),
-  avatar: a?.image ?? "",
+  avatar: a?.image ?? a?.avatar ?? "",
 });
 
 const normLikes = (likes) =>
@@ -86,6 +93,12 @@ const normLikes = (likes) =>
     email: (l?.user?.email || "").toLowerCase(),
     avatar: l?.user?.image ?? "",
   }));
+
+const mediaUrl = (m) => {
+  if (!m) return "";
+  if (typeof m === "string") return m;
+  return m.url || m.path || m.file || "";
+};
 
 const normComment = (c) => ({
   id: c?.id ?? String(Math.random()),
@@ -103,10 +116,17 @@ const normComment = (c) => ({
   })),
 });
 
-const mediaUrl = (m) => {
-  if (!m) return "";
-  if (typeof m === "string") return m;
-  return m.url || m.path || m.file || "";
+// Pet tag normalizer
+const normPetTag = (p) => {
+  if (!p) return null;
+  if (typeof p === "string") return { id: String(p) };
+  return {
+    id: p.id || String(p),
+    name: p.name || "",
+    image: p.image?.url || p.image || "",
+    imageCover: p.imageCover?.url || p.imageCover || "",
+    breedImage: p.breed?.image || "",
+  };
 };
 
 const normPost = (p) => ({
@@ -120,12 +140,12 @@ const normPost = (p) => ({
   author: normAuthor(p?.author ?? {}),
   likes: normLikes(p?.likes),
   comments: (Array.isArray(p?.comments) ? p.comments : []).map(normComment),
+  // mantém os IDs (compatibilidade) e também objetos (quando vierem)
   taggedPets: Array.isArray(p?.pets)
-    ? p.pets.map((x) => String(x?.id ?? x))
+    ? p.pets.map((x) => (typeof x === "object" ? String(x?.id) : String(x)))
     : [],
+  petTags: Array.isArray(p?.pets) ? p.pets.map(normPetTag).filter(Boolean) : [],
 });
-
-const byDescDate = (a, b) => (b?.createdAt || 0) - (a?.createdAt || 0);
 
 /* Avatar seguro */
 function AvatarCircle({ src, alt, size = 40, className = "" }) {
@@ -365,6 +385,7 @@ function DotsMenu({ onEdit, onStats, onDelete }) {
 /* -------------------- Página Feed -------------------- */
 export default function Feed() {
   const [me, setMe] = useState(null);
+  const PER_PAGE = 5;
 
   // feed + paginação
   const [posts, setPosts] = useState([]);
@@ -374,6 +395,9 @@ export default function Feed() {
 
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
+
+  // cache de pets marcados (para preencher nome/avatar quando só vem o id)
+  const [petCache, setPetCache] = useState({}); // { [id]: { id, name, image } }
 
   const [lightbox, setLightbox] = useState({
     open: false,
@@ -400,7 +424,7 @@ export default function Feed() {
     };
   }, []);
 
-  // carregar página do feed
+  // carregar página do feed (mantendo ordem da API, dedupe por id)
   const loadPage = useCallback(
     async (reqPage) => {
       if (loadingRef.current) return;
@@ -408,20 +432,28 @@ export default function Feed() {
       loadingRef.current = true;
       setLoading(true);
       try {
-        const resp = await fetchMyFeed({ page: reqPage, perPage: 10 });
+        const resp = await fetchMyFeed({ page: reqPage });
         const data = Array.isArray(resp?.data) ? resp.data : [];
         const pag = resp?.pagination || resp?.paginatio || {};
-        const nextPages = Number(pag?.pages || pages || 1);
+        const nextPages =
+          Number(pag?.pages) ||
+          (Number(pag?.total) && PER_PAGE
+            ? Math.max(1, Math.ceil(Number(pag.total) / PER_PAGE))
+            : 0) ||
+          pages ||
+          1;
 
         const normalized = data.map(normPost);
 
-        // dedupe
         setPosts((curr) => {
-          const byId = new Map(curr.map((p) => [p.id, p]));
-          normalized.forEach((p) => {
-            if (!byId.has(p.id)) byId.set(p.id, p);
-          });
-          return Array.from(byId.values()).sort(byDescDate);
+          if (reqPage === 1 && curr.length === 0) {
+            // primeira carga: usa exatamente a ordem da API
+            return normalized;
+          }
+          // append mantendo ordem vinda da API e eliminando duplicados
+          const seen = new Set(curr.map((p) => p.id));
+          const toAppend = normalized.filter((p) => !seen.has(p.id));
+          return [...curr, ...toAppend];
         });
 
         setPages(nextPages);
@@ -431,7 +463,7 @@ export default function Feed() {
         setLoading(false);
       }
     },
-    [pages]
+    [pages, PER_PAGE]
   );
 
   // primeira página
@@ -439,11 +471,11 @@ export default function Feed() {
     loadPage(1);
   }, [loadPage]);
 
+  // prepend post novo vindo do Composer
   useEffect(() => {
     function onNew(e) {
-      const created = e.detail; // pode vir undefined; trate se precisar
+      const created = e.detail;
       if (created?.data || created?.id) {
-        // normaliza e preprende
         const payload = created?.data || created;
         const p = normPost(payload);
         setPosts((curr) => [p, ...curr.filter((x) => x.id !== p.id)]);
@@ -462,17 +494,66 @@ export default function Feed() {
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (!e.isIntersecting) return;
-        if (loadingRef.current) return;
-        const next = page + 1;
-        if (next <= pages) loadPage(next);
-      });
-    });
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          if (loadingRef.current) return;
+          const next = page + 1;
+          if (next <= pages) loadPage(next);
+        });
+      },
+      { root: null, rootMargin: "400px 0px", threshold: 0 }
+    );
     io.observe(el);
     return () => io.disconnect();
   }, [page, pages, loadPage]);
+
+  // preencher cache de pets (para exibir chips com nome/avatar)
+  useEffect(() => {
+    const missing = new Set();
+    for (const post of posts) {
+      for (const tag of post.petTags || []) {
+        if (tag?.id && !petCache[tag.id]) missing.add(tag.id);
+      }
+      for (const id of post.taggedPets || []) {
+        if (id && !petCache[id]) missing.add(id);
+      }
+    }
+    if (missing.size === 0) return;
+    let canceled = false;
+    (async () => {
+      const ids = Array.from(missing);
+      const pairs = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const a = await fetchAnimalsById({ animalId: id });
+            const name = a?.name || "Pet";
+            const image =
+              a?.image?.url ||
+              a?.image ||
+              a?.breed?.image ||
+              a?.imageCover?.url ||
+              a?.imageCover ||
+              "";
+            return [id, { id, name, image }];
+          } catch {
+            return [id, { id, name: "Pet", image: "" }];
+          }
+        })
+      );
+      if (!canceled) {
+        setPetCache((curr) => {
+          const next = { ...curr };
+          for (const [id, meta] of pairs) next[id] = meta;
+          return next;
+        });
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [posts, petCache]);
 
   // like
   const handleToggleLike = useCallback(
@@ -513,17 +594,35 @@ export default function Feed() {
   );
 
   // comentar novo
-  const handleAddComment = useCallback(async (postId, text) => {
-    const message = String(text || "").trim();
-    if (!message) return;
-    const created = await addCommentPost({ postId, message });
-    const newC = normComment(created);
-    setPosts((curr) =>
-      curr.map((p) =>
-        p.id === postId ? { ...p, comments: [newC, ...(p.comments || [])] } : p
-      )
-    );
-  }, []);
+  const handleAddComment = useCallback(
+    async (postId, text) => {
+      const message = String(text || "").trim();
+      if (!message) return;
+      const created = await addCommentPost({ postId, message });
+      let newC = normComment(created);
+      // fallback: se a API não devolver o autor, usa o "me"
+      if (!newC.author?.id && me) {
+        newC = {
+          ...newC,
+          author: {
+            id: me.id,
+            username: me.username,
+            name: me.name,
+            email: (me.email || "").toLowerCase(),
+            avatar: me.image || me.avatar || "",
+          },
+        };
+      }
+      setPosts((curr) =>
+        curr.map((p) =>
+          p.id === postId
+            ? { ...p, comments: [newC, ...(p.comments || [])] }
+            : p
+        )
+      );
+    },
+    [me]
+  );
 
   // responder
   const handleReplyComment = useCallback(
@@ -535,7 +634,19 @@ export default function Feed() {
         message,
         parentId: parentCommentId,
       });
-      const reply = normComment(created);
+      let reply = normComment(created);
+      if (!reply.author?.id && me) {
+        reply = {
+          ...reply,
+          author: {
+            id: me.id,
+            username: me.username,
+            name: me.name,
+            email: (me.email || "").toLowerCase(),
+            avatar: me.image || me.avatar || "",
+          },
+        };
+      }
       setPosts((curr) =>
         curr.map((p) => {
           if (p.id !== postId) return p;
@@ -548,10 +659,10 @@ export default function Feed() {
         })
       );
     },
-    []
+    [me]
   );
 
-  // editar comentário
+  // editar comentário / resposta
   const handleEditComment = useCallback(
     async (postId, commentId, newText, isReply = false) => {
       const message = String(newText || "").trim();
@@ -582,6 +693,37 @@ export default function Feed() {
     []
   );
 
+  // remover comentário / resposta
+  const handleDeleteComment = useCallback(
+    async (postId, commentId, isReply = false, parentId = null) => {
+      try {
+        await removeCommentPost({ postId, commentId });
+      } catch {
+        // mesmo assim atualiza local; ajuste se preferir bloquear
+      }
+      setPosts((curr) =>
+        curr.map((p) => {
+          if (p.id !== postId) return p;
+          if (!isReply) {
+            return {
+              ...p,
+              comments: (p.comments || []).filter((c) => c.id !== commentId),
+            };
+          }
+          const comments = (p.comments || []).map((c) => {
+            if (c.id !== parentId) return c;
+            return {
+              ...c,
+              replies: (c.replies || []).filter((r) => r.id !== commentId),
+            };
+          });
+          return { ...p, comments };
+        })
+      );
+    },
+    []
+  );
+
   // editar postagem
   const handleOpenEdit = (post) => {
     if (!me || me.id !== post?.author?.id) return;
@@ -595,8 +737,6 @@ export default function Feed() {
       subtitle: String(text || ""),
       medias: filesNew || [],
     });
-
-    // Refresh local imediato: atualiza texto + imagens do post com a galeria atual
     setPosts((curr) =>
       curr.map((p) =>
         p.id === id
@@ -609,7 +749,6 @@ export default function Feed() {
           : p
       )
     );
-
     setEdit({ open: false, post: null });
   };
 
@@ -626,22 +765,42 @@ export default function Feed() {
   const toggleComments = (postId) =>
     setOpenComments((m) => ({ ...m, [postId]: !m[postId] }));
 
+  // helper para compor pet chips de exibição a partir de post + cache
+  const buildPetChips = useCallback(
+    (post) => {
+      const out = [];
+      // se veio como objetos (petTags), usa direto
+      for (const t of post.petTags || []) {
+        const meta = {
+          id: t.id,
+          name: t.name || petCache[t.id]?.name || "Pet",
+          image: t.image || t.breedImage || petCache[t.id]?.image || "",
+        };
+        out.push(meta);
+      }
+      // se vieram só IDs, completa pelo cache
+      if (
+        (!post.petTags || post.petTags.length === 0) &&
+        Array.isArray(post.taggedPets)
+      ) {
+        for (const id of post.taggedPets) {
+          const m = petCache[id];
+          if (m) out.push(m);
+          else out.push({ id, name: "Pet", image: "" });
+        }
+      }
+      // elimina duplicados por id preservando ordem
+      const seen = new Set();
+      return out.filter(({ id }) =>
+        id && !seen.has(id) ? (seen.add(id), true) : false
+      );
+    },
+    [petCache]
+  );
+
   /* -------------------- Render -------------------- */
   return (
     <div className="mx-auto w-full max-w-3xl">
-      {/* Dica: se o FeedComposer emitir um evento custom "feed:new-post" com o novo post,
-          podemos escutar aqui e prepend: */}
-      {/* 
-        useEffect(() => {
-          const onNew = (e) => {
-            const p = normPost(e.detail);
-            setPosts((curr) => [p, ...curr.filter(x => x.id !== p.id)]);
-          };
-          document.addEventListener('feed:new-post', onNew);
-          return () => document.removeEventListener('feed:new-post', onNew);
-        }, []);
-      */}
-
       <FeedComposer user={me} />
 
       <div className="mt-6 space-y-4">
@@ -652,6 +811,7 @@ export default function Feed() {
           const isEdited = (post.updatedAt || 0) > (post.createdAt || 0);
           const commentsCount = (post.comments && post.comments.length) || 0;
           const showComments = !!openComments[post.id];
+          const petChips = buildPetChips(post);
 
           return (
             <article
@@ -710,6 +870,32 @@ export default function Feed() {
               {/* Texto */}
               {post.text && (
                 <p className="mb-3 whitespace-pre-wrap text-sm">{post.text}</p>
+              )}
+
+              {/* Pets marcados */}
+              {!!petChips.length && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-1 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    <PawPrint className="h-3.5 w-3.5" /> Pets marcados:
+                  </span>
+                  {petChips.map((p) => (
+                    <Link
+                      key={`${post.id}-pet-${p.id}`}
+                      to={`/pets/${p.id}`}
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-2 py-1 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                      title={`Ver perfil de ${p.name || "Pet"}`}
+                    >
+                      <AvatarCircle
+                        src={p.image || ""}
+                        alt={p.name || "Pet"}
+                        size={20}
+                      />
+                      <span className="max-w-[160px] truncate">
+                        {p.name || "Pet"}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
               )}
 
               {/* Mídias */}
@@ -774,6 +960,9 @@ export default function Feed() {
                   onEditComment={(commentId, newText, isReply) =>
                     handleEditComment(post.id, commentId, newText, isReply)
                   }
+                  onDeleteComment={(commentId, isReply, parentId) =>
+                    handleDeleteComment(post.id, commentId, isReply, parentId)
+                  }
                 />
               )}
             </article>
@@ -819,10 +1008,19 @@ export default function Feed() {
 }
 
 /* -------------------- Bloco de comentários -------------------- */
-function CommentsBlock({ post, user, onAddComment, onReply, onEditComment }) {
+function CommentsBlock({
+  post,
+  user,
+  onAddComment,
+  onReply,
+  onEditComment,
+  onDeleteComment,
+}) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(null); // { id, isReply }
   const [editingText, setEditingText] = useState("");
+  const [replyOpen, setReplyOpen] = useState({}); // { [commentId]: boolean }
+  const [replyText, setReplyText] = useState({}); // { [commentId]: string }
 
   const canComment = !!user;
 
@@ -842,12 +1040,23 @@ function CommentsBlock({ post, user, onAddComment, onReply, onEditComment }) {
     setEditingText("");
   };
 
+  const toggleReply = (commentId) =>
+    setReplyOpen((m) => ({ ...m, [commentId]: !m[commentId] }));
+
+  const submitReply = (commentId) => {
+    const t = String(replyText[commentId] || "").trim();
+    if (!t) return;
+    onReply?.(commentId, t);
+    setReplyText((m) => ({ ...m, [commentId]: "" }));
+    setReplyOpen((m) => ({ ...m, [commentId]: false }));
+  };
+
   return (
     <div className="mt-3">
       {canComment && (
         <div className="mb-2 flex items-start gap-2">
           <AvatarCircle
-            src={user?.image || ""}
+            src={user?.image || user?.avatar || ""}
             alt={user?.username || user?.name || user?.email}
             size={32}
           />
@@ -955,30 +1164,71 @@ function CommentsBlock({ post, user, onAddComment, onReply, onEditComment }) {
                     {user && (
                       <button
                         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                        onClick={() => {
-                          const replyText = prompt("Responder:");
-                          const t =
-                            typeof replyText === "string"
-                              ? replyText.trim()
-                              : "";
-                          if (t) onReply(c.id, t);
-                        }}
+                        onClick={() => toggleReply(c.id)}
                       >
                         <CornerUpRight className="h-3.5 w-3.5" /> Responder
                       </button>
                     )}
                     {isMine && !isEditingThis && (
-                      <button
-                        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                        onClick={() =>
-                          setEditing({ id: c.id, isReply: false }) ||
-                          setEditingText(c.text || "")
-                        }
-                      >
-                        <Pencil className="h-3.5 w-3.5" /> Editar
-                      </button>
+                      <>
+                        <button
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
+                          onClick={() => startEdit(c, false)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Editar
+                        </button>
+                        <button
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                          onClick={() => onDeleteComment?.(c.id, false, null)}
+                        >
+                          Remover
+                        </button>
+                      </>
                     )}
                   </div>
+
+                  {/* editor de resposta inline */}
+                  {replyOpen[c.id] && (
+                    <div className="mt-2 flex items-start gap-2 pl-6">
+                      <AvatarCircle
+                        src={user?.image || user?.avatar || ""}
+                        alt={user?.username || user?.name || user?.email}
+                        size={28}
+                      />
+                      <div className="flex-1">
+                        <textarea
+                          className="w-full rounded-lg border border-zinc-300 bg-white/80 p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
+                          rows={2}
+                          placeholder="Escreva uma resposta…"
+                          value={replyText[c.id] || ""}
+                          onChange={(e) =>
+                            setReplyText((m) => ({
+                              ...m,
+                              [c.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <div className="mt-1 flex gap-2">
+                          <button
+                            className="rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                            disabled={!String(replyText[c.id] || "").trim()}
+                            onClick={() => submitReply(c.id)}
+                          >
+                            Responder
+                          </button>
+                          <button
+                            className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
+                            onClick={() => (
+                              setReplyOpen((m) => ({ ...m, [c.id]: false })),
+                              setReplyText((m) => ({ ...m, [c.id]: "" }))
+                            )}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* replies */}
                   {!!c.replies?.length && (
@@ -1031,6 +1281,7 @@ function CommentsBlock({ post, user, onAddComment, onReply, onEditComment }) {
                                     <span>(editado)</span>
                                   )}
                                 </div>
+
                                 {!isEditingR ? (
                                   <div className="whitespace-pre-wrap">
                                     {r.text}
@@ -1048,31 +1299,46 @@ function CommentsBlock({ post, user, onAddComment, onReply, onEditComment }) {
                                     <div className="mt-1 flex gap-2">
                                       <button
                                         className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
-                                        onClick={() => setEditing(null)}
+                                        onClick={() => {
+                                          const t = String(
+                                            editingText || ""
+                                          ).trim();
+                                          if (!t) return;
+                                          onEditComment?.(r.id, t, true);
+                                          setEditing(null);
+                                          setEditingText("");
+                                        }}
                                       >
                                         <Check className="h-3.5 w-3.5" /> Salvar
                                       </button>
                                       <button
                                         className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
-                                        onClick={() => setEditing(null)}
+                                        onClick={() => {
+                                          setEditing(null);
+                                          setEditingText("");
+                                        }}
                                       >
                                         Cancelar
                                       </button>
                                     </div>
                                   </div>
                                 )}
+
                                 {isMineR && !isEditingR && (
-                                  <div className="mt-1">
+                                  <div className="mt-1 flex gap-2">
                                     <button
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                                      onClick={() =>
-                                        setEditing({
-                                          id: r.id,
-                                          isReply: true,
-                                        }) || setEditingText(r.text || "")
-                                      }
+                                      onClick={() => startEdit(r, true)}
                                     >
                                       <Pencil className="h-3.5 w-3.5" /> Editar
+                                    </button>
+                                    <button
+                                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                      onClick={() =>
+                                        onDeleteComment?.(r.id, true, c.id)
+                                      }
+                                    >
+                                      Remover
                                     </button>
                                   </div>
                                 )}

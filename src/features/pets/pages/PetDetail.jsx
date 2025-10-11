@@ -5,11 +5,10 @@ import {
   Shield,
   Images,
   Syringe,
-  Pill,
-  Stethoscope,
-  Bandage,
+  // Pill,
+  // Stethoscope,
+  // Bandage,
   Plus,
-  Star,
   Edit3,
   Trash2,
   ChevronDown,
@@ -21,80 +20,25 @@ import {
 } from "lucide-react";
 import Lightbox from "@/components/Lightbox";
 import { useToast } from "@/components/ui/ToastProvider";
-import {
-  getPet as storageGetPet,
-  updatePet as storageUpdatePet,
-  mediaSaveBlob,
-  mediaGetUrl,
-  mediaDelete,
-  addVaccine as addPetVaccine,
-  updateVaccine as updatePetVaccine,
-  removeVaccine as removePetVaccine,
-} from "@/features/pets/services/petsStorage";
 import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
-import { useAuth } from "@/store/auth";
 
-/* -------------------------------------------------------------
- *  Config local (futuro: puxar de user settings)
- * ------------------------------------------------------------- */
+// APIs
+import { getMyProfile } from "@/api/user.api.js";
+import { fetchAnimalsById } from "@/api/animal.api.js";
+import {
+  fetchAnimalMedias,
+  uploadAnimalMedias,
+  deleteAnimalMedias,
+} from "@/api/animal-media.api.js";
+import {
+  addVaccine,
+  fetchVaccines,
+  deleteVaccines,
+  updateVaccine,
+} from "@/api/vaccines.api.js";
+
+/* ------------------------------------------------------------- */
 const DUE_SOON_DAYS = 7;
-
-/* --------------------------- EXEMPLOS (ex-1..3) --------------------------- */
-const EXAMPLES = [
-  {
-    id: "ex-1",
-    name: "Max",
-    species: "cão",
-    breed: "Labrador",
-    gender: "macho",
-    weight: 28,
-    size: "médio",
-    birthday: "2021-06-10",
-    description:
-      "Companheiro fiel, ama passeios e água. Super sociável com outros cães.",
-    avatar:
-      "https://images.unsplash.com/photo-1517849845537-4d257902454a?w=600&q=80&auto=format&fit=crop",
-    cover:
-      "https://images.unsplash.com/photo-1518020382113-a7e8fc38eac9?w=1200&q=80&auto=format&fit=crop",
-    media: [],
-    vaccines: [],
-  },
-  {
-    id: "ex-2",
-    name: "Nina",
-    species: "cão",
-    breed: "Border Collie",
-    gender: "fêmea",
-    weight: 19.5,
-    size: "médio",
-    birthday: "2022-03-15",
-    description: "Energética e muito esperta.",
-    avatar:
-      "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=600&q=80&auto=format&fit=crop",
-    cover:
-      "https://images.unsplash.com/photo-1525253086316-d0c936c814f8?w=1200&q=80&auto=format&fit=crop",
-    media: [],
-    vaccines: [],
-  },
-  {
-    id: "ex-3",
-    name: "Mimi",
-    species: "gato",
-    breed: "SRD",
-    gender: "fêmea",
-    weight: 4.2,
-    size: "pequeno",
-    birthday: "2020-12-01",
-    description: "Sonequenta e dona do sofá.",
-    avatar:
-      "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=600&q=80&auto=format&fit=crop",
-    cover:
-      "https://images.unsplash.com/photo-1518020382113-a7e8fc38eac9?w=1200&q=80&auto=format&fit=crop",
-    media: [],
-    vaccines: [],
-  },
-];
-const exampleById = (id) => EXAMPLES.find((p) => p.id === id) || null;
 
 /* --------------------------------- helpers -------------------------------- */
 const readAsDataURL = (file) =>
@@ -106,6 +50,7 @@ const readAsDataURL = (file) =>
   });
 
 async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
+  if (!(file instanceof File)) return null;
   const dataUrl = await readAsDataURL(file);
   const img = new Image();
   await new Promise((r, e) => {
@@ -124,7 +69,6 @@ async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
   const ctx = canvas.getContext("2d");
   ctx.drawImage(img, 0, 0, w, h);
 
-  // 1ª tentativa: WebP
   let blob = await new Promise((res) =>
     canvas.toBlob((b) => res(b), "image/webp", quality)
   );
@@ -133,9 +77,7 @@ async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
       canvas.toBlob((b) => res(b), "image/jpeg", quality)
     );
   }
-
-  // Se ainda ficou grande, recompacta
-  if (blob && blob.size > 500 * 1024) {
+  if (blob && blob.size > 700 * 1024) {
     const canvas2 = document.createElement("canvas");
     const factor = 0.85;
     canvas2.width = Math.round(w * factor);
@@ -152,8 +94,16 @@ async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
 /* ----------------------- datas p/ vacinas (utils leves) ------------------- */
 function parseISODateLocal(s) {
   if (!s) return null;
-  const [y, m, d] = String(s).split("-").map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
+  const str = String(s).trim();
+  // Aceita "YYYY-MM-DD" e "YYYY-MM-DDTHH:mm:ss(.sss)Z"
+  const datePart = str.includes("T") ? str.split("T")[0] : str;
+  const [yStr, mStr, dStr] = datePart.split("-");
+  const y = parseInt(yStr, 10);
+  const m = parseInt(mStr, 10);
+  const d = parseInt(dStr, 10);
+  if (!y || !m || !d) return null;
+  // Cria Date no fuso local, sem depender do horário/UTC
+  return new Date(y, m - 1, d);
 }
 function formatPt(dateStr) {
   const d = parseISODateLocal(dateStr);
@@ -168,17 +118,159 @@ function daysUntil(dateStr) {
   return Math.floor((d - today) / 86400000);
 }
 
-/* -------------------------------- COMPONENTE ------------------------------- */
+/* ------------------------------ sub-helpers UI ---------------------------- */
+function Tab({ active, onClick, icon, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm transition-all ${
+        active
+          ? "bg-[#f77904] text-white shadow-sm"
+          : "bg-[var(--chip-bg)] text-[var(--chip-fg)] hover:opacity-90"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function InfoCard({ label, value }) {
+  return (
+    <div className="rounded-xl bg-[var(--chip-bg)] p-3 ring-1 ring-black/5 dark:ring-white/5">
+      <div className="text-xs opacity-70">{label}</div>
+      <div className="mt-1 font-medium capitalize">{value || "—"}</div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, right }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-[var(--chip-bg)] px-3 py-2 ring-1 ring-black/5 dark:ring-white/5">
+      <div className="text-xs opacity-70">{label}</div>
+      <div className="flex items-center gap-2">
+        <div className="font-medium">{value || "—"}</div>
+        {right && <span className="text-xs opacity-70">{right}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* --------- Accordion com header clicável e ações separadas --------- */
+function Accordion({
+  title,
+  open,
+  onToggle,
+  leftIcon,
+  rightActions,
+  children,
+}) {
+  const ref = useRef(null);
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (open) {
+      const h = el.scrollHeight;
+      setHeight(h);
+      const id = setTimeout(() => setHeight("auto"), 300);
+      return () => clearTimeout(id);
+    } else {
+      if (height === "auto") {
+        setHeight(ref.current.scrollHeight);
+        requestAnimationFrame(() => setHeight(0));
+      } else {
+        setHeight(0);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return (
+    <div className="rounded-xl ring-1 ring-black/5 dark:ring-white/5">
+      <div className="flex w-full items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 text-sm font-medium">
+        <button
+          onClick={onToggle}
+          className="inline-flex items-center gap-2 text-left"
+          aria-expanded={open}
+          type="button"
+        >
+          {leftIcon}
+          {title}
+          <ChevronDown
+            className={`ml-2 h-4 w-4 transition-transform duration-300 ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        <div className="flex items-center gap-3">{rightActions}</div>
+      </div>
+
+      <div
+        style={{
+          overflow: "hidden",
+          transition: "max-height 300ms ease",
+          maxHeight: height === "auto" ? "9999px" : `${height}px`,
+        }}
+      >
+        <div ref={ref} className="px-4 py-3">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------- utils ---------------------------------- */
+function formatDate(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("pt-BR");
+  } catch {
+    return iso;
+  }
+}
+function ageDiff(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const y = now.getFullYear() - d.getFullYear();
+  let m = now.getMonth() - d.getMonth();
+  if (m < 0) m += 12;
+  return `${y}a ${m}m`;
+}
+
+/* -------------------------- mapeamentos PT-BR ----------------------------- */
+function toPtSize(s) {
+  const v = String(s || "").toUpperCase();
+  if (v === "SMALL") return "pequeno";
+  if (v === "MEDIUM") return "médio";
+  if (v === "LARGE") return "grande";
+  return (s || "").toString().toLowerCase();
+}
+function toPtGender(g) {
+  const v = String(g || "").toUpperCase();
+  if (v === "MALE") return "Macho";
+  if (v === "FEMALE") return "Fêmea";
+  return "não informado";
+}
+function toPtSpecies(sp) {
+  const v = String(sp || "").toLowerCase();
+  if (["dog", "canine", "cão", "cao", "cachorro"].includes(v)) return "cão";
+  if (["cat", "feline", "gato", "felino"].includes(v)) return "gato";
+  return sp || "—";
+}
+
+/* -------------------------------- COMPONENTE ------------------------------ */
 export default function PetDetail() {
-  const { id } = useParams();
+  const { id: animalId } = useParams();
   const toast = useToast();
   const confirm = useConfirm();
   const askInput = usePrompt();
 
-  const authUser = useAuth((s) => s.user);
-  const isAuthenticated = !!authUser?.id;
-
-  const isExample = id?.startsWith("ex-");
+  const [me, setMe] = useState(null);
   const [pet, setPet] = useState(null);
 
   const [tab, setTab] = useState("health"); // 'health' | 'gallery'
@@ -188,9 +280,15 @@ export default function PetDetail() {
   const [lbOpen, setLbOpen] = useState(false);
   const [lbIndex, setLbIndex] = useState(0);
 
-  // URL cache para mídias do IndexedDB
-  const [mediaUrls, setMediaUrls] = useState({}); // { [mediaId]: objectURL|string }
-  // URLs resolvidas para avatar/capa (avatarId/coverId)
+  // Galeria (do servidor)
+  const [gallery, setGallery] = useState([]); // [{id,url,title,createdAt}]
+  const [loadingGallery, setLoadingGallery] = useState(false);
+
+  // Vacinas (do servidor)
+  const [vaccines, setVaccines] = useState([]);
+  const [loadingVaccines, setLoadingVaccines] = useState(false);
+
+  // Header (avatar/capa)
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
 
@@ -205,298 +303,171 @@ export default function PetDetail() {
     notes: "",
   });
 
-  // Função para carregar do storage
-  const loadFromStorage = () => {
-    if (isExample) {
-      setPet(exampleById(id));
-      setMediaUrls({});
-      return;
-    }
-    const data = storageGetPet?.(id);
-    if (!data) {
-      setPet(null);
-      setMediaUrls({});
-      return;
-    }
-    const media = Array.isArray(data.media)
-      ? data.media
-      : Array.isArray(data.gallery)
-      ? data.gallery.map((g) =>
-          typeof g === "string"
-            ? {
-                id:
-                  crypto?.randomUUID?.() || String(Date.now() + Math.random()),
-                url: g,
-                title: "",
-                kind: "image",
-                createdAt: Date.now(),
-              }
-            : {
-                id:
-                  g.id ||
-                  crypto?.randomUUID?.() ||
-                  String(Date.now() + Math.random()),
-                url: g.url,
-                title: g.title || "",
-                kind: g.kind || "image",
-                createdAt: g.createdAt || Date.now(),
-              }
-        )
-      : [];
-    setPet({ ...data, media });
-  };
-
-  // Carregar pet (1ª vez)
+  /* -------------------------- carregamentos iniciais ----------------------- */
   useEffect(() => {
-    loadFromStorage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, isExample]);
-
-  // Reagir a alterações no storage (ex.: ao editar o pet)
-  useEffect(() => {
-    const onUpdated = () => loadFromStorage();
-    window.addEventListener("patanet:pets-updated", onUpdated);
-    return () => window.removeEventListener("patanet:pets-updated", onUpdated);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  // Resolver URLs de avatar/capa por IDB (avatarId/coverId)
-  useEffect(() => {
-    let cancelled = false;
-    async function resolveHeaderImages() {
-      if (!pet) {
-        setAvatarUrl("");
-        setCoverUrl("");
-        return;
-      }
+    let cancel = false;
+    (async () => {
       try {
-        let aUrl = pet.avatar || "";
-        if (!aUrl && pet.avatarId) {
-          try {
-            aUrl = await mediaGetUrl?.(pet.avatarId);
-          } catch {
-            aUrl = "";
-          }
-        }
-        let cUrl = pet.cover || "";
-        if (!cUrl && pet.coverId) {
-          try {
-            cUrl = await mediaGetUrl?.(pet.coverId);
-          } catch {
-            cUrl = "";
-          }
-        }
-        if (!cancelled) {
-          setAvatarUrl(aUrl || "");
-          setCoverUrl(cUrl || "");
+        const u = await getMyProfile();
+        if (!cancel) setMe(u || null);
+      } catch {
+        if (!cancel) setMe(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const full = await fetchAnimalsById({ animalId });
+        const a = full?.data || full || {};
+
+        // <- NOVO: coleta segura dos owners conforme a estrutura nova
+        const ownersFromArray = Array.isArray(a?.owners)
+          ? a.owners.map((o) => o?.id).filter(Boolean)
+          : [];
+
+        const primaryOwnerId =
+          a?.ownerId || // se existir
+          ownersFromArray[0] || // ou primeiro da lista
+          a?.user?.id || // fallback antigos
+          a?.owner?.id ||
+          a?.userId ||
+          null;
+
+        if (cancel) return;
+        const specieName =
+          a?.breed?.specie?.name ||
+          a?.specie?.name ||
+          a?.species ||
+          a?.specie ||
+          "";
+        setPet({
+          id: a.id,
+          name: a.name,
+          species: toPtSpecies(specieName), // ← espécie correta (PT-BR)
+          breed: a?.breed?.name || a.breed || "—", // ← nome da raça
+          gender: toPtGender(a.gender), // ← “Macho/Fêmea”
+          weight: a.weight,
+          size: toPtSize(a.size),
+          description: a.about || a.description,
+          birthday: a.birthday || a.birthDate || a.birthdate,
+          adoption: a.adoption || a.adoptionDate,
+          // avatar com fallback na imagem da raça
+          image: a?.image?.url || a.image || a?.breed?.image || "",
+          imageCover: a?.imageCover?.url || a.imageCover || "",
+          ownerId: primaryOwnerId,
+          ownerIds: ownersFromArray,
+        });
+        // Header usa o mesmo fallback para não ficar sem foto
+        setAvatarUrl(a?.image?.url || a.image || a?.breed?.image || "");
+        PetDetail;
+
+        setAvatarUrl(a?.image?.url || a.image || "");
+        setCoverUrl(a?.imageCover?.url || a.imageCover || "");
+      } catch {
+        setPet(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  // LÓGICA de tutor: compara o me.id com ownerId e/ou owners[]
+  const canEdit = useMemo(() => {
+    const myId = me?.id ? String(me.id) : null;
+    const primary = pet?.ownerId ? String(pet.ownerId) : null;
+    const many = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
+    if (!myId) return false;
+    return myId === primary || many.includes(myId);
+  }, [me?.id, pet?.ownerId, pet?.ownerIds]);
+
+  /* -------------------------- galeria: listar/upload/delete ---------------- */
+  const refetchGallery = useRef(null);
+
+  useEffect(() => {
+    let cancel = false;
+
+    async function loadGallery() {
+      if (!animalId) return;
+      setLoadingGallery(true);
+      try {
+        const resp = await fetchAnimalMedias({
+          animalId,
+          page: 1,
+          perPage: 200,
+        });
+        const arr =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) {
+          setGallery(
+            arr
+              .map((m) => ({
+                id: m.id || m.mediaId || m._id,
+                url: m.url || m.path || m.src || "",
+                title: m.title || m.name || "",
+                createdAt:
+                  (m.createdAt && new Date(m.createdAt).getTime()) ||
+                  Date.now(),
+              }))
+              .filter((m) => !!m.id && !!m.url)
+              .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+          );
         }
       } catch {
-        if (!cancelled) {
-          setAvatarUrl(pet.avatar || "");
-          setCoverUrl(pet.cover || "");
-        }
+        if (!cancel) setGallery([]);
+      } finally {
+        if (!cancel) setLoadingGallery(false);
       }
     }
-    resolveHeaderImages();
+
+    refetchGallery.current = loadGallery;
+    loadGallery();
+
     return () => {
-      cancelled = true;
-      [avatarUrl, coverUrl].forEach((u) => {
-        if (u && u.startsWith("blob:")) {
-          try {
-            URL.revokeObjectURL(u);
-          } catch {}
-        }
-      });
+      cancel = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pet?.id, pet?.avatar, pet?.avatarId, pet?.cover, pet?.coverId]);
+  }, [animalId]);
 
-  // Resolver URLs das mídias (galeria) que estão no IndexedDB
-  useEffect(() => {
-    let cancelled = false;
-    async function resolveUrls() {
-      const entries = (pet?.media || []).filter((m) => m?.storage === "idb");
-      if (!entries.length) {
-        setMediaUrls({});
-        return;
-      }
-      const pairs = await Promise.all(
-        entries.map(async (m) => {
-          try {
-            const url = await mediaGetUrl?.(m.id);
-            return [m.id, url];
-          } catch {
-            return [m.id, ""];
-          }
-        })
-      );
-      if (!cancelled) {
-        const map = {};
-        for (const [k, v] of pairs) map[k] = v;
-        setMediaUrls(map);
-      }
-    }
-    resolveUrls();
-    return () => {
-      cancelled = true;
-      Object.values(mediaUrls || {}).forEach((u) => {
-        if (typeof u === "string" && u.startsWith("blob:")) {
-          try {
-            URL.revokeObjectURL(u);
-          } catch {}
-        }
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pet?.id, (pet?.media || []).length]);
-
-  // Persistência (salva no storage se não for exemplo)
-  const persist = (patch) => {
-    if (!pet) return;
-    const next = { ...pet, ...patch };
-    setPet(next);
-    if (!isExample) storageUpdatePet?.(next.id, patch);
-  };
-
-  // Tutor do pet
-  const ownerId = pet?.ownerId || pet?.userId || pet?.createdBy || null;
-  const canEdit =
-    !isExample && isAuthenticated && ownerId && authUser.id === ownerId;
-
-  /* --------------------------- GALERIA / LIGHTBOX -------------------------- */
-  const imagesOnly = useMemo(
-    () =>
-      (pet?.media || [])
-        .filter((m) => (m.kind || "image") === "image")
-        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
-    [pet]
-  );
-
-  // resolve URL para render (DataURL/https direto OU IndexedDB via mediaUrls)
-  const resolveSrc = (m) =>
-    m?.storage === "idb" ? mediaUrls[m.id] || "" : m?.url || "";
-
-  const lbSlides = useMemo(
-    () =>
-      imagesOnly.map((m) => ({
-        id: m.id,
-        url: resolveSrc(m),
-        title: m.title || "",
-        alt: m.title || "",
-        description: m.title || "",
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [imagesOnly, mediaUrls]
-  );
-
-  const openLightbox = (idx) => {
-    setLbIndex(idx);
-    setLbOpen(true);
-  };
-
-  const guard = () => {
+  async function handleAddMedia(ev) {
     if (!canEdit) {
       toast.error("Apenas o tutor do pet pode realizar esta ação.");
-      return false;
+      return;
     }
-    return true;
-  };
-
-  // Adicionar imagens
-  const handleAddMedia = async (ev) => {
-    if (!guard()) return;
-    const files = Array.from(ev.target.files || []);
+    const file = ev.target.files?.[0];
     ev.target.value = "";
-    if (!files.length) return;
-
+    if (!file) return;
     try {
-      const items = [];
-      for (const file of files) {
-        if (!file.type.startsWith("image/")) continue;
-        const blob = await fileToCompressedBlob(file);
-        if (!blob) continue;
-
-        const mediaId = await mediaSaveBlob?.(blob);
-        if (!mediaId) continue;
-
-        items.push({
-          id: mediaId,
-          title: file.name.replace(/\.[^.]+$/, ""),
-          kind: "image",
-          createdAt: Date.now(),
-          storage: "idb",
-        });
-      }
-
-      if (!items.length) {
-        toast.error("Apenas imagens são aceitas.");
-        return;
-      }
-
-      persist({ media: [...(pet?.media || []), ...items] });
-      toast.success(items.length > 1 ? "Imagens adicionadas!" : "Imagem adicionada!");
+      if (!file.type.startsWith("image/")) return;
+      const blob = await fileToCompressedBlob(file);
+      if (!blob) return;
+      const finalFile = new File(
+        [blob],
+        file.name.replace(/\.[^.]+$/, "") + ".webp",
+        { type: blob.type || "image/webp" }
+      );
+      await uploadAnimalMedias({ animalId, media: finalFile });
+      await refetchGallery.current?.();
+      toast.success("Imagem adicionada!");
     } catch (err) {
       console.error(err);
-      toast.error(
-        "Não foi possível salvar as imagens (armazenamento local cheio). Tente menos imagens ou menores."
-      );
+      toast.error("Falha ao enviar a imagem. Tente novamente.");
     }
-  };
+  }
 
-  // Definir capa da galeria
-  const handleSetCover = async (item) => {
-    if (!guard() || !item) return;
-
-    const ok = await confirm({
-      title: "Definir como capa da galeria?",
-      description: "Esta imagem será usada como capa da galeria do pet.",
-      confirmText: "Definir capa",
-    });
-    if (!ok) return;
-
-    try {
-      const patch =
-        item.storage === "idb"
-          ? { coverId: item.id, cover: "" }
-          : { cover: item.url, coverId: "" };
-      persist(patch);
-      toast.success("Imagem definida como capa da galeria.");
-    } catch (e) {
-      toast.error("Não foi possível salvar a capa. Espaço insuficiente.");
+  async function handleDeleteMedia(item) {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
     }
-  };
-
-  // Editar título
-  const handleEditTitle = async (item) => {
-    if (!guard() || !item) return;
-
-    const newTitle = await askInput({
-      title: "Editar título",
-      description: "Dê um nome curto para esta foto.",
-      label: "Título da foto",
-      initialValue: item.title || "",
-      placeholder: "Ex.: Max no parque",
-      confirmText: "Salvar",
-      cancelText: "Cancelar",
-      validate: (v) => String(v).trim().length <= 80,
-      validateError: "Use no máximo 80 caracteres.",
-    });
-    if (newTitle == null) return;
-
-    try {
-      const next = (pet?.media || []).map((m) =>
-        m.id === item.id ? { ...m, title: String(newTitle).trim() } : m
-      );
-      persist({ media: next });
-      toast.success("Título atualizado.");
-    } catch (e) {
-      toast.error("Não foi possível salvar. Espaço de armazenamento insuficiente.");
-    }
-  };
-
-  // Remover imagem
-  const handleDelete = async (item) => {
-    if (!guard() || !item) return;
     const ok = await confirm({
       title: "Remover imagem?",
       description: "Esta ação não pode ser desfeita.",
@@ -506,44 +477,60 @@ export default function PetDetail() {
     if (!ok) return;
 
     try {
-      if (item.storage === "idb") {
-        try {
-          await mediaDelete?.(item.id);
-        } catch {}
-      }
-
-      const next = (pet?.media || []).filter((m) => m.id !== item.id);
-      const patch = { media: next };
-      if (pet?.coverId === item.id) patch.coverId = "";
-      if (pet?.cover && item.url && pet.cover === item.url) patch.cover = "";
-      persist(patch);
+      await deleteAnimalMedias({ animalId, mediaId: item.id });
+      setGallery((g) => g.filter((m) => m.id !== item.id));
       toast.success("Imagem removida.");
-
       if (lbOpen) {
         setLbIndex((i) => Math.max(0, i - 1));
-        if (next.filter((m) => (m.kind || "image") === "image").length === 0) {
-          setLbOpen(false);
-        }
+        if (gallery.length - 1 <= 0) setLbOpen(false);
       }
     } catch {
-      toast.error("Falha ao remover a imagem. Tente novamente.");
+      toast.error("Falha ao remover a imagem.");
     }
-  };
-
-  const isCover = (m) =>
-    (pet?.cover && m.url && pet.cover === m.url) ||
-    (pet?.coverId && m.id === pet.coverId);
-
-  if (!pet) {
-    return <div className="p-6 text-sm opacity-70">Pet não encontrado.</div>;
   }
 
-  // Header avatar: avatarId -> avatar -> coverId -> cover
-  const headerAvatarSrc =
-    avatarUrl || coverUrl || undefined; // evita string vazia no src
+  /* --------------------------------- vacinas -------------------------------- */
+  const refetchVaccines = useRef(null);
 
-  /* --------------------------- VACINAS (UI + ações) ------------------------ */
-  const vaccines = Array.isArray(pet?.vaccines) ? pet.vaccines : [];
+  useEffect(() => {
+    let cancel = false;
+    async function loadVaccines() {
+      if (!animalId) return;
+      setLoadingVaccines(true);
+      try {
+        const resp = await fetchVaccines({ animalId, page: 1, perPage: 200 });
+        const arr =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) {
+          setVaccines(
+            arr
+              .map((v) => ({
+                id: v.id || v._id,
+                name: v.name || v.vaccine || "",
+                date: v.appliedAt || v.date || "",
+                nextDoseDate: v.nextDose || v.nextDoseDate || "",
+                clinic: v.clinic || "",
+                notes: v.observations || v.notes || "",
+              }))
+              .filter((v) => !!v.id || !!v.name)
+          );
+        }
+      } catch {
+        if (!cancel) setVaccines([]);
+      } finally {
+        if (!cancel) setLoadingVaccines(false);
+      }
+    }
+    refetchVaccines.current = loadVaccines;
+    loadVaccines();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
   const vaccinesCount = vaccines.length;
 
   const vaccineBadge = (nextDoseDate) => {
@@ -582,65 +569,99 @@ export default function PetDetail() {
   };
 
   const openVacCreate = () => {
-    if (!guard()) return;
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
     setVacEditId(null);
     setVacForm({ name: "", date: "", nextDoseDate: "", clinic: "", notes: "" });
     setVacModalOpen(true);
   };
 
   const openVacEdit = (vx) => {
-    if (!guard()) return;
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+
+    // converte ISO → "YYYY-MM-DD" (aceito pelo input date)
+    const toDateInput = (val) => {
+      if (!val) return "";
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      } catch {
+        return "";
+      }
+    };
+
     setVacEditId(vx.id);
     setVacForm({
       name: vx.name || "",
-      date: vx.date || "",
-      nextDoseDate: vx.nextDoseDate || "",
+      date: toDateInput(vx.date) || "",
+      nextDoseDate: toDateInput(vx.nextDoseDate) || "",
       clinic: vx.clinic || "",
       notes: vx.notes || "",
     });
     setVacModalOpen(true);
   };
 
-  const submitVaccine = async () => {
-    if (!guard()) return;
+  async function submitVaccine() {
+    if (!canEdit) return;
+
     const name = String(vacForm.name || "").trim();
-    const date = String(vacForm.date || "");
-    if (!name || !date) {
+    const appliedAt = String(vacForm.date || "");
+    const nextDose = vacForm.nextDoseDate || undefined;
+    const clinic = String(vacForm.clinic || "").trim();
+    const observations = String(vacForm.notes || "").trim();
+
+    if (!name || !appliedAt) {
       toast.error("Informe ao menos a vacina e a data.");
       return;
     }
-    try {
-      const payload = {
-        name,
-        date,
-        nextDoseDate: vacForm.nextDoseDate || undefined,
-        clinic: String(vacForm.clinic || "").trim(),
-        notes: String(vacForm.notes || "").trim(),
-      };
 
-      if (!vacEditId) {
-        const created = addPetVaccine(pet.id, payload);
-        const next = [...(pet.vaccines || []), created];
-        persist({ vaccines: next });
-        toast.success("Vacina registrada.");
-      } else {
-        updatePetVaccine(pet.id, vacEditId, payload);
-        const next = (pet.vaccines || []).map((v) =>
-          v.id === vacEditId ? { ...v, ...payload } : v
-        );
-        persist({ vaccines: next });
+    try {
+      if (vacEditId) {
+        // EDITAR → usa a rota de atualização (sem deletar/recriar)
+        await updateVaccine({
+          animalId,
+          vaccineId: vacEditId,
+          name,
+          observations,
+          clinic,
+          appliedAt,
+          nextDose,
+        });
         toast.success("Vacina atualizada.");
+      } else {
+        // CRIAR → mantém addVaccine
+        await addVaccine({
+          animalId,
+          name,
+          observations,
+          clinic,
+          appliedAt,
+          nextDose,
+        });
+        toast.success("Vacina registrada.");
       }
 
+      await refetchVaccines.current?.();
       setVacModalOpen(false);
       setVacEditId(null);
-    } catch {
-      toast.error("Não foi possível salvar (armazenamento local cheio).");
+    } catch (e) {
+      console.error(e);
+      toast.error("Não foi possível salvar. Tente novamente.");
     }
-  };
+  }
 
-  const markAsToday = async (vx) => {
-    if (!guard()) return;
+  async function markAsToday(vx) {
+    if (!canEdit) return;
+
     const ok = await confirm({
       title: "Marcar como aplicada hoje?",
       description:
@@ -649,21 +670,33 @@ export default function PetDetail() {
       tone: "confirm",
     });
     if (!ok) return;
-    const today = new Date();
-    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(today.getDate()).padStart(2, "0")}`;
-    updatePetVaccine(pet.id, vx.id, { date: iso });
-    const next = (pet.vaccines || []).map((v) =>
-      v.id === vx.id ? { ...v, date: iso } : v
-    );
-    persist({ vaccines: next });
-    toast.success("Aplicação marcada para hoje.");
-  };
 
-  const removeVaccine = async (vx) => {
-    if (!guard()) return;
+    try {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(
+        today.getMonth() + 1
+      ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+      await updateVaccine({
+        animalId,
+        vaccineId: vx.id,
+        name: vx.name,
+        observations: vx.notes || "",
+        clinic: vx.clinic || "",
+        appliedAt: iso,
+        nextDose: vx.nextDoseDate || undefined,
+      });
+
+      await refetchVaccines.current?.();
+      toast.success("Aplicação marcada para hoje.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Não foi possível atualizar a aplicação.");
+    }
+  }
+
+  async function removeVaccine(vx) {
+    if (!canEdit) return;
     const ok = await confirm({
       title: "Excluir registro?",
       description: "Esta ação não pode ser desfeita.",
@@ -671,11 +704,41 @@ export default function PetDetail() {
       tone: "danger",
     });
     if (!ok) return;
-    removePetVaccine(pet.id, vx.id);
-    const next = (pet.vaccines || []).filter((v) => v.id !== vx.id);
-    persist({ vaccines: next });
-    toast.success("Registro removido.");
+    try {
+      await deleteVaccines({ animalId, vaccineId: vx.id });
+      setVaccines((list) => list.filter((v) => v.id !== vx.id));
+      toast.success("Registro removido.");
+    } catch {
+      toast.error("Falha ao remover o registro.");
+    }
+  }
+
+  /* --------------------------- lightbox / slides --------------------------- */
+  const lbSlides = useMemo(
+    () =>
+      (gallery || []).map((m) => ({
+        id: m.id,
+        url: m.url,
+        title: m.title || "",
+        alt: m.title || "",
+        description: m.title || "",
+      })),
+    [gallery]
+  );
+
+  const openLightbox = (idx) => {
+    setLbIndex(idx);
+    setLbOpen(true);
   };
+
+  if (!pet) {
+    return <div className="p-6 text-sm opacity-70">Pet não encontrado.</div>;
+  }
+
+  const headerAvatarSrc = avatarUrl || coverUrl || undefined; // avatar já cai para breed.image
+  const vaccinesCountLabel = loadingVaccines
+    ? "…"
+    : `${vaccinesCount} registro(s)`;
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
@@ -691,9 +754,9 @@ export default function PetDetail() {
               className="h-16 w-16 md:h-20 md:w-20 rounded-full object-cover ring-4 ring-black/10 dark:ring-white/10"
             />
             <div className="min-w-0">
-              <h1 className="text-lg md:text-xl font-semibold">{pet.name}</h1>
+              <h1 className="text-lg md:text-xl font-semibold">{pet.name}</h1>{" "}
               <p className="text-xs md:text-sm opacity-70 capitalize">
-                {pet.species} • {pet.breed}
+                {pet.species} • {pet.breed} • {pet.gender}{" "}
               </p>
             </div>
           </div>
@@ -717,7 +780,9 @@ export default function PetDetail() {
 
           {/* Datas */}
           <div className="mt-6">
-            <h3 className="mb-3 text-sm font-medium opacity-80">Datas importantes</h3>
+            <h3 className="mb-3 text-sm font-medium opacity-80">
+              Datas importantes
+            </h3>
             <div className="grid gap-3">
               <InfoRow
                 label="Nascimento"
@@ -770,7 +835,7 @@ export default function PetDetail() {
                   rightActions={
                     <div className="flex items-center gap-2">
                       <span className="text-xs opacity-60">
-                        {vaccinesCount} registro(s)
+                        {vaccinesCountLabel}
                       </span>
                       {canEdit && (
                         <button
@@ -785,7 +850,11 @@ export default function PetDetail() {
                     </div>
                   }
                 >
-                  {vaccinesCount === 0 ? (
+                  {loadingVaccines ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Carregando vacinas…
+                    </div>
+                  ) : vaccines.length === 0 ? (
                     <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
                       Nenhuma vacina registrada para este pet.
                     </div>
@@ -809,12 +878,14 @@ export default function PetDetail() {
                                   <Syringe className="h-4 w-4 opacity-70" />
                                   {v.name}
                                 </span>
-                                {!!v.nextDoseDate && vaccineBadge(v.nextDoseDate)}
+                                {!!v.nextDoseDate &&
+                                  vaccineBadge(v.nextDoseDate)}
                               </div>
                               <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-80">
                                 <span className="inline-flex items-center gap-1">
                                   <CalendarDays className="h-3.5 w-3.5" />
-                                  Aplicada em: <strong>{formatPt(v.date)}</strong>
+                                  Aplicada em:{" "}
+                                  <strong>{formatPt(v.date)}</strong>
                                 </span>
                                 {v.nextDoseDate && (
                                   <span className="inline-flex items-center gap-1">
@@ -833,7 +904,9 @@ export default function PetDetail() {
                               {v.notes && (
                                 <div className="mt-1 text-xs opacity-80 inline-flex items-start gap-2">
                                   <NotebookText className="mt-[2px] h-3.5 w-3.5" />
-                                  <span className="whitespace-pre-wrap">{v.notes}</span>
+                                  <span className="whitespace-pre-wrap">
+                                    {v.notes}
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -871,21 +944,12 @@ export default function PetDetail() {
                   )}
                 </Accordion>
 
-                <StaticItem
-                  icon={<Pill className="h-4 w-4 opacity-70" />}
-                  title="Tratamentos antiparasitários"
-                  showPlus={canEdit}
-                />
-                <StaticItem
-                  icon={<Stethoscope className="h-4 w-4 opacity-70" />}
-                  title="Intervenções médicas"
-                  showPlus={canEdit}
-                />
-                <StaticItem
-                  icon={<Bandage className="h-4 w-4 opacity-70" />}
-                  title="Outros tratamentos"
-                  showPlus={canEdit}
-                />
+                {/* Seções ainda sem funcionalidade deixadas comentadas */}
+                {/*
+                <StaticItem icon={<Pill className="h-4 w-4 opacity-70" />} title="Tratamentos antiparasitários" showPlus={canEdit} />
+                <StaticItem icon={<Stethoscope className="h-4 w-4 opacity-70" />} title="Intervenções médicas" showPlus={canEdit} />
+                <StaticItem icon={<Bandage className="h-4 w-4 opacity-70" />} title="Outros tratamentos" showPlus={canEdit} />
+                */}
               </div>
             ) : (
               <div className="space-y-3">
@@ -904,7 +968,6 @@ export default function PetDetail() {
                         <input
                           type="file"
                           accept="image/*"
-                          multiple
                           className="hidden"
                           onChange={handleAddMedia}
                         />
@@ -912,83 +975,58 @@ export default function PetDetail() {
                     )}
                   </div>
 
-                  {imagesOnly.length === 0 ? (
+                  {loadingGallery ? (
                     <div className="rounded-lg border border-black/10 dark:border-white/10 p-6 text-sm opacity-70">
-                      Nenhuma mídia ainda. {canEdit ? "Use “Adicionar mídia”." : "—"}
+                      Carregando galeria…
+                    </div>
+                  ) : gallery.length === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-6 text-sm opacity-70">
+                      Nenhuma mídia ainda.{" "}
+                      {canEdit ? "Use “Adicionar mídia”." : "—"}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {imagesOnly.map((m, idx) => {
-                        const src = resolveSrc(m);
-                        return (
-                          <div
-                            key={m.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openLightbox(idx)}
-                            onKeyDown={(e) =>
-                              (e.key === "Enter" || e.key === " ") && openLightbox(idx)
-                            }
-                            className="group relative overflow-hidden rounded-lg cursor-pointer"
-                            title={m.title}
-                          >
-                            <img
-                              src={src || undefined}
-                              alt={m.title || ""}
-                              className="aspect-[4/3] w-full object-cover"
-                            />
+                      {gallery.map((m, idx) => (
+                        <div
+                          key={m.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openLightbox(idx)}
+                          onKeyDown={(e) =>
+                            (e.key === "Enter" || e.key === " ") &&
+                            openLightbox(idx)
+                          }
+                          className="group relative overflow-hidden rounded-lg cursor-pointer"
+                          title={m.title}
+                        >
+                          <img
+                            src={m.url || undefined}
+                            alt={m.title || ""}
+                            className="aspect-[4/3] w-full object-cover"
+                          />
 
-                            {/* badge de capa da GALERIA */}
-                            {isCover(m) && (
-                              <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
-                                <Star className="h-3 w-3 fill-white" /> capa
+                          {/* ações visíveis só para tutor */}
+                          {canEdit && (
+                            <div
+                              className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/60 to-black/0 p-2 text-white transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span className="max-w-[60%] truncate text-xs">
+                                {m.title || "Sem título"}
                               </span>
-                            )}
-
-                            {/* barra de ações (só para o tutor) */}
-                            {canEdit && (
-                              <div
-                                className="
-                                  absolute inset-x-0 bottom-0 flex items-center justify-between gap-2
-                                  bg-gradient-to-t from-black/60 to-black/0 p-2
-                                  text-white transition-opacity
-                                  opacity-100 md:opacity-0 md:group-hover:opacity-100
-                                "
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <span className="max-w-[60%] truncate text-xs">
-                                  {m.title || "Sem título"}
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    title="Definir como capa da galeria"
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                    onClick={() => handleSetCover(m)}
-                                  >
-                                    <Star
-                                      className={`h-4 w-4 ${isCover(m) ? "fill-white" : ""}`}
-                                    />
-                                  </button>
-                                  <button
-                                    title="Editar título"
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                    onClick={() => handleEditTitle(m)}
-                                  >
-                                    <Edit3 className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    title="Remover"
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
-                                    onClick={() => handleDelete(m)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  title="Remover"
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 hover:bg-black/60"
+                                  onClick={() => handleDeleteMedia(m)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -998,7 +1036,7 @@ export default function PetDetail() {
         </section>
       </div>
 
-      {/* LIGHTBOX + ações */}
+      {/* LIGHTBOX */}
       {lbOpen && (
         <Lightbox
           open={lbOpen}
@@ -1006,7 +1044,9 @@ export default function PetDetail() {
           index={lbIndex}
           slides={lbSlides}
           onClose={() => setLbOpen(false)}
-          onPrev={() => setLbIndex((i) => (i - 1 + lbSlides.length) % lbSlides.length)}
+          onPrev={() =>
+            setLbIndex((i) => (i - 1 + lbSlides.length) % lbSlides.length)
+          }
           onNext={() => setLbIndex((i) => (i + 1) % lbSlides.length)}
         />
       )}
@@ -1129,138 +1169,4 @@ export default function PetDetail() {
       )}
     </div>
   );
-}
-
-/* ------------------------------ SUBCOMPONENTES ----------------------------- */
-
-function Tab({ active, onClick, icon, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm transition-all ${
-        active
-          ? "bg-[#f77904] text-white shadow-sm"
-          : "bg-[var(--chip-bg)] text-[var(--chip-fg)] hover:opacity-90"
-      }`}
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}
-
-function InfoCard({ label, value }) {
-  return (
-    <div className="rounded-xl bg-[var(--chip-bg)] p-3 ring-1 ring-black/5 dark:ring-white/5">
-      <div className="text-xs opacity-70">{label}</div>
-      <div className="mt-1 font-medium capitalize">{value || "—"}</div>
-    </div>
-  );
-}
-
-function InfoRow({ label, value, right }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl bg-[var(--chip-bg)] px-3 py-2 ring-1 ring-black/5 dark:ring-white/5">
-      <div className="text-xs opacity-70">{label}</div>
-      <div className="flex items-center gap-2">
-        <div className="font-medium">{value || "—"}</div>
-        {right && <span className="text-xs opacity-70">{right}</span>}
-      </div>
-    </div>
-  );
-}
-
-/** Card estático com ícone; o “+” só aparece se showPlus=true */
-function StaticItem({ icon, title, showPlus = false }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 ring-1 ring-black/5 dark:ring-white/5">
-      <span className="inline-flex items-center gap-2">
-        {icon}
-        {title}
-      </span>
-      {showPlus ? <span className="text-lg opacity-50">+</span> : <span />}
-    </div>
-  );
-}
-
-/* --------- Accordion com header clicável e ações separadas (sem nested buttons) --------- */
-function Accordion({ title, open, onToggle, leftIcon, rightActions, children }) {
-  const ref = useRef(null);
-  const [height, setHeight] = useState(0);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (open) {
-      const h = el.scrollHeight;
-      setHeight(h);
-      const id = setTimeout(() => setHeight("auto"), 300);
-      return () => clearTimeout(id);
-    } else {
-      if (height === "auto") {
-        setHeight(ref.current.scrollHeight);
-        requestAnimationFrame(() => setHeight(0));
-      } else {
-        setHeight(0);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  return (
-    <div className="rounded-xl ring-1 ring-black/5 dark:ring-white/5">
-      {/* Cabeçalho: botão de toggle à esquerda, ações à direita */}
-      <div className="flex w-full items-center justify-between rounded-xl bg-[var(--chip-bg)] px-4 py-3 text-sm font-medium">
-        <button
-          onClick={onToggle}
-          className="inline-flex items-center gap-2 text-left"
-          aria-expanded={open}
-          type="button"
-        >
-          {leftIcon}
-          {title}
-          <ChevronDown
-            className={`ml-2 h-4 w-4 transition-transform duration-300 ${
-              open ? "rotate-180" : ""
-            }`}
-          />
-        </button>
-
-        {/* rightActions fora do botão para evitar nested buttons */}
-        <div className="flex items-center gap-3">{rightActions}</div>
-      </div>
-
-      <div
-        style={{
-          overflow: "hidden",
-          transition: "max-height 300ms ease",
-          maxHeight: height === "auto" ? "9999px" : `${height}px`,
-        }}
-      >
-        <div ref={ref} className="px-4 py-3">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* --------------------------------- utils ---------------------------------- */
-function formatDate(iso) {
-  if (!iso) return "—";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("pt-BR");
-  } catch {
-    return iso;
-  }
-}
-function ageDiff(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const now = new Date();
-  const y = now.getFullYear() - d.getFullYear();
-  let m = now.getMonth() - d.getMonth();
-  if (m < 0) m += 12;
-  return `${y}a ${m}m`;
 }

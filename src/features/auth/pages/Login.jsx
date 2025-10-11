@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/store/theme";
 import { Sun, Moon } from "lucide-react";
 import dogImg from "@/assets/dog.png";
+import DisplayLogo from "@/assets/display.png";
 
 // APIs (imutáveis conforme combinado)
 import { signIn } from "@/api/auth.api.js";
@@ -128,8 +129,12 @@ export default function Login() {
     const out = blob || (await toJpegBlob(canvas, 0.8));
 
     // Retorna como File para manter nome/extensão coerentes
-    const name = (file.name || "avatar").replace(/\.(png|webp|gif|bmp)$/i, "") + ".jpg";
-    return new File([out], name, { type: "image/jpeg", lastModified: Date.now() });
+    const name =
+      (file.name || "avatar").replace(/\.(png|webp|gif|bmp)$/i, "") + ".jpg";
+    return new File([out], name, {
+      type: "image/jpeg",
+      lastModified: Date.now(),
+    });
   }
 
   function onPickAvatar(e) {
@@ -165,7 +170,9 @@ export default function Login() {
         const ok =
           !!me &&
           typeof me === "object" &&
-          (me.id || (me.email && String(me.email).includes("@")) || me.username);
+          (me.id ||
+            (me.email && String(me.email).includes("@")) ||
+            me.username);
         if (alive && ok) {
           navigate("/feed", { replace: true });
         }
@@ -194,8 +201,10 @@ export default function Login() {
   async function handleSignup(payload) {
     const fd = new FormData();
     fd.append("name", payload.name.trim());
-    if (payload.username?.trim()) fd.append("username", payload.username.trim());
-    if (payload.email?.trim()) fd.append("email", payload.email.trim().toLowerCase());
+    if (payload.username?.trim())
+      fd.append("username", payload.username.trim());
+    if (payload.email?.trim())
+      fd.append("email", payload.email.trim().toLowerCase());
     fd.append("password", payload.password);
 
     if (payload.imageFile) {
@@ -262,20 +271,25 @@ export default function Login() {
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-0 px-4 py-10 md:grid-cols-2 md:py-14 lg:py-16">
         {/* coluna da imagem */}
         <div className="relative hidden select-none items-end justify-center md:flex">
+          {/* logo centralizada acima do cão */}
+          <img
+            src={DisplayLogo}
+            alt="PataNet"
+            className="pointer-events-none absolute top-6 left-1/2 -translate-x-1/2 w-[260px] md:w-[320px] lg:w-[360px]"
+            draggable={false}
+          />
+
+          {/* imagem do cão */}
           <img
             src={dogImg}
             alt="Dog"
             className="pointer-events-none w-[88%] max-w-[820px] translate-y-6 drop-shadow-2xl transition-transform duration-700 ease-out will-change-transform md:translate-x-[-4%] md:scale-105"
           />
-          <div className="absolute left-10 top-10 text-3xl font-semibold tracking-tight text-orange-500">
-            <span className="mr-2">🐶</span> PET{" "}
-            <span className="text-zinc-700 dark:text-zinc-200">EASY</span>
-          </div>
         </div>
 
         {/* card do formulário */}
-        <div className="flex items-center justify-center">
-          <div className="relative w-full max-w-xl rounded-3xl bg-white/70 p-8 shadow-xl backdrop-blur-md transition-colors dark:bg-white/5 md:p-10">
+        <div className="flex items-end justify-center md:pb-8">
+          <div className="relative w-full max-w-xl rounded-3xl bg-white/70 p-8 shadow-xl backdrop-blur-md transition-colors dark:bg-white/5 md:p-10 md:translate-y-4">
             <div className="mb-4 flex items-center justify-end">
               <button
                 onClick={toggleTheme}
@@ -284,7 +298,11 @@ export default function Login() {
                 aria-label="Alternar tema"
                 title="Alternar tema"
               >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
                 {theme === "dark" ? "Claro" : "Escuro"}
               </button>
             </div>

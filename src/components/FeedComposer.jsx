@@ -4,9 +4,15 @@ import { ImagePlus, PawPrint } from "lucide-react";
 // (mantive a UI/fluxo igual; se quiser, depois trocamos pets para API)
 import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
 import { createPost } from "@/api/post.api.js";
+import { getMyProfile } from "@/api/user.api.js";
+import { fetchAnimalsByOwner } from "@/api/owner.api.js";
+import { fetchAnimalsById } from "@/api/animal.api.js";
 
 /* ---------- utils: compressão igual ao registro ---------- */
-async function compressImage(file, { maxW = 1600, maxH = 1600, quality = 0.85 } = {}) {
+async function compressImage(
+  file,
+  { maxW = 1600, maxH = 1600, quality = 0.85 } = {}
+) {
   if (!(file instanceof File)) return file;
   const bitmap = await createImageBitmap(file);
   let { width, height } = bitmap;
@@ -20,9 +26,15 @@ async function compressImage(file, { maxW = 1600, maxH = 1600, quality = 0.85 } 
   const ctx = canvas.getContext("2d");
   ctx.drawImage(bitmap, 0, 0, w, h);
 
-  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+  const blob = await new Promise((res) =>
+    canvas.toBlob(res, "image/jpeg", quality)
+  );
   if (!blob) return file;
-  return new File([blob], file.name.replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"), { type: "image/jpeg" });
+  return new File(
+    [blob],
+    file.name.replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
+    { type: "image/jpeg" }
+  );
 }
 
 function dataUrlToFile(dataUrl, name = "media.jpg") {
@@ -38,62 +50,87 @@ function dataUrlToFile(dataUrl, name = "media.jpg") {
 export default function FeedComposer({ user }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState([]); // dataURLs (UI)
-  const [files, setFiles] = useState([]);   // File[] (API)
-  const [taggedPets, setTaggedPets] = useState([]); // ids
+  const [files, setFiles] = useState([]); // File[] (API)
+  const [taggedPets, setTaggedPets] = useState([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
   // ids possíveis do usuário
-  const myIds = useMemo(
-    () =>
-      [user?.id, user?.uid, user?.email, user?.username]
-        .filter(Boolean)
-        .map(String),
-    [user]
-  );
-
-  const [allPets, setAllPets] = useState([]);
-  const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { name, avatarUrl } }
+  const [me, setMe] = useState(null);
+  const [pets, setPets] = useState([]);
+  const [petThumbs, setPetThumbs] = useState({});
 
   // Carrega pets (mesmo layout/fluxo)
   useEffect(() => {
-    const refresh = () => setAllPets(loadPets() || []);
-    refresh();
-    window.addEventListener("patanet:pets-updated", refresh);
-    return () => window.removeEventListener("patanet:pets-updated", refresh);
+    let cancel = false;
+    (async () => {
+      try {
+        const u = await getMyProfile();
+        if (!cancel) setMe(u || null);
+      } catch {
+        if (!cancel) setMe(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
   }, []);
 
-  const myPets = useMemo(() => {
-    if (!myIds.length) return [];
-    return (allPets || []).filter((p) => {
-      const owner = p.ownerId || p.userId || p.createdBy;
-      return owner && myIds.includes(String(owner));
-    });
-  }, [allPets, myIds]);
+  // Carrega pets do dono autenticado
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!me?.id) {
+        setPets([]);
+        return;
+      }
+      try {
+        const resp = await fetchAnimalsByOwner({
+          userId: me.id,
+          page: 1,
+          perPage: 100,
+        });
+        const list = Array.isArray(resp?.data)
+          ? resp.data
+          : Array.isArray(resp)
+          ? resp
+          : [];
+        if (cancel) return;
+        // mapeia campos principais
+        setPets(
+          list.map((p) => ({
+            id: p.id || p._id,
+            name: p.name || "Pet",
+            image: p.image?.url || p.image || "", // avatar do pet (se houver)
+            imageCover: p.imageCover?.url || p.imageCover || "",
+            breedImage: p.breed?.image || "", // fallback: imagem da raça
+          }))
+        );
+      } catch {
+        if (!cancel) setPets([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [me?.id]);
 
   useEffect(() => {
     let cancelled = false;
-    async function resolve() {
+    (async () => {
       const pairs = await Promise.all(
-        myPets.map(async (p) => {
-          let avatarUrl = p.avatar || "";
-          if (!avatarUrl && p.avatarId) {
-            try {
-              avatarUrl = await mediaGetUrl(p.avatarId);
-            } catch {
-              avatarUrl = "";
-            }
-          }
+        pets.map(async (p) => {
+          let avatarUrl = p.image || p.breedImage || p.imageCover || "";
           if (!avatarUrl) {
-            let coverUrl = p.cover || "";
-            if (!coverUrl && p.coverId) {
-              try {
-                coverUrl = await mediaGetUrl(p.coverId);
-              } catch {
-                coverUrl = "";
-              }
-            }
-            avatarUrl = coverUrl || "";
+            try {
+              const full = await fetchAnimalsById({ animalId: p.id });
+              avatarUrl =
+                full?.image?.url ||
+                full?.image ||
+                full?.breed?.image ||
+                full?.imageCover ||
+                "";
+            } catch {}
           }
           return [p.id, { name: p.name || "Pet", avatarUrl }];
         })
@@ -103,20 +140,11 @@ export default function FeedComposer({ user }) {
         for (const [id, meta] of pairs) map[id] = meta;
         setPetThumbs(map);
       }
-    }
-    resolve();
+    })();
     return () => {
       cancelled = true;
-      Object.values(petThumbs).forEach(({ avatarUrl }) => {
-        if (avatarUrl && avatarUrl.startsWith?.("blob:")) {
-          try {
-            URL.revokeObjectURL(avatarUrl);
-          } catch {}
-        }
-      });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myPets.length]);
+  }, [pets]);
 
   async function onPickFiles(e) {
     const selected = Array.from(e.target.files || []);
@@ -129,12 +157,14 @@ export default function FeedComposer({ user }) {
     for (const f of selected) {
       const cf = await compressImage(f);
       compressed.push(cf);
-      previews.push(await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onload = () => res(fr.result);
-        fr.onerror = rej;
-        fr.readAsDataURL(cf);
-      }));
+      previews.push(
+        await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = rej;
+          fr.readAsDataURL(cf);
+        })
+      );
     }
 
     setImages((g) => [...g, ...previews]);
@@ -223,14 +253,14 @@ export default function FeedComposer({ user }) {
       )}
 
       {/* Seleção de pets (opcional) */}
-      {myPets.length > 0 ? (
+      {pets.length > 0 ? (
         <div className="mt-3">
           <div className="mb-1 inline-flex items-center gap-2 text-xs font-medium opacity-80">
             <PawPrint className="h-4 w-4" />
             Marcar pets (opcional)
           </div>
           <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
-            {myPets.map((p) => {
+            {pets.map((p) => {
               const active = taggedPets.includes(p.id);
               const src = petThumbs[p.id]?.avatarUrl || undefined;
               return (

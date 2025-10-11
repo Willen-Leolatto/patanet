@@ -8,11 +8,7 @@ export async function uploadAnimalMedias({ animalId, media }) {
 }
 
 export async function fetchAnimalMedias({ animalId, page = 1, perPage = 10 }) {
-  const response = await http.get(`/animals/medias/${animalId}`, {
-    params: {
-      page, perPage
-    }
-  })
+  const response = await http.get(`/animals/medias/${animalId}`)
   return response.data
 }
 

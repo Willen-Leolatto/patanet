@@ -1,12 +1,11 @@
 // src/features/pets/pages/PetCreate.jsx
-import React, { useMemo, useRef, useState } from "react";
-import {
-  addPet,
-  getBreedsBySpecies,
-  getBreedById,
-  mediaSaveBlob,
-} from "@/features/pets/services/petsStorage";
-import { useAuth } from "@/store/auth.jsx";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+// APIs (somente consumo; não alterei os arquivos)
+import { fetchSpecies } from "@/api/specie.api.js";
+import { fetchBreeds } from "@/api/breed.api.js";
+import { createAnimal } from "@/api/animal.api.js";
 
 /* --------------------------------- estilo -------------------------------- */
 const Styles = () => (
@@ -99,18 +98,70 @@ const BreedTile = ({ breed, active, onClick }) => {
   );
 };
 
+/* ----------------------------- helpers img ------------------------------ */
+const readAsDataURL = (file) =>
+  new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+
+async function compressImage(file, maxSide = 1200, quality = 0.7) {
+  // igual ao que usamos no registro/feed pra evitar CORS de imagem grande
+  const dataUrl = await readAsDataURL(file);
+  const img = new Image();
+  await new Promise((r, e) => {
+    img.onload = r;
+    img.onerror = e;
+    img.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+
+  let blob = await new Promise((res) =>
+    canvas.toBlob((b) => res(b), "image/webp", quality)
+  );
+  if (!blob) {
+    blob = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), "image/jpeg", quality)
+    );
+  }
+  // segurança extra
+  if (blob && blob.size > 700 * 1024) {
+    const canvas2 = document.createElement("canvas");
+    const factor = 0.9;
+    canvas2.width = Math.round(w * factor);
+    canvas2.height = Math.round(h * factor);
+    const ctx2 = canvas2.getContext("2d");
+    ctx2.drawImage(canvas, 0, 0, canvas2.width, canvas2.height);
+    blob = await new Promise((res) =>
+      canvas2.toBlob((b) => res(b), "image/webp", Math.max(0.5, quality - 0.1))
+    );
+  }
+  return blob;
+}
+
+const norm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 /* --------------------------------- Página --------------------------------- */
 export default function PetCreate() {
-  const auth = useAuth();
-  const currentUserId =
-    auth.user?.id ||
-    auth.user?.uid ||
-    auth.user?.email ||
-    auth.user?.username ||
-    "me";
+  const navigate = useNavigate();
 
   // básicos
-  const [species, setSpecies] = useState("cão"); // cão | gato (armazenamos "Cachorro"/"Gato")
+  const [species, setSpecies] = useState("cão"); // cão | gato
   const [sex, setSex] = useState("fêmea");
   const [size, setSize] = useState("médio");
   const [name, setName] = useState("");
@@ -121,75 +172,158 @@ export default function PetCreate() {
   const [birth, setBirth] = useState("");
   const [adoption, setAdoption] = useState("");
 
-  // raça
-  const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
+  // species/breeds por API
+  const [speciesList, setSpeciesList] = useState([]); // [{id,name}]
+  const [currentSpecieId, setCurrentSpecieId] = useState(null);
+  const [breeds, setBreeds] = useState([]); // [{id, name, image}]
   const [query, setQuery] = useState("");
-  const breeds = useMemo(
-    () =>
-      (getBreedsBySpecies(storageSpecies) || []).filter((b) =>
-        b.name.toLowerCase().includes(query.toLowerCase())
-      ),
-    [storageSpecies, query]
-  );
   const [breed, setBreed] = useState(null);
-  const breedInfo = useMemo(() => {
-    if (!breed) return null;
-    const b = getBreedById(breed.id);
-    if (!b) return null;
-    return {
-      suggestedSize: b.suggestedSize || "",
-      weightRange: b.weightTip || "",
-      heightRange: b.heightTip || "",
-      life: b.lifespan || "",
-      description: b.description || "",
-      appearance: b.appearance || "",
-      temperament: b.temperament || "",
-      trainability: b.trainability || "",
-      exercise: b.exercise || "",
-      coat: b.grooming || "",
-      health: b.healthNotes || "",
-    };
-  }, [breed]);
 
-  // Avatar e Capa (ambos via IndexedDB) + previews
+  // Avatar e Capa (arquivos + previews)
   const avatarInputRef = useRef(null);
   const coverInputRef = useRef(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [coverPreview, setCoverPreview] = useState("");
-  const [avatarId, setAvatarId] = useState("");
-  const [coverId, setCoverId] = useState("");
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
+
+  // carregar species
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const resp = await fetchSpecies({ page: 1, perPage: 100 });
+        // aceita vários formatos possíveis
+        const list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+
+        if (!cancel) setSpeciesList(list);
+      } catch {
+        if (!cancel) setSpeciesList([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // quando muda "cão/gato", decidimos o specieId correspondente (para filtrar raças)
+  useEffect(() => {
+    const wanted =
+      species === "gato"
+        ? ["gato", "felino", "cat"]
+        : ["cachorro", "cão", "cao", "dog", "canino"];
+    const found =
+      speciesList.find((s) =>
+        wanted.includes(String(s.name || s.title || "").toLowerCase())
+      ) || null;
+    setCurrentSpecieId(found?.id || null);
+    setBreed(null);
+    setQuery("");
+  }, [species, speciesList]);
+
+  // buscar breeds conforme specieId e query
+  // Carrega raças da espécie selecionada (uma vez) e filtra visualmente pelo nome
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!currentSpecieId) {
+        setBreeds([]);
+        return;
+      }
+      try {
+        // pega um “superset” da API para a espécie (sem depender do query do backend)
+        const resp = await fetchBreeds({
+          specieId: currentSpecieId,
+          page: 1,
+          perPage: 100,
+        });
+        let list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+
+        // garante unicidade por id (caso a API repita)
+        const map = new Map();
+        for (const b of list) {
+          const id = String(b.id || "");
+          if (!map.has(id)) map.set(id, b);
+        }
+        list = Array.from(map.values());
+
+        if (!cancel) setBreeds(list);
+      } catch {
+        if (!cancel) setBreeds([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [currentSpecieId]);
+
+  const filteredBreeds = useMemo(() => {
+    const q = norm(query);
+    return breeds.filter((b) => {
+      // confere espécie do item
+      const sid = String(
+        b.specieId || b.speciesId || b.specie?.id || b.species?.id || ""
+      );
+      const sameSpecie = currentSpecieId
+        ? String(currentSpecieId) === sid
+        : true;
+      if (!sameSpecie) return false;
+
+      // confere nome (ignora acentos/maiúsculas)
+      const name = norm(b.name);
+      return !q || name.includes(q);
+    });
+  }, [breeds, currentSpecieId, query]);
 
   const onPickAvatar = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !file.type.startsWith("image/")) return;
     try {
-      setAvatarPreview(URL.createObjectURL(file));
-      const id = await mediaSaveBlob(file);
-      setAvatarId(id);
-    } catch (err) {
-      console.error("Falha ao salvar avatar no IndexedDB", err);
-      alert("Não foi possível processar a imagem de perfil. Tente novamente.");
+      const blob = await compressImage(file);
+      const finalFile = new File(
+        [blob],
+        file.name.replace(/\.[^.]+$/, "") + ".webp",
+        {
+          type: blob.type || "image/webp",
+        }
+      );
+      setAvatarFile(finalFile);
+      setAvatarPreview(URL.createObjectURL(finalFile));
+    } catch {
+      setAvatarFile(null);
       setAvatarPreview("");
-      setAvatarId("");
-    } finally {
-      e.target.value = "";
+      alert("Não foi possível processar a imagem de perfil.");
     }
   };
 
   const onPickCover = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !file.type.startsWith("image/")) return;
     try {
-      setCoverPreview(URL.createObjectURL(file));
-      const id = await mediaSaveBlob(file);
-      setCoverId(id);
-    } catch (err) {
-      console.error("Falha ao salvar capa no IndexedDB", err);
-      alert("Não foi possível processar a imagem de capa. Tente novamente.");
+      const blob = await compressImage(file);
+      const finalFile = new File(
+        [blob],
+        file.name.replace(/\.[^.]+$/, "") + ".webp",
+        {
+          type: blob.type || "image/webp",
+        }
+      );
+      setCoverFile(finalFile);
+      setCoverPreview(URL.createObjectURL(finalFile));
+    } catch {
+      setCoverFile(null);
       setCoverPreview("");
-      setCoverId("");
-    } finally {
-      e.target.value = "";
+      alert("Não foi possível processar a imagem de capa.");
     }
   };
 
@@ -198,10 +332,25 @@ export default function PetCreate() {
     if (weightUnit === "kg") return weight;
     return Math.round(weight * 2.20462 * 10) / 10;
   }, [weight, weightUnit]);
+
   const sliderValueKg =
-    weightUnit === "kg"
-      ? weight
-      : Math.round((weight / 2.20462) * 10) / 10;
+    weightUnit === "kg" ? weight : Math.round((weight / 2.20462) * 10) / 10;
+
+  // mapeamentos UI → API
+  const mapSize = (ui) => {
+    const v = String(ui || "").toLowerCase();
+    if (v.startsWith("p")) return "SMALL";
+    if (v.startsWith("m")) return "MEDIUM";
+    if (v.startsWith("g")) return "LARGE";
+    return "MEDIUM";
+  };
+  const mapGender = (ui) => {
+    const v = String(ui || "").toLowerCase();
+    if (v.startsWith("m")) return "MALE";
+    if (v.startsWith("f")) return "FEMALE";
+    return "NOT_INFORMED";
+  };
+  const toApiDate = (d) => (d ? `${d}T00:00:00.000Z` : "");
 
   // submit
   const onSubmit = async (e) => {
@@ -209,47 +358,39 @@ export default function PetCreate() {
     try {
       const payload = {
         name: (name || "").trim() || "Sem nome",
-        species: storageSpecies, // "Cachorro" | "Gato"
-        breed: breed?.name || "",
-        gender: sex,
-        size,
-        weight: Number(sliderValueKg),
-        birthday: birth || "",
-        adoption: adoption || "",
-        description: desc || "",
-
-        // ⚠️ Não persistimos DataURL no localStorage
-        avatar: "", // sempre string vazia (quando usar avatarId)
-        avatarId: avatarId || "",
-
-        // Capa: prioriza coverId (upload do usuário); se não houver,
-        // usa imagem "leve" da raça como cover (URL pública).
-        coverId: coverId || "",
-        cover: coverId ? "" : (breed?.image || ""),
-
-        media: [], // galeria será gerida em PetDetail
-        ownerId: currentUserId,
-        createdAt: Date.now(),
+        about: String(desc || ""),
+        image: avatarFile || "", // File OU vazio
+        imageCover: coverFile || "", // File OU vazio
+        birthDate: toApiDate(birth),
+        adoptionDate: toApiDate(adoption),
+        weight: String(Number(sliderValueKg) || 0),
+        size: mapSize(size), // SMALL | MEDIUM | LARGE
+        gender: mapGender(sex), // MALE | FEMALE | NOT_INFORMED
+        breedId: breed?.id ? String(breed.id) : "",
       };
 
-      addPet(payload);
-      history.back();
+      const created = await createAnimal(payload);
+      const newId =
+        created?.id ||
+        created?.data?.id ||
+        created?.animal?.id ||
+        created?.animalId;
+
+      if (newId) navigate(`/pets/${newId}`);
+      else history.back();
     } catch (err) {
-      if (String(err?.message) === "LOCAL_STORAGE_QUOTA_EXCEEDED") {
-        alert(
-          "Seu armazenamento local ficou cheio.\n" +
-            "Remova Pets ou fotos antigas, reduza o tamanho das imagens, " +
-            "ou migre para a versão com backend quando estiver disponível."
-        );
-      } else {
-        alert("Não foi possível salvar o pet. Tente novamente.");
-      }
-      console.error(err);
+      console.error("create pet error:", err?.response?.data || err);
+      alert(
+        "Não foi possível cadastrar o pet. Verifique os campos e tente novamente."
+      );
     }
   };
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto max-w-[1200px] px-4 py-8 space-y-8">
+    <form
+      onSubmit={onSubmit}
+      className="mx-auto max-w-[1200px] px-4 py-8 space-y-8"
+    >
       <Styles />
 
       <header className="flex items-center justify-between">
@@ -298,9 +439,9 @@ export default function PetCreate() {
 
             {/* Capa */}
             <div className="relative w-44 h-28 rounded-xl overflow-hidden ring-2 ring-white/10 shadow-md">
-              {coverPreview || breed?.image ? (
+              {coverPreview ? (
                 <img
-                  src={coverPreview || breed?.image}
+                  src={coverPreview}
                   alt="capa"
                   className="w-full h-full object-cover"
                 />
@@ -329,7 +470,9 @@ export default function PetCreate() {
 
           {/* Infos do Pet */}
           <div className="space-y-2">
-            <label className="text-xs font-medium opacity-70">Nome do pet</label>
+            <label className="text-xs font-medium opacity-70">
+              Nome do pet
+            </label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -338,10 +481,16 @@ export default function PetCreate() {
             />
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <Pill active={species === "cão"} onClick={() => setSpecies("cão")}>
+              <Pill
+                active={species === "cão"}
+                onClick={() => setSpecies("cão")}
+              >
                 Cão
               </Pill>
-              <Pill active={species === "gato"} onClick={() => setSpecies("gato")}>
+              <Pill
+                active={species === "gato"}
+                onClick={() => setSpecies("gato")}
+              >
                 Gato
               </Pill>
               <span className="mx-1 opacity-30">|</span>
@@ -352,13 +501,19 @@ export default function PetCreate() {
                 Macho
               </Pill>
               <span className="mx-1 opacity-30">|</span>
-              <Pill active={size === "pequeno"} onClick={() => setSize("pequeno")}>
+              <Pill
+                active={size === "pequeno"}
+                onClick={() => setSize("pequeno")}
+              >
                 Pequeno
               </Pill>
               <Pill active={size === "médio"} onClick={() => setSize("médio")}>
                 Médio
               </Pill>
-              <Pill active={size === "grande"} onClick={() => setSize("grande")}>
+              <Pill
+                active={size === "grande"}
+                onClick={() => setSize("grande")}
+              >
                 Grande
               </Pill>
             </div>
@@ -366,13 +521,15 @@ export default function PetCreate() {
         </div>
       </Card>
 
-      {/* Raça + Sobre a raça */}
+      {/* Raça + Sobre a raça (lado direito) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="p-4 sm:p-6 lg:col-span-2">
           <div className="mb-4">
             <h3 className="font-semibold">Raça</h3>
             <div className="mt-3">
-              <label className="text-xs font-medium opacity-70">Buscar raça</label>
+              <label className="text-xs font-medium opacity-70">
+                Buscar raça
+              </label>
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -383,7 +540,7 @@ export default function PetCreate() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {breeds.map((b) => (
+            {filteredBreeds.map((b) => (
               <BreedTile
                 key={b.id}
                 breed={b}
@@ -396,44 +553,48 @@ export default function PetCreate() {
 
         <Card className="p-4 sm:p-6">
           <h3 className="font-semibold mb-3">Sobre a raça</h3>
-          {breedInfo ? (
+          {breed ? (
             <div className="space-y-3 text-sm leading-relaxed">
-              <p className="opacity-80">{breedInfo.description}</p>
+              <p className="opacity-80">
+                {breed?.description || "Informações da raça não disponíveis."}
+              </p>
 
               <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                 <h4 className="font-medium mb-2">Aparência</h4>
-                <p className="opacity-80">{breedInfo.appearance}</p>
+                <p className="opacity-80">{breed?.appearance || "—"}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                   <h4 className="font-medium mb-1">Temperamento</h4>
-                  <p className="opacity-80">{breedInfo.temperament}</p>
+                  <p className="opacity-80">{breed?.temperament || "—"}</p>
                 </div>
                 <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                   <h4 className="font-medium mb-1">Treinabilidade</h4>
-                  <p className="opacity-80">{breedInfo.trainability}</p>
+                  <p className="opacity-80">{breed?.trainability || "—"}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                   <h4 className="font-medium mb-1">Exercício</h4>
-                  <p className="opacity-80">{breedInfo.exercise}</p>
+                  <p className="opacity-80">{breed?.exercise || "—"}</p>
                 </div>
                 <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                   <h4 className="font-medium mb-1">Pelagem</h4>
-                  <p className="opacity-80">{breedInfo.coat}</p>
+                  <p className="opacity-80">{breed?.coat || "—"}</p>
                 </div>
               </div>
 
               <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
                 <h4 className="font-medium mb-1">Saúde</h4>
-                <p className="opacity-80">{breedInfo.health}</p>
+                <p className="opacity-80">{breed?.health || "—"}</p>
               </div>
             </div>
           ) : (
-            <p className="opacity-60 text-sm">Selecione uma raça para ver detalhes.</p>
+            <p className="opacity-60 text-sm">
+              Selecione uma raça para ver detalhes.
+            </p>
           )}
         </Card>
       </div>
@@ -524,26 +685,34 @@ export default function PetCreate() {
           </div>
         </Card>
 
-        {/* Sugestões */}
+        {/* Sugestões da raça */}
         <Card className="p-4 sm:p-6">
           <h3 className="font-semibold mb-3">Sugestões da raça</h3>
-          {breedInfo ? (
+          {breed ? (
             <dl className="grid grid-cols-1 gap-2 text-sm">
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Porte sugerido</dt>
-                <dd className="font-medium">{breedInfo.suggestedSize}</dd>
+                <dd className="font-medium">
+                  {breed?.suggestedSize || breed?.size || "—"}
+                </dd>
               </div>
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Peso típico</dt>
-                <dd className="font-medium">{breedInfo.weightRange}</dd>
+                <dd className="font-medium">
+                  {breed?.typicalWeight || breed?.weightTip || "—"}
+                </dd>
               </div>
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Altura típica</dt>
-                <dd className="font-medium">{breedInfo.heightRange}</dd>
+                <dd className="font-medium">
+                  {breed?.typicalHeight || breed?.heightTip || "—"}
+                </dd>
               </div>
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Expectativa de vida</dt>
-                <dd className="font-medium">{breedInfo.life}</dd>
+                <dd className="font-medium">
+                  {breed?.lifeExpectancy || breed?.lifespan || "—"}
+                </dd>
               </div>
             </dl>
           ) : (

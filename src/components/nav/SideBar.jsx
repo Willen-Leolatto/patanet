@@ -7,7 +7,6 @@ import {
   Home as HomeIcon,
   PawPrint,
   User,
-  // Settings,
   LogIn,
   LogOut,
   Plus,
@@ -18,13 +17,15 @@ import {
   X,
 } from "lucide-react";
 
+import Logo from "@/assets/logo.png"; // <- coloque sua logo em src/assets/logo.png
 import { getMyProfile } from "@/api/user.api.js";
 import { clearTokens } from "@/api/auth.api.js";
+import { http } from "@/api/axios.js";
 import AvatarCircle from "@/components/AvatarCircle";
-// Esses utilitários continuam opcionais — se mais tarde migrarmos pets para API, é só trocar aqui.
-import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
+import { fetchAnimalsByOwner } from "@/api/owner.api.js";
 
 const SIDEBAR_W = 280;
+const LS_KEY_SIDEBAR_OPEN = "patanet:sidebar-open";
 
 export default function Sidebar() {
   const { pathname } = useLocation();
@@ -51,9 +52,10 @@ export default function Sidebar() {
         const me = await getMyProfile();
         if (!cancelled) setUser(me || null);
       } catch (err) {
-        // Se o token estiver inválido/expirado, limpa e vai pro auth.
         if (!cancelled) {
-          try { clearTokens(); } catch {}
+          try {
+            clearTokens();
+          } catch {}
           navigate("/auth", { replace: true });
         }
       } finally {
@@ -61,60 +63,65 @@ export default function Sidebar() {
       }
     }
     fetchMe();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
-  // ==== PETS (mantém a UI; a fonte pode ser trocada depois para a API) ====
+  // ==== PETS pela API ====
   const [myPets, setMyPets] = useState([]);
   const [petThumbs, setPetThumbs] = useState({}); // { [petId]: { avatarUrl, coverUrl } }
   const railRef = useRef(null);
   const [overflow, setOverflow] = useState(false);
 
-  const currentUserId = user?.id || user?.uid || user?.email || user?.username || null;
-
   useEffect(() => {
-    const refresh = () => {
-      const all = loadPets(); // se depois vier API, trocar essa linha
-      const mine = currentUserId
-        ? all.filter((p) => (p.ownerId || p.userId || p.createdBy) === currentUserId)
-        : [];
-      setMyPets(mine);
-    };
-    refresh();
-    window.addEventListener("patanet:pets-updated", refresh);
-    return () => window.removeEventListener("patanet:pets-updated", refresh);
-  }, [currentUserId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function resolveThumbs() {
-      const pairs = await Promise.all(
-        (myPets || []).map(async (p) => {
-          let coverUrl = p.cover || "";
-          if (!coverUrl && p.coverId) {
-            try { coverUrl = await mediaGetUrl(p.coverId); } catch { coverUrl = ""; }
-          }
-          let avatarUrl = p.avatar || "";
-          if (!avatarUrl && p.avatarId) {
-            try { avatarUrl = await mediaGetUrl(p.avatarId); } catch { avatarUrl = ""; }
-          }
-          if (!avatarUrl) avatarUrl = coverUrl;
-          return [p.id, { coverUrl, avatarUrl }];
-        })
-      );
-
-      if (!cancelled) {
-        const map = {};
-        for (const [id, urls] of pairs) map[id] = urls;
-        setPetThumbs(map);
+    let cancel = false;
+    async function loadPetsFromApi() {
+      if (!user?.id) {
+        setMyPets([]);
+        return;
+      }
+      try {
+        const resp = await fetchAnimalsByOwner({
+          userId: user.id,
+          page: 1,
+          perPage: 100,
+        });
+        const list = Array.isArray(resp?.data)
+          ? resp.data
+          : Array.isArray(resp)
+          ? resp
+          : [];
+        if (!cancel) setMyPets(list);
+      } catch {
+        if (!cancel) setMyPets([]);
       }
     }
+    loadPetsFromApi();
 
-    resolveThumbs();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myPets.length]);
+    const onExternalUpdate = () => loadPetsFromApi();
+    window.addEventListener("patanet:pets-updated", onExternalUpdate);
+    return () => {
+      cancel = true;
+      window.removeEventListener("patanet:pets-updated", onExternalUpdate);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const map = {};
+    for (const p of myPets) {
+      const avatarUrl =
+        p?.image?.url ||
+        p?.image ||
+        p?.imageAvatar ||
+        p?.avatar ||
+        p?.imageCover ||
+        "";
+      const coverUrl = p?.imageCover?.url || p?.imageCover || p?.cover || "";
+      map[p.id] = { avatarUrl, coverUrl };
+    }
+    setPetThumbs(map);
+  }, [myPets]);
 
   // ==== Layout e comportamento (inalterados visualmente) ====
   function applyContentSpacing(nextOpen, mdUp) {
@@ -129,17 +136,20 @@ export default function Sidebar() {
     }
   };
 
-  // estado inicial e reação ao breakpoint (sem persistir em localStorage)
-  useEffect(() => {
+  // estado inicial e reação ao breakpoint (desktop: aberto e permanece até o usuário clicar)
+  useLayoutEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
     const handle = () => {
       const md = mq.matches;
       setIsMdUp(md);
       if (md) {
-        setOpen(true); // desktop: aberto por padrão
-        applyContentSpacing(true, true);
+        // ← lê o estado persistido; default = aberto
+        const persisted = localStorage.getItem(LS_KEY_SIDEBAR_OPEN);
+        const nextOpen = persisted == null ? true : persisted === "1";
+        setOpen(nextOpen);
+        applyContentSpacing(nextOpen, true);
       } else {
-        setOpen(false); // mobile: fechado por padrão
+        setOpen(false);
         applyContentSpacing(false, false);
       }
     };
@@ -148,12 +158,15 @@ export default function Sidebar() {
     return () => mq.removeEventListener("change", handle);
   }, []);
 
-  // evento global para abrir/fechar via botão de hambúrguer (caso exista)
+  // evento global para abrir/fechar via botão externo (hambúrguer)
   useEffect(() => {
     const onToggle = () => {
       setOpen((v) => {
         const next = !v;
         applyContentSpacing(next, isMdUp);
+        if (isMdUp) {
+          localStorage.setItem(LS_KEY_SIDEBAR_OPEN, next ? "1" : "0");
+        }
         return next;
       });
     };
@@ -161,17 +174,20 @@ export default function Sidebar() {
     return () => window.removeEventListener("patanet:sidebar-toggle", onToggle);
   }, [isMdUp]);
 
-  // FECHA ao mudar de rota no mobile
+  // FECHA ao mudar de rota no mobile; no desktop permanece como está
   useEffect(() => {
-    if (!isMdUp) {
+    const md = window.matchMedia("(min-width: 768px)").matches;
+    if (!md) {
       setOpen(false);
       applyContentSpacing(false, false);
     }
-  }, [pathname, isMdUp]);
+  }, [pathname]);
 
   // Logout via API
   function logout() {
-    try { clearTokens(); } catch {}
+    try {
+      clearTokens();
+    } catch {}
     window.dispatchEvent(new CustomEvent("patanet:auth-updated"));
     navigate("/auth", { replace: true });
   }
@@ -242,7 +258,7 @@ export default function Sidebar() {
             }}
             className="md:hidden absolute right-3 rounded-full bg-white/10 p-2 text-white backdrop-blur-sm"
             style={{
-              top: "calc(env(safe-area-inset-top, 0px) + 14px)", // desce o botão
+              top: "calc(env(safe-area-inset-top, 0px) + 14px)",
             }}
             aria-label="Fechar menu"
             title="Fechar"
@@ -250,9 +266,17 @@ export default function Sidebar() {
             <X className="h-5 w-5" />
           </button>
 
-          {/* Logo / título */}
-          <div className="px-1 text-lg font-semibold text-white mt-8 md:mt-0">
-            PataNet
+          {/* Logo (desktop) / título (mobile) */}
+          <div className="px-1 mt-8 md:mt-0">
+            <img
+              src={Logo}
+              alt="PataNet"
+              className="hidden md:block mx-auto h-12 w-auto max-w-[200px]" // centralizada + maior
+              draggable={false}
+            />
+            <div className="md:hidden text-lg font-semibold text-white">
+              PataNet
+            </div>
           </div>
 
           {/* ===== Seus pets ===== */}
@@ -283,8 +307,9 @@ export default function Sidebar() {
                     {myPets.map((p) => {
                       const avatarUrl =
                         petThumbs[p.id]?.avatarUrl ||
-                        p.avatar ||
-                        p.cover ||
+                        p?.image?.url ||
+                        p?.image ||
+                        p?.imageCover ||
                         undefined;
 
                       return (
@@ -329,11 +354,6 @@ export default function Sidebar() {
           {/* Navegação secundária */}
           <nav className="flex flex-col gap-1">
             <NavItem to="/perfil" icon={User} label="Perfil" />
-            {/* <NavItem
-              to="/dashboard/configuracoes"
-              icon={Settings}
-              label="Configurações"
-            /> */}
           </nav>
 
           <div className="mt-auto" />
@@ -352,7 +372,10 @@ export default function Sidebar() {
                 <div className="text-xs opacity-80">Olá</div>
                 <div className="text-sm font-medium">
                   {user
-                    ? user.username || user.displayName || user.name || user.email
+                    ? user.username ||
+                      user.displayName ||
+                      user.name ||
+                      user.email
                     : "Visitante"}
                 </div>
               </div>
@@ -402,7 +425,7 @@ export default function Sidebar() {
               const next = !open;
               setOpen(next);
               applyContentSpacing(next, true);
-              // sem persistência em localStorage
+              localStorage.setItem(LS_KEY_SIDEBAR_OPEN, next ? "1" : "0");
             }}
             className="hidden md:flex absolute -right-3 top-10 h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[var(--sidebar-bg)] text-[var(--sidebar-fg)] shadow transition-opacity hover:opacity-100"
             title={open ? "Retrair menu" : "Expandir menu"}

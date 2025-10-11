@@ -17,17 +17,17 @@ import {
 } from "lucide-react";
 
 import { getMyProfile, getUserProfile } from "@/api/user.api.js";
-import { http } from "@/api/axios.js";
+import { fetchAnimalsByOwner } from "@/api/owner.api.js";
 import { fetchAnimalsById } from "@/api/animal.api.js";
 import {
   followUser,
   unfollowUser,
   summaryUserConnections,
-  userFolloweds, // <- para inferir iFollow quando necessário
+  userFolloweds,
 } from "@/api/connection.api.ts.js";
 
 /* --------------------------------- utils UI -------------------------------- */
-function Avatar({ src, alt, size = 96, className = "" }) {
+function Avatar({ src, alt, size = 96, className = "", onClick }) {
   if (!src) {
     return (
       <div
@@ -47,9 +47,24 @@ function Avatar({ src, alt, size = 96, className = "" }) {
       alt={alt}
       className={`rounded-full object-cover ring-4 ring-white shadow-lg dark:ring-zinc-900 ${className}`}
       style={{ width: size, height: size }}
+      onClick={onClick}
     />
   );
 }
+
+const genderPt = (g) => {
+  const v = String(g || "").toUpperCase();
+  if (v === "MALE") return "Macho";
+  if (v === "FEMALE") return "Fêmea";
+  return "—";
+};
+
+const speciePt = (s) => {
+  const v = String(s || "").toLowerCase();
+  if (["cachorro", "cão", "cao", "dog", "canino"].includes(v)) return "Cão";
+  if (["gato", "felino", "cat"].includes(v)) return "Gato";
+  return v ? v.charAt(0).toUpperCase() + v.slice(1) : "—";
+};
 
 const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "—");
 const fmtDate = (iso) =>
@@ -89,38 +104,6 @@ export default function UserProfile() {
   });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profileExtras);
-
-  // Coloque dentro do componente, antes dos effects
-  async function computeIFollow(viewedRealId, meId) {
-    if (!viewedRealId || !meId) return false;
-    try {
-      const resp = await userFolloweds({ id: meId, page: 1, perPage: 1000 });
-      // aceita vários formatos possíveis
-      const arr =
-        (resp && Array.isArray(resp.data) && resp.data) ||
-        (Array.isArray(resp) && resp) ||
-        (resp && Array.isArray(resp.users) && resp.users) ||
-        (resp && resp.results && Array.isArray(resp.results) && resp.results) ||
-        [];
-
-      return arr.some((u) => {
-        const candIds = [
-          u?.id,
-          u?._id,
-          u?.user?.id,
-          u?.user?._id,
-          u?.followed?.id,
-          u?.followed?._id,
-          u?.followedId,
-        ]
-          .filter(Boolean)
-          .map(String);
-        return candIds.includes(String(viewedRealId));
-      });
-    } catch {
-      return false;
-    }
-  }
 
   useEffect(() => setDraft(profileExtras), [profileExtras]);
 
@@ -164,7 +147,6 @@ export default function UserProfile() {
     (async () => {
       if (!viewedParam) return;
       try {
-        // se é meu próprio perfil, usa meu objeto; senão busca por id/slug
         const isOwnParam =
           !!currentId && String(viewedParam) === String(currentId);
         let u = isOwnParam ? me : await getUserProfile({ id: viewedParam });
@@ -196,18 +178,43 @@ export default function UserProfile() {
     setAvatarUrl(avatar || "");
   }, [viewedUser]);
 
-  // resumo de conexões (seguidores/seguidos + se eu sigo) — usa SEMPRE o ID REAL
-  const refetchConnections = useRef(null);
+  // seguir / desseguir — usa SEMPRE o ID REAL do perfil visualizado
+  async function computeIFollow(viewedId, meId) {
+    if (!viewedId || !meId) return false;
+    try {
+      const resp = await userFolloweds({ id: meId, page: 1, perPage: 1000 });
+      const arr =
+        (resp && Array.isArray(resp.data) && resp.data) ||
+        (Array.isArray(resp) && resp) ||
+        (resp && Array.isArray(resp.users) && resp.users) ||
+        (resp && resp.results && Array.isArray(resp.results) && resp.results) ||
+        [];
+      return arr.some((u) => {
+        const candIds = [
+          u?.id,
+          u?._id,
+          u?.user?.id,
+          u?.user?._id,
+          u?.followed?.id,
+          u?.followed?._id,
+          u?.followedId,
+        ]
+          .filter(Boolean)
+          .map(String);
+        return candIds.includes(String(viewedId));
+      });
+    } catch {
+      return false;
+    }
+  }
 
+  const refetchConnections = useRef(null);
   useEffect(() => {
     let cancel = false;
-
     refetchConnections.current = async () => {
       if (!viewedRealId) return;
       try {
         const summary = await summaryUserConnections({ id: viewedRealId });
-
-        // backend retorna com typos:
         const followers =
           summary?.follwers ??
           summary?.followers ??
@@ -223,10 +230,8 @@ export default function UserProfile() {
           summary?.data?.followeds ??
           0;
 
-        // tenta vir do backend; se não vier, inferimos perguntando meus "followeds"
         let amIFollowing =
           summary?.iFollow ?? summary?.amIFollowing ?? summary?.data?.iFollow;
-
         if (
           amIFollowing === undefined &&
           me?.id &&
@@ -248,38 +253,60 @@ export default function UserProfile() {
         }
       }
     };
-
     refetchConnections.current();
     return () => {
       cancel = true;
     };
   }, [viewedRealId, me?.id]);
 
-  // carregar pets do usuário visualizado
+  // carregar pets do usuário visualizado (API correta de owner)
   useEffect(() => {
     let cancel = false;
     (async () => {
       if (!viewedRealId) return;
       try {
-        const { data } = await http.get(`/animals/user/${viewedRealId}`);
-        if (cancel) return;
-        const list = Array.isArray(data?.data)
-          ? data.data
-          : Array.isArray(data)
-          ? data
+        const resp = await fetchAnimalsByOwner({
+          userId: viewedRealId,
+          page: 1,
+          perPage: 100,
+        });
+        const list = Array.isArray(resp?.data)
+          ? resp.data
+          : Array.isArray(resp)
+          ? resp
           : [];
-        setPets(
-          list.map((p) => ({
-            id: p.id || p._id,
-            name: p.name || "Sem nome",
-            species: p.species || "",
-            breed: p.breed || "",
-            gender: p.gender || "",
-            birthday: p.birthday || p.birthDate || p.birthdate || "",
-            weight: p.weight || 0,
-            image: p.image?.url || p.image || "",
-            imageCover: p.imageCover?.url || p.imageCover || "",
-          }))
+
+        console.log(list);
+        if (cancel) return;
+        +setPets(
+          list.map((p) => {
+            // NOVA ESTRUTURA vinda do server (exemplo do seu JSON)
+            // p.breed = { id, name, image, specie: { id, name } }
+            const breedName = p?.breed?.name || "—";
+            const breedImage = p?.breed?.image || "";
+            const specieName =
+              p?.breed?.specie?.name ||
+              p?.specie?.name ||
+              p?.species ||
+              p?.specie ||
+              "";
+
+            return {
+              id: p.id || p._id,
+              name: p.name || "Sem nome",
+              speciesLabel: speciePt(specieName), // "Cão" | "Gato" | …
+              breedName, // "SRD (Vira-lata)" etc.
+              genderLabel: genderPt(p?.gender), // "Macho" | "Fêmea"
+              birthday: p.birthday || p.birthDate || p.birthdate || "",
+              weight: p.weight || 0,
+              // avatar: prioriza avatar do pet; se não tiver, cai para imagem da raça
+              image: p.image?.url || p.image || breedImage || "",
+              imageCover: p.imageCover?.url || p.imageCover || "",
+              mediasCount: Number(p.mediasCount || p.mediaCount || 0),
+              // guardo breedImage para o fallback do thumb também
+              _breedImage: breedImage || "",
+            };
+          })
         );
       } catch {
         if (!cancel) setPets([]);
@@ -317,17 +344,15 @@ export default function UserProfile() {
 
   const metrics = useMemo(() => {
     const totalPets = pets.length;
-    const totalMedia = 0; // manter como 0 até termos endpoint de contagem
+    const totalMedia = pets.reduce(
+      (acc, p) => acc + (Number(p.mediasCount) || 0),
+      0
+    );
     return { totalPets, totalMedia };
   }, [pets]);
 
   const openLightbox = (slides, index = 0) =>
     setLb({ open: true, slides, index });
-
-  const fileRef = useRef(null);
-  const onPickCover = async (e) => {
-    e.target.value = "";
-  };
 
   const displayName =
     viewedUser?.name ||
@@ -338,8 +363,7 @@ export default function UserProfile() {
     ? `@${viewedUser.username}`
     : viewedUser?.email || "";
 
-  // seguir / desseguir — usa SEMPRE o ID REAL do perfil visualizado
-  // substitua a função inteira
+  // seguir / desseguir
   async function handleToggleFollow() {
     if (!me || isOwn || !viewedRealId) return;
     if (isTogglingFollowRef.current) return;
@@ -357,15 +381,15 @@ export default function UserProfile() {
       } else {
         await followUser({ id: viewedRealId });
       }
-      await refetchConnections.current?.(); // sincroniza com o backend
+      await refetchConnections.current?.();
     } catch {
-      // rollback
       setIFollow(prevIFollow);
       setFollowersCount((c) => Math.max(0, c + (prevIFollow ? 1 : -1)));
     } finally {
       isTogglingFollowRef.current = false;
     }
   }
+
   if (loadingMe && !viewedRealId) {
     return (
       <div className="min-h-dvh w-full grid place-items-center">
@@ -413,11 +437,25 @@ export default function UserProfile() {
             <div className="h-full w-full" />
           )}
 
-          {/* edição de capa desabilitada visualmente por enquanto */}
-          {/* <button .../> */}
-
           <div className="absolute left-6 -bottom-12 z-10">
-            <Avatar src={avatarUrl} alt={displayName} size={104} />
+            <Avatar
+              src={avatarUrl}
+              alt={displayName}
+              size={104}
+              onClick={() =>
+                avatarUrl &&
+                openLightbox(
+                  [
+                    {
+                      id: "avatar",
+                      url: avatarUrl,
+                      title: viewedUser.username || viewedUser.name,
+                    },
+                  ],
+                  0
+                )
+              }
+            />
           </div>
         </div>
 
@@ -522,8 +560,8 @@ export default function UserProfile() {
         ) : (
           <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {pets.map((p) => {
-              const cover = petThumbs[p.id]?.coverUrl || "";
-              const avatar = petThumbs[p.id]?.avatarUrl || "";
+              const cover = petThumbs[p.id]?.coverUrl || p.breedImage;
+              const avatar = petThumbs[p.id]?.avatarUrl || p.breedImage;
 
               return (
                 <li
@@ -593,8 +631,7 @@ export default function UserProfile() {
                           </h3>
                         </Link>
                         <p className="truncate text-xs opacity-70">
-                          {title(p.species)} • {title(p.breed)} •{" "}
-                          {title(p.gender)}
+                          {p.speciesLabel} • {p.breedName} • {p.genderLabel}
                         </p>
                       </div>
                     </div>

@@ -1,0 +1,15 @@
+{
+  "appId": "br.app.patanet",
+  "appName": "PataNet",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "plugins" : {
+    "SplashScreen": {
+       "launchAutoHide": false,       
+      "showSpinner": false,           
+      "backgroundColor": "#0B0F14",   
+      "androidScaleType": "CENTER_CROP",
+      "launchShowDuration": 3000
+    }
+  }
+}

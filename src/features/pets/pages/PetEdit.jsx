@@ -1,15 +1,55 @@
 // src/features/pets/pages/PetEdit.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import {
-  getPetById,
-  updatePet,
-  getBreedsBySpecies,
-  getBreedById,
-  mediaSaveBlob,
-  mediaGetUrl,
-} from "@/features/pets/services/petsStorage";
-import { useAuth } from "@/store/auth.jsx";
+
+// APIs
+import { fetchAnimalsById, updateAnimal } from "@/api/animal.api.js";
+import { fetchSpecies } from "@/api/specie.api.js";
+import { fetchBreeds } from "@/api/breed.api.js";
+
+/* ------------------------------ helpers base ----------------------------- */
+const norm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const isoToYMD = (s) => {
+  if (!s) return "";
+  const str = String(s).trim();
+  const datePart = str.includes("T") ? str.split("T")[0] : str;
+  const [y, m, d] = datePart.split("-");
+  if (!y || !m || !d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+};
+
+// enums API ⇄ UI
+const genderIn = (g) => (String(g).toUpperCase() === "MALE" ? "macho" : "fêmea");
+const genderOut = (g) => (g === "macho" ? "MALE" : "FEMALE");
+
+const sizeIn = (s) => {
+  const v = String(s).toUpperCase();
+  if (v === "SMALL") return "pequeno";
+  if (v === "LARGE") return "grande";
+  return "médio";
+};
+const sizeOut = (s) => {
+  if (s === "pequeno") return "SMALL";
+  if (s === "grande") return "LARGE";
+  return "MEDIUM";
+};
+
+const sizeHuman = (enumVal) => {
+  const v = String(enumVal || "").toUpperCase();
+  if (v === "SMALL") return "Pequeno";
+  if (v === "LARGE") return "Grande";
+  if (v === "MEDIUM") return "Médio";
+  // tentativa com labels alternativos
+  if (v === "PEQUENO") return "Pequeno";
+  if (v === "GRANDE") return "Grande";
+  if (v === "MÉDIO" || v === "MEDIO") return "Médio";
+  return "—";
+};
 
 /* --------------------------------- estilo -------------------------------- */
 const Styles = () => (
@@ -89,9 +129,7 @@ const BreedTile = ({ breed, active, onClick }) => {
       )}
       <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
       <div className="absolute left-0 right-0 bottom-0 px-3 pb-2 flex items-end justify-between">
-        <span className="text-white/95 font-semibold drop-shadow-sm">
-          {breed?.name}
-        </span>
+        <span className="text-white/95 font-semibold drop-shadow-sm">{breed?.name}</span>
         {active && (
           <span className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-[11px] text-white shadow">
             selecionado
@@ -102,187 +140,361 @@ const BreedTile = ({ breed, active, onClick }) => {
   );
 };
 
+/* ----------------------------- helpers img ------------------------------ */
+const readAsDataURL = (file) =>
+  new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+
+async function compressImage(file, maxSide = 1200, quality = 0.7) {
+  if (!(file instanceof File)) return null;
+  const dataUrl = await readAsDataURL(file);
+  const img = new Image();
+  await new Promise((r, e) => {
+    img.onload = r;
+    img.onerror = e;
+    img.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+
+  let blob = await new Promise((res) =>
+    canvas.toBlob((b) => res(b), "image/webp", quality)
+  );
+  if (!blob) {
+    blob = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), "image/jpeg", quality)
+    );
+  }
+  if (blob && blob.size > 700 * 1024) {
+    const canvas2 = document.createElement("canvas");
+    const factor = 0.9;
+    canvas2.width = Math.round(w * factor);
+    canvas2.height = Math.round(h * factor);
+    const ctx2 = canvas2.getContext("2d");
+    ctx2.drawImage(canvas, 0, 0, canvas2.width, canvas2.height);
+    blob = await new Promise((res) =>
+      canvas2.toBlob((b) => res(b), "image/webp", Math.max(0.5, quality - 0.1))
+    );
+  }
+  return blob;
+}
+
 /* --------------------------------- Página --------------------------------- */
 export default function PetEdit() {
-  const { id } = useParams();
+  const { id: animalId } = useParams();
   const navigate = useNavigate();
-  const auth = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [pet, setPet] = useState(null);
 
   // campos editáveis
   const [species, setSpecies] = useState("cão"); // UI label
-  const [sex, setSex] = useState("fêmea");
-  const [size, setSize] = useState("médio");
+  const [sex, setSex] = useState("fêmea");       // UI ("macho" | "fêmea")
+  const [size, setSize] = useState("médio");     // UI ("pequeno" | "médio" | "grande")
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [weightUnit, setWeightUnit] = useState("kg");
   const [weight, setWeight] = useState(0);
   const [birth, setBirth] = useState("");
   const [adoption, setAdoption] = useState("");
-  const [breed, setBreed] = useState(null);
 
-  // avatar/capa
+  // species/breeds
+  const [speciesList, setSpeciesList] = useState([]);
+  const [currentSpecieId, setCurrentSpecieId] = useState(null);
+  const [breeds, setBreeds] = useState([]);
+  const [query, setQuery] = useState("");
+  const [breed, setBreed] = useState(null);
+  const [breedInfo, setBreedInfo] = useState(null);
+
+  // Avatar e Capa
   const avatarInputRef = useRef(null);
   const coverInputRef = useRef(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [coverPreview, setCoverPreview] = useState("");
-  const [avatarId, setAvatarId] = useState("");
-  const [coverId, setCoverId] = useState("");
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
   const [avatarChanged, setAvatarChanged] = useState(false);
   const [coverChanged, setCoverChanged] = useState(false);
 
-  // raça listagem
-  const storageSpecies = species === "gato" ? "Gato" : "Cachorro";
-  const [query, setQuery] = useState("");
-  const breeds = useMemo(
-    () =>
-      (getBreedsBySpecies(storageSpecies) || []).filter((b) =>
-        b.name.toLowerCase().includes(query.toLowerCase())
-      ),
-    [storageSpecies, query]
-  );
-
-  // carregar dados
+  /* ---------------------------- carregar pet ---------------------------- */
   useEffect(() => {
-    async function load() {
-      const data = getPetById(id);
-      if (!data) {
-        navigate("/pets");
+    let cancel = false;
+    (async () => {
+      try {
+        const full = await fetchAnimalsById({ animalId });
+        const a = full?.data || full || {};
+        if (cancel) return;
+
+        // espécie a partir da breed/specie (fallback: campo solto)
+        const specieName =
+          a?.breed?.specie?.name || a?.breed?.specie?.title || a.species || a.specie || "";
+        const uiSpecies = ["gato", "felino", "cat"].includes(String(specieName).toLowerCase())
+          ? "gato"
+          : "cão";
+
+        setPet(a);
+        setSpecies(uiSpecies);
+        setSex(genderIn(a.gender));    // <- marca pílulas
+        setSize(sizeIn(a.size));        // <- marca pílulas
+        setName(a.name || "");
+        setDesc(a.about || a.description || "");
+        setWeight(Number(a.weight || 0));
+        setBirth(isoToYMD(a.birthDate || a.birthday || a.birthdate || ""));
+        setAdoption(isoToYMD(a.adoptionDate || a.adoption || ""));
+
+        const avatar = a?.image?.url || a.image || "";
+        const cover = a?.imageCover?.url || a.imageCover || "";
+        setAvatarPreview(avatar);
+        setCoverPreview(cover);
+
+        // guarda seleção mínima de raça (será enriquecida quando a lista chegar)
+        setBreed(
+          a?.breed
+            ? { id: a.breed.id || a.breedId, name: a.breed.name }
+            : a?.breedId
+            ? { id: a.breedId, name: "" }
+            : null
+        );
+
+        // informações de “sobre a raça” (fallback caso não ache na lista)
+        setBreedInfo({
+          description: a?.breed?.about || a?.breed?.description || "—",
+          appearance: a?.breed?.appearance || "—",
+          temperament: a?.breed?.temperament || "—",
+          trainability: a?.breed?.trainability || "—",
+          exercise: a?.breed?.exercise || "—",
+          coat: a?.breed?.coat || "—",
+        });
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  /* ---------------------------- carregar species ---------------------------- */
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const resp = await fetchSpecies({ page: 1, perPage: 100 });
+        const list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) setSpeciesList(list);
+      } catch {
+        if (!cancel) setSpeciesList([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // map UI "cão/gato" -> specieId
+  useEffect(() => {
+    const wanted =
+      species === "gato"
+        ? ["gato", "felino", "cat"]
+        : ["cachorro", "cão", "cao", "dog", "canino"];
+    const found =
+      speciesList.find((s) =>
+        wanted.includes(String(s.name || s.title || "").toLowerCase())
+      ) || null;
+    setCurrentSpecieId(found?.id || null);
+    // ao trocar espécie, reseta busca (não reseta a raça já selecionada)
+    setQuery("");
+  }, [species, speciesList]);
+
+  // buscar breeds por espécie (superset) e enriquecer a raça selecionada
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!currentSpecieId) {
+        setBreeds([]);
         return;
       }
-      setPet(data);
+      try {
+        const resp = await fetchBreeds({
+          specieId: currentSpecieId,
+          page: 1,
+          perPage: 100,
+        });
+        let list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
 
-      // UI base
-      setSpecies((data.species || "Cachorro").toLowerCase() === "gato" ? "gato" : "cão");
-      setSex(data.gender || "fêmea");
-      setSize(data.size || "médio");
-      setName(data.name || "");
-      setDesc(data.description || "");
-      setWeight(Number(data.weight || 0));
-      setBirth(data.birthday || "");
-      setAdoption(data.adoption || "");
-      setBreed(data.breed ? { id: data.breed, name: data.breed, image: data.cover || "" } : null);
+        // unicidade por id
+        const map = new Map();
+        for (const b of list) {
+          const id = String(b.id || "");
+          if (!map.has(id)) map.set(id, b);
+        }
+        list = Array.from(map.values());
 
-      // previews avatar/capa
-      if (data.avatarId) {
-        const url = await mediaGetUrl(data.avatarId);
-        setAvatarPreview(url);
-        setAvatarId(data.avatarId);
-      } else if (data.avatar) {
-        setAvatarPreview(data.avatar);
+        if (cancel) return;
+        setBreeds(list);
+
+        // ENRIQUECE raça previamente salva (mostra highlight e sugestões)
+        if (breed?.id) {
+          const fullB = list.find((x) => String(x.id) === String(breed.id)) || null;
+          if (fullB) {
+            setBreed({
+              id: fullB.id,
+              name: fullB.name,
+              suggestedSize: fullB.suggestedSize || fullB.size,       // enum
+              weightTip: fullB.weightTip || fullB.weight || fullB.typicalWeight,
+              heightTip: fullB.heightTip || fullB.height || fullB.typicalHeight,
+              lifespan: fullB.lifespan || fullB.lifeExpectancy,
+              image: fullB.image,
+            });
+            setBreedInfo({
+              description: fullB.about || fullB.description || breedInfo?.description || "—",
+              appearance: fullB.appearance || breedInfo?.appearance || "—",
+              temperament: fullB.temperament || breedInfo?.temperament || "—",
+              trainability: fullB.trainability || breedInfo?.trainability || "—",
+              exercise: fullB.exercise || breedInfo?.exercise || "—",
+              coat: fullB.coat || breedInfo?.coat || "—",
+            });
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancel) setBreeds([]);
       }
-
-      if (data.coverId) {
-        const url = await mediaGetUrl(data.coverId);
-        setCoverPreview(url);
-        setCoverId(data.coverId);
-      } else if (data.cover) {
-        setCoverPreview(data.cover);
-      }
-
-      setLoading(false);
-    }
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  const breedInfo = useMemo(() => {
-    if (!breed) return null;
-    const b = getBreedById(breed.id);
-    if (!b) return null;
-    return {
-      suggestedSize: b.suggestedSize || "",
-      weightRange: b.weightTip || "",
-      heightRange: b.heightTip || "",
-      life: b.lifespan || "",
-      description: b.description || "",
-      appearance: b.appearance || "",
-      temperament: b.temperament || "",
-      trainability: b.trainability || "",
-      exercise: b.exercise || "",
-      coat: b.grooming || "",
-      health: b.healthNotes || "",
+    })();
+    return () => {
+      cancel = true;
     };
-  }, [breed]);
+  }, [currentSpecieId]); // somente por espécie
 
-  // uploads
+  // lista filtrada visualmente (espécie + busca por nome)
+  const filteredBreeds = useMemo(() => {
+    const q = norm(query);
+    return breeds.filter((b) => {
+      const sid = String(
+        b.specieId || b.speciesId || b.specie?.id || b.species?.id || ""
+      );
+      const sameSpecie = currentSpecieId ? String(currentSpecieId) === sid : true;
+      if (!sameSpecie) return false;
+      const name = norm(b.name);
+      return !q || name.includes(q);
+    });
+  }, [breeds, currentSpecieId, query]);
+
+  /* ------------------------ avatar / cover handlers ------------------------ */
   const onPickAvatar = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !file.type.startsWith("image/")) return;
     try {
-      setAvatarPreview(URL.createObjectURL(file));
-      const id = await mediaSaveBlob(file);
-      setAvatarId(id);
+      const blob = await compressImage(file);
+      const finalFile = new File([blob], file.name.replace(/\.[^.]+$/, "") + ".webp", {
+        type: blob.type || "image/webp",
+      });
+      setAvatarFile(finalFile);
+      setAvatarPreview(URL.createObjectURL(finalFile));
       setAvatarChanged(true);
     } catch (err) {
-      console.error("Falha ao salvar avatar no IndexedDB", err);
+      console.error(err);
       alert("Não foi possível processar a imagem de perfil. Tente novamente.");
-    } finally {
-      e.target.value = "";
     }
   };
 
   const onPickCover = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !file.type.startsWith("image/")) return;
     try {
-      setCoverPreview(URL.createObjectURL(file));
-      const id = await mediaSaveBlob(file);
-      setCoverId(id);
+      const blob = await compressImage(file);
+      const finalFile = new File([blob], file.name.replace(/\.[^.]+$/, "") + ".webp", {
+        type: blob.type || "image/webp",
+      });
+      setCoverFile(finalFile);
+      setCoverPreview(URL.createObjectURL(finalFile));
       setCoverChanged(true);
     } catch (err) {
-      console.error("Falha ao salvar capa no IndexedDB", err);
+      console.error(err);
       alert("Não foi possível processar a imagem de capa. Tente novamente.");
-    } finally {
-      e.target.value = "";
     }
   };
 
+  /* --------------------------- pesos / conversão --------------------------- */
   const sliderValue = useMemo(() => {
     if (weightUnit === "kg") return weight;
     return Math.round(weight * 2.20462 * 10) / 10;
   }, [weight, weightUnit]);
 
+  const sliderValueKg =
+    weightUnit === "kg" ? weight : Math.round((weight / 2.20462) * 10) / 10;
+
+  /* -------------------------------- submit --------------------------------- */
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!pet) return;
-
-    const patch = {
-      name: (name || "").trim() || pet.name,
-      species: species === "gato" ? "Gato" : "Cachorro",
-      breed: breed?.name || "",
-      gender: sex,
-      size,
-      weight: Number(weightUnit === "kg" ? weight : Math.round((weight / 2.20462) * 10) / 10),
-      birthday: birth || "",
-      adoption: adoption || "",
-      description: desc || "",
-    };
-
-    // avatar/capa: só envia se trocou
-    if (avatarChanged) {
-      patch.avatarId = avatarId || "";
-      patch.avatar = ""; // evita dataURLs
-    }
-    if (coverChanged) {
-      patch.coverId = coverId || "";
-      patch.cover = coverId ? "" : (breed?.image || "");
-    }
+    if (!pet?.id) return;
 
     try {
-      await updatePet(pet.id, patch);
+      const payload = {
+        name: (name || "").trim() || pet.name,
+        about: String(desc || ""),
+        birthDate: birth || "",
+        adoptionDate: adoption || "",
+        weight: Number(sliderValueKg) || 0,
+        size: sizeOut(size),       // enum API
+        gender: genderOut(sex),    // enum API
+        breedId: breed?.id || "",
+      };
+
+      if (avatarChanged && avatarFile) payload.image = avatarFile;
+      if (coverChanged && coverFile) payload.imageCover = coverFile;
+
+      await updateAnimal({ animalId: pet.id, ...payload });
+
+      window.dispatchEvent(new CustomEvent("patanet:pets-updated"));
       navigate(`/pets/${pet.id}`);
     } catch (err) {
-      alert("Não foi possível salvar as alterações do pet.");
       console.error(err);
+      alert("Não foi possível salvar as alterações. Tente novamente.");
     }
   };
 
   if (loading) {
     return (
-      <div className="px-4 py-10 text-center opacity-70">Carregando…</div>
+      <div className="mx-auto max-w-[1200px] px-4 py-8">
+        <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+          Carregando informações do pet…
+        </div>
+      </div>
+    );
+  }
+
+  if (!pet) {
+    return (
+      <div className="mx-auto max-w-[1200px] px-4 py-8">
+        <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+          Pet não encontrado.
+        </div>
+      </div>
     );
   }
 
@@ -293,9 +505,7 @@ export default function PetEdit() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Editar Pet</h1>
-          <p className="text-sm opacity-70">
-            Atualize as informações do seu companheiro.
-          </p>
+          <p className="text-sm opacity-70">Atualize as informações do seu companheiro.</p>
         </div>
       </header>
 
@@ -307,11 +517,7 @@ export default function PetEdit() {
             {/* Avatar */}
             <div className="relative w-24 h-24 rounded-full overflow-hidden ring-2 ring-white/10 shadow-md">
               {avatarPreview ? (
-                <img
-                  src={avatarPreview}
-                  alt="avatar"
-                  className="w-full h-full object-cover"
-                />
+                <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
                   sem avatar
@@ -337,11 +543,7 @@ export default function PetEdit() {
             {/* Capa */}
             <div className="relative w-44 h-28 rounded-xl overflow-hidden ring-2 ring-white/10 shadow-md">
               {coverPreview ? (
-                <img
-                  src={coverPreview}
-                  alt="capa"
-                  className="w-full h-full object-cover"
-                />
+                <img src={coverPreview} alt="capa" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
                   sem capa
@@ -421,57 +623,59 @@ export default function PetEdit() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {breeds.map((b) => (
+            {filteredBreeds.map((b) => (
               <BreedTile
                 key={b.id}
                 breed={b}
-                active={breed?.id === b.id || breed?.name === b.name}
-                onClick={() => setBreed(b)}
+                active={breed?.id === b.id}
+                onClick={() => {
+                  setBreed({
+                    id: b.id,
+                    name: b.name,
+                    suggestedSize: b.suggestedSize || b.size,
+                    weightTip: b.weightTip || b.weight || b.typicalWeight,
+                    heightTip: b.heightTip || b.height || b.typicalHeight,
+                    lifespan: b.lifespan || b.lifeExpectancy,
+                    image: b.image,
+                  });
+                  setBreedInfo((prev) => ({
+                    ...prev,
+                    description: b.about || b.description || prev?.description || "—",
+                    appearance: b.appearance || prev?.appearance || "—",
+                    temperament: b.temperament || prev?.temperament || "—",
+                    trainability: b.trainability || prev?.trainability || "—",
+                    exercise: b.exercise || prev?.exercise || "—",
+                    coat: b.coat || prev?.coat || "—",
+                  }));
+                }}
               />
             ))}
           </div>
         </Card>
 
         <Card className="p-4 sm:p-6">
-          <h3 className="font-semibold mb-3">Sobre a raça</h3>
-          {breedInfo ? (
-            <div className="space-y-3 text-sm leading-relaxed">
-              <p className="opacity-80">{breedInfo.description}</p>
-
-              <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
-                <h4 className="font-medium mb-2">Aparência</h4>
-                <p className="opacity-80">{breedInfo.appearance}</p>
+          <h3 className="font-semibold mb-3">Sugestões da raça</h3>
+          {breed ? (
+            <dl className="grid grid-cols-1 gap-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Porte sugerido</dt>
+                <dd className="font-medium">{sizeHuman(breed?.suggestedSize)}</dd>
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
-                  <h4 className="font-medium mb-1">Temperamento</h4>
-                  <p className="opacity-80">{breedInfo.temperament}</p>
-                </div>
-                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
-                  <h4 className="font-medium mb-1">Treinabilidade</h4>
-                  <p className="opacity-80">{breedInfo.trainability}</p>
-                </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Peso típico</dt>
+                <dd className="font-medium">{breed?.weightTip || "—"}</dd>
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
-                  <h4 className="font-medium mb-1">Exercício</h4>
-                  <p className="opacity-80">{breedInfo.exercise}</p>
-                </div>
-                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
-                  <h4 className="font-medium mb-1">Pelagem</h4>
-                  <p className="opacity-80">{breedInfo.coat}</p>
-                </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Altura típica</dt>
+                <dd className="font-medium">{breed?.heightTip || "—"}</dd>
               </div>
-
-              <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
-                <h4 className="font-medium mb-1">Saúde</h4>
-                <p className="opacity-80">{breedInfo.health}</p>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Expectativa de vida</dt>
+                <dd className="font-medium">{breed?.lifespan || "—"}</dd>
               </div>
-            </div>
+            </dl>
           ) : (
-            <p className="opacity-60 text-sm">Selecione uma raça para ver detalhes.</p>
+            <p className="opacity-60 text-sm">Selecione uma raça.</p>
           )}
         </Card>
       </div>
@@ -516,9 +720,7 @@ export default function PetEdit() {
                 {weightUnit === "kg"
                   ? weight
                   : Math.round(weight * 2.20462 * 10) / 10}
-                <span className="text-lg font-normal opacity-70 ml-1">
-                  {weightUnit}
-                </span>
+                <span className="text-lg font-normal opacity-70 ml-1">{weightUnit}</span>
               </div>
 
               <input
@@ -540,9 +742,7 @@ export default function PetEdit() {
           {/* Datas */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-medium opacity-70">
-                Data de nascimento
-              </label>
+              <label className="text-xs font-medium opacity-70">Data de nascimento</label>
               <input
                 type="date"
                 value={birth}
@@ -551,9 +751,7 @@ export default function PetEdit() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium opacity-70">
-                Data de adoção
-              </label>
+              <label className="text-xs font-medium opacity-70">Data de adoção</label>
               <input
                 type="date"
                 value={adoption}
@@ -564,26 +762,26 @@ export default function PetEdit() {
           </div>
         </Card>
 
-        {/* Sugestões */}
+        {/* Sugestões (lado) */}
         <Card className="p-4 sm:p-6">
           <h3 className="font-semibold mb-3">Sugestões da raça</h3>
-          {breedInfo ? (
+          {breed ? (
             <dl className="grid grid-cols-1 gap-2 text-sm">
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Porte sugerido</dt>
-                <dd className="font-medium">{breedInfo.suggestedSize}</dd>
+                <dd className="font-medium">{sizeHuman(breed?.suggestedSize)}</dd>
               </div>
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Peso típico</dt>
-                <dd className="font-medium">{breedInfo.weightRange}</dd>
+                <dd className="font-medium">{breed?.weightTip || "—"}</dd>
               </div>
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Altura típica</dt>
-                <dd className="font-medium">{breedInfo.heightRange}</dd>
+                <dd className="font-medium">{breed?.heightTip || "—"}</dd>
               </div>
               <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
                 <dt className="opacity-70">Expectativa de vida</dt>
-                <dd className="font-medium">{breedInfo.life}</dd>
+                <dd className="font-medium">{breed?.lifespan || "—"}</dd>
               </div>
             </dl>
           ) : (
@@ -607,7 +805,7 @@ export default function PetEdit() {
       <div className="flex items-center justify-end gap-3">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(`/pets`)}
           className="h-10 px-4 rounded-lg ring-1 ring-black/10 dark:ring-white/10 hover:bg-black/5 dark:hover:bg-white/5"
         >
           Cancelar
