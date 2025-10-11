@@ -26,6 +26,38 @@ async function fileToDataURL(file) {
   });
 }
 
+/** Compressão simples em client-side (mantém proporção) */
+async function compressImage(file, { maxW = 1600, maxH = 1600, quality = 0.85 } = {}) {
+  try {
+    if (!(file instanceof File)) return file;
+    // cria bitmap
+    const bitmap = await createImageBitmap(file);
+    let { width, height } = bitmap;
+    const ratio = Math.min(maxW / width, maxH / height, 1); // nunca aumenta
+    const w = Math.round(width * ratio);
+    const h = Math.round(height * ratio);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", quality)
+    );
+    if (!blob) return file;
+
+    const name =
+      (file.name || "image").replace(/\.(png|webp|gif|heic|heif)$/i, "") + ".jpg";
+
+    return new File([blob], name, { type: "image/jpeg" });
+  } catch {
+    // fallback seguro
+    return file;
+  }
+}
+
 function Field({ label, children }) {
   return (
     <div>
@@ -139,16 +171,22 @@ export default function UserEdit() {
     const file = (e.target.files && e.target.files[0]) || null;
     e.target.value = "";
     if (!file) return;
-    setAvatarFile(file);
-    setAvatarPreview(await fileToDataURL(file));
+
+    // Avatar: menor, alta qualidade
+    const compressed = await compressImage(file, { maxW: 800, maxH: 800, quality: 0.9 });
+    setAvatarFile(compressed);
+    setAvatarPreview(await fileToDataURL(compressed));
   }
 
   async function onPickCover(e) {
     const file = (e.target.files && e.target.files[0]) || null;
     e.target.value = "";
     if (!file) return;
-    setCoverFile(file);
-    setCoverPreview(await fileToDataURL(file));
+
+    // Capa: largura grande, mantém proporção
+    const compressed = await compressImage(file, { maxW: 1920, maxH: 1080, quality: 0.85 });
+    setCoverFile(compressed);
+    setCoverPreview(await fileToDataURL(compressed));
   }
 
   function onRemoveAvatar() {
@@ -178,8 +216,8 @@ export default function UserEdit() {
         username: String(username || ""),
         email: String(email || ""),
       };
-      if (avatarFile) payload.image = avatarFile;
-      if (coverFile) payload.imageCover = coverFile;
+      if (avatarFile) payload.image = avatarFile;         // já comprimido
+      if (coverFile) payload.imageCover = coverFile;      // já comprimido
 
       await updateUser(payload);
 

@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchSpecies } from "@/api/specie.api.js";
 import { fetchBreeds } from "@/api/breed.api.js";
 import { createAnimal } from "@/api/animal.api.js";
+import { useToast } from "@/components/ui/ToastProvider"; // ← toast para validações
 
 /* --------------------------------- estilo -------------------------------- */
 const Styles = () => (
@@ -108,7 +109,6 @@ const readAsDataURL = (file) =>
   });
 
 async function compressImage(file, maxSide = 1200, quality = 0.7) {
-  // igual ao que usamos no registro/feed pra evitar CORS de imagem grande
   const dataUrl = await readAsDataURL(file);
   const img = new Image();
   await new Promise((r, e) => {
@@ -135,7 +135,6 @@ async function compressImage(file, maxSide = 1200, quality = 0.7) {
       canvas.toBlob((b) => res(b), "image/jpeg", quality)
     );
   }
-  // segurança extra
   if (blob && blob.size > 700 * 1024) {
     const canvas2 = document.createElement("canvas");
     const factor = 0.9;
@@ -159,6 +158,7 @@ const norm = (s) =>
 /* --------------------------------- Página --------------------------------- */
 export default function PetCreate() {
   const navigate = useNavigate();
+  const toast = useToast(); // ← toast
 
   // básicos
   const [species, setSpecies] = useState("cão"); // cão | gato
@@ -193,13 +193,11 @@ export default function PetCreate() {
     (async () => {
       try {
         const resp = await fetchSpecies({ page: 1, perPage: 100 });
-        // aceita vários formatos possíveis
         const list =
           (resp && Array.isArray(resp.data) && resp.data) ||
           (Array.isArray(resp) && resp) ||
           (resp && Array.isArray(resp.items) && resp.items) ||
           [];
-
         if (!cancel) setSpeciesList(list);
       } catch {
         if (!cancel) setSpeciesList([]);
@@ -210,7 +208,7 @@ export default function PetCreate() {
     };
   }, []);
 
-  // quando muda "cão/gato", decidimos o specieId correspondente (para filtrar raças)
+  // quando muda "cão/gato"
   useEffect(() => {
     const wanted =
       species === "gato"
@@ -225,8 +223,7 @@ export default function PetCreate() {
     setQuery("");
   }, [species, speciesList]);
 
-  // buscar breeds conforme specieId e query
-  // Carrega raças da espécie selecionada (uma vez) e filtra visualmente pelo nome
+  // buscar breeds da espécie
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -235,7 +232,6 @@ export default function PetCreate() {
         return;
       }
       try {
-        // pega um “superset” da API para a espécie (sem depender do query do backend)
         const resp = await fetchBreeds({
           specieId: currentSpecieId,
           page: 1,
@@ -246,15 +242,12 @@ export default function PetCreate() {
           (Array.isArray(resp) && resp) ||
           (resp && Array.isArray(resp.items) && resp.items) ||
           [];
-
-        // garante unicidade por id (caso a API repita)
         const map = new Map();
         for (const b of list) {
           const id = String(b.id || "");
           if (!map.has(id)) map.set(id, b);
         }
         list = Array.from(map.values());
-
         if (!cancel) setBreeds(list);
       } catch {
         if (!cancel) setBreeds([]);
@@ -268,7 +261,6 @@ export default function PetCreate() {
   const filteredBreeds = useMemo(() => {
     const q = norm(query);
     return breeds.filter((b) => {
-      // confere espécie do item
       const sid = String(
         b.specieId || b.speciesId || b.specie?.id || b.species?.id || ""
       );
@@ -276,8 +268,6 @@ export default function PetCreate() {
         ? String(currentSpecieId) === sid
         : true;
       if (!sameSpecie) return false;
-
-      // confere nome (ignora acentos/maiúsculas)
       const name = norm(b.name);
       return !q || name.includes(q);
     });
@@ -352,20 +342,44 @@ export default function PetCreate() {
   };
   const toApiDate = (d) => (d ? `${d}T00:00:00.000Z` : "");
 
+  // --------- validações (front) ----------
+  const validate = () => {
+    const errors = [];
+    // novos obrigatórios
+    if (!String(name).trim()) errors.push("Informe o nome do pet.");
+    if (!avatarFile) errors.push("Selecione uma foto de perfil (avatar).");
+    // já existiam
+    if (!coverFile) errors.push("Selecione uma imagem de capa.");
+    if (!breed?.id) errors.push("Selecione uma raça.");
+    if (!String(desc).trim()) errors.push('Preencha o campo "Sobre o pet".');
+
+    if (errors.length) {
+      toast.error("Preencha os campos obrigatórios", {
+        description: errors.map((e) => `• ${e}`).join("\n"),
+        duration: 5000,
+      });
+      return false;
+    }
+    return true;
+  };
   // submit
   const onSubmit = async (e) => {
     e.preventDefault();
+
+    // validações no front (capa, raça e sobre)
+    if (!validate()) return;
+
     try {
       const payload = {
         name: (name || "").trim() || "Sem nome",
         about: String(desc || ""),
-        image: avatarFile || "", // File OU vazio
-        imageCover: coverFile || "", // File OU vazio
+        image: avatarFile || "",
+        imageCover: coverFile || "",
         birthDate: toApiDate(birth),
         adoptionDate: toApiDate(adoption),
         weight: String(Number(sliderValueKg) || 0),
-        size: mapSize(size), // SMALL | MEDIUM | LARGE
-        gender: mapGender(sex), // MALE | FEMALE | NOT_INFORMED
+        size: mapSize(size),
+        gender: mapGender(sex),
         breedId: breed?.id ? String(breed.id) : "",
       };
 
@@ -376,13 +390,17 @@ export default function PetCreate() {
         created?.animal?.id ||
         created?.animalId;
 
+      toast.success("Pet cadastrado com sucesso!", { duration: 3000 });
+
       if (newId) navigate(`/pets/${newId}`);
       else history.back();
     } catch (err) {
       console.error("create pet error:", err?.response?.data || err);
-      alert(
-        "Não foi possível cadastrar o pet. Verifique os campos e tente novamente."
-      );
+      toast.error("Não foi possível cadastrar o pet.", {
+        description:
+          err?.response?.data?.message ||
+          "Verifique os campos e tente novamente.",
+      });
     }
   };
 
@@ -702,7 +720,7 @@ export default function PetCreate() {
                   {breed?.typicalWeight || breed?.weightTip || "—"}
                 </dd>
               </div>
-              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg:white/5 px-3 py-2 dark:bg-white/5">
                 <dt className="opacity-70">Altura típica</dt>
                 <dd className="font-medium">
                   {breed?.typicalHeight || breed?.heightTip || "—"}
@@ -743,7 +761,14 @@ export default function PetCreate() {
         </button>
         <button
           type="submit"
-          className="h-10 px-5 rounded-lg bg-orange-500 text-white shadow hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+          disabled={
+            !name.trim() ||
+            !avatarFile ||
+            !coverFile ||
+            !breed?.id ||
+            !desc.trim()
+          }
+          className="h-10 px-5 rounded-lg bg-orange-500 text-white shadow hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           Confirmar
         </button>

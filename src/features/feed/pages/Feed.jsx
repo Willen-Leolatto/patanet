@@ -5,9 +5,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useLayoutEffect,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   CornerUpRight,
   BarChart3,
@@ -76,23 +75,36 @@ async function fileToDataURL(file) {
   });
 }
 
-/* -------------------- Normalizadores -------------------- */
-const normAuthor = (a) => ({
-  id: a?.id ?? "",
-  username: a?.username ?? "",
-  name: a?.name ?? "",
-  email: (a?.email || "").toLowerCase(),
-  avatar: a?.image ?? a?.avatar ?? "",
-});
+/* -------------------- Normalizadores (corrigidos p/ estrutura nova) -------------------- */
+const toMillis = (v) => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const parsed = Date.parse(v);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+};
 
+const normAuthor = (a) => {
+  const src = a || {};
+  return {
+    id: src?.id ?? "",
+    username: src?.username ?? "",
+    name: src?.name ?? "",
+    email: (src?.email || "").toLowerCase(),
+    avatar: src?.image ?? src?.avatar ?? "",
+  };
+};
+
+// Agora aceita like vindo como { user: {...} } OU direto { id, username, avatar, ... }
 const normLikes = (likes) =>
-  (Array.isArray(likes) ? likes : []).map((l) => ({
-    id: l?.user?.id ?? "",
-    username: l?.user?.username ?? "",
-    name: l?.user?.name ?? "",
-    email: (l?.user?.email || "").toLowerCase(),
-    avatar: l?.user?.image ?? "",
-  }));
+  (Array.isArray(likes) ? likes : []).map((l) => {
+    const u = l?.user || l || {};
+    return {
+      id: u?.id ?? "",
+      username: u?.username ?? "",
+      name: u?.name ?? "",
+      email: (u?.email || "").toLowerCase(),
+      avatar: u?.image ?? u?.avatar ?? "",
+    };
+  });
 
 const mediaUrl = (m) => {
   if (!m) return "";
@@ -100,19 +112,19 @@ const mediaUrl = (m) => {
   return m.url || m.path || m.file || "";
 };
 
+// Comentário agora respeita a estrutura { author, text, createdAt, updatedAt, replies }
 const normComment = (c) => ({
   id: c?.id ?? String(Math.random()),
-  text: c?.message ?? "",
-  createdAt: Date.parse(c?.createdAt) || Date.now(),
-  updatedAt: Date.parse(c?.updatedAt) || Date.parse(c?.createdAt) || Date.now(),
-  author: normAuthor(c?.user ?? {}),
+  text: c?.text ?? c?.message ?? "",
+  createdAt: toMillis(c?.createdAt),
+  updatedAt: toMillis(c?.updatedAt ?? c?.createdAt),
+  author: normAuthor(c?.author ?? c?.user ?? {}),
   replies: (Array.isArray(c?.replies) ? c.replies : []).map((r) => ({
     id: r?.id ?? String(Math.random()),
-    text: r?.message ?? "",
-    createdAt: Date.parse(r?.createdAt) || Date.now(),
-    updatedAt:
-      Date.parse(r?.updatedAt) || Date.parse(r?.createdAt) || Date.now(),
-    author: normAuthor(r?.user ?? {}),
+    text: r?.text ?? r?.message ?? "",
+    createdAt: toMillis(r?.createdAt),
+    updatedAt: toMillis(r?.updatedAt ?? r?.createdAt),
+    author: normAuthor(r?.author ?? r?.user ?? {}),
   })),
 });
 
@@ -129,23 +141,27 @@ const normPetTag = (p) => {
   };
 };
 
-const normPost = (p) => ({
-  id: p?.id ?? String(Math.random()),
-  text: p?.subtitle ?? "",
-  images: Array.isArray(p?.medias)
+const normPost = (p) => {
+  const imgsFromMedias = Array.isArray(p?.medias)
     ? p.medias.map(mediaUrl).filter(Boolean)
-    : [],
-  createdAt: Date.parse(p?.createdAt) || Date.now(),
-  updatedAt: Date.parse(p?.updatedAt) || Date.parse(p?.createdAt) || Date.now(),
-  author: normAuthor(p?.author ?? {}),
-  likes: normLikes(p?.likes),
-  comments: (Array.isArray(p?.comments) ? p.comments : []).map(normComment),
-  // mantém os IDs (compatibilidade) e também objetos (quando vierem)
-  taggedPets: Array.isArray(p?.pets)
-    ? p.pets.map((x) => (typeof x === "object" ? String(x?.id) : String(x)))
-    : [],
-  petTags: Array.isArray(p?.pets) ? p.pets.map(normPetTag).filter(Boolean) : [],
-});
+    : [];
+  const imgsFromImages = Array.isArray(p?.images) ? p.images.filter(Boolean) : [];
+  return {
+    id: p?.id ?? String(Math.random()),
+    text: p?.text ?? p?.subtitle ?? "",
+    images: [...imgsFromImages, ...imgsFromMedias],
+    createdAt: toMillis(p?.createdAt),
+    updatedAt: toMillis(p?.updatedAt ?? p?.createdAt),
+    author: normAuthor(p?.author ?? {}),
+    likes: normLikes(p?.likes),
+    comments: (Array.isArray(p?.comments) ? p.comments : []).map(normComment),
+    // mantém os IDs (compatibilidade) e também objetos (quando vierem)
+    taggedPets: Array.isArray(p?.pets)
+      ? p.pets.map((x) => (typeof x === "object" ? String(x?.id) : String(x)))
+      : [],
+    petTags: Array.isArray(p?.pets) ? p.pets.map(normPetTag).filter(Boolean) : [],
+  };
+};
 
 /* Avatar seguro */
 function AvatarCircle({ src, alt, size = 40, className = "" }) {
@@ -294,42 +310,118 @@ function EditPostModal({ open, post, onClose, onSave }) {
 
 function StatsModal({ open, post, onClose }) {
   if (!open || !post) return null;
+
+  // curtidas normalizadas (agora compatible com like direto)
   const likes = normLikes(post.likes);
 
-  const flatComments = (() => {
-    const out = [];
-    for (const c of post.comments || []) {
-      out.push(c);
-      for (const r of c.replies || []) out.push(r);
-    }
-    return out;
+  // comentaristas (comentários + respostas) -> únicos por autor.id
+  const commenters = (() => {
+    const uniq = new Map();
+    (post.comments || []).forEach((c) => {
+      if (c?.author?.id && !uniq.has(c.author.id)) uniq.set(c.author.id, c.author);
+      (c.replies || []).forEach((r) => {
+        if (r?.author?.id && !uniq.has(r.author.id)) uniq.set(r.author.id, r.author);
+      });
+    });
+    return Array.from(uniq.values());
   })();
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50">
-      <div className="w-full max-w-xl rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900">
-        <div className="mb-3 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5" />
-          <h3 className="text-lg font-semibold">Estatísticas da postagem</h3>
+      <div className="w-full max-w-2xl rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900">
+        {/* Cabeçalho */}
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            <h3 className="text-lg font-semibold">Estatísticas da postagem</h3>
+          </div>
+        <button
+            className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            onClick={onClose}
+            aria-label="Fechar"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
+        {/* KPIs */}
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
             <div className="text-sm text-zinc-500">Curtidas</div>
             <div className="text-2xl font-bold">{likes.length}</div>
           </div>
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-            <div className="text-sm text-zinc-500">Comentários</div>
-            <div className="text-2xl font-bold">
-              {(post.comments || []).length +
-                (post.comments || []).reduce(
-                  (acc, c) => acc + (c.replies?.length || 0),
-                  0
-                )}
-            </div>
+            <div className="text-sm text-zinc-500">Comentaram</div>
+            <div className="text-2xl font-bold">{commenters.length}</div>
           </div>
         </div>
 
+        {/* Listas com scroll */}
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {/* Quem curtiu */}
+          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between border-b border-zinc-200 p-3 text-sm font-medium dark:border-zinc-800">
+              <span>Quem curtiu</span>
+              <span className="text-zinc-500">{likes.length}</span>
+            </div>
+            <ul className="max-h-64 overflow-auto p-2">
+              {likes.length === 0 && (
+                <li className="p-2 text-sm text-zinc-500">Nenhuma curtida ainda.</li>
+              )}
+              {likes.map((u) => (
+                <li
+                  key={u.id || u.email}
+                  className="flex items-center gap-2 rounded-md p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                >
+                  <Link to={`/usuario/${u.id || u.username || ""}`} className="flex items-center gap-2">
+                    <AvatarCircle src={u.avatar || ""} alt={u.username || u.name || u.email} size={28} />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {u.username || u.name || u.email || "Usuário"}
+                      </div>
+                      {u.name && u.username && (
+                        <div className="truncate text-xs text-zinc-500">@{u.username}</div>
+                      )}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Quem comentou */}
+          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between border-b border-zinc-200 p-3 text-sm font-medium dark:border-zinc-800">
+              <span>Quem comentou</span>
+              <span className="text-zinc-500">{commenters.length}</span>
+            </div>
+            <ul className="max-h-64 overflow-auto p-2">
+              {commenters.length === 0 && (
+                <li className="p-2 text-sm text-zinc-500">Sem comentários.</li>
+              )}
+              {commenters.map((u) => (
+                <li
+                  key={u.id || u.email}
+                  className="flex items-center gap-2 rounded-md p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                >
+                  <Link to={`/usuario/${u.id || u.username || ""}`} className="flex items-center gap-2">
+                    <AvatarCircle src={u.avatar || ""} alt={u.username || u.name || u.email} size={28} />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {u.username || u.name || u.email || "Usuário"}
+                      </div>
+                      {u.name && u.username && (
+                        <div className="truncate text-xs text-zinc-500">@{u.username}</div>
+                      )}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Rodapé */}
         <div className="mt-4 flex justify-end">
           <button
             className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-white dark:bg-zinc-700"
@@ -564,7 +656,7 @@ export default function Feed() {
           const already = (p.likes || []).some((l) => l.id === me?.id);
           const likes = already
             ? p.likes.filter((l) => l.id !== me?.id)
-            : [...p.likes, { id: me?.id }];
+            : [...p.likes, { id: me?.id, avatar: me?.image || me?.avatar || "", username: me?.username, name: me?.name, email: me?.email }];
           return { ...p, likes };
         })
       );
@@ -590,7 +682,7 @@ export default function Feed() {
         );
       }
     },
-    [me?.id, posts]
+    [me?.id, me?.image, me?.avatar, me?.username, me?.name, me?.email, posts]
   );
 
   // comentar novo
@@ -838,7 +930,7 @@ export default function Feed() {
                   </Link>
 
                   <Link
-                    to={`/perfil/${post.author?.id}`}
+                    to={`/usuario/${post.author?.id}`}
                     className="leading-tight hover:opacity-90"
                     title={`Ver perfil de ${
                       post.author?.username || post.author?.name || "usuário"
@@ -1099,7 +1191,7 @@ function CommentsBlock({
             >
               <div className="flex items-start gap-2">
                 <Link
-                  to={`/perfil/${c.author?.id}`}
+                  to={`/usuario/${c.author?.id}`}
                   className="shrink-0"
                   title={`Ver perfil de ${
                     c.author?.username || c.author?.name || "usuário"
@@ -1117,7 +1209,7 @@ function CommentsBlock({
                 <div className="flex-1">
                   <div className="mb-1 flex items-center gap-2 text-xs text-zinc-500">
                     <Link
-                      to={`/perfil/${c.author?.id}`}
+                      to={`/usuario/${c.author?.id}`}
                       className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
                       title={`Ver perfil de ${
                         c.author?.username || c.author?.name || "usuário"
@@ -1164,7 +1256,7 @@ function CommentsBlock({
                     {user && (
                       <button
                         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                        onClick={() => toggleReply(c.id)}
+                        onClick={() => setReplyOpen((m) => ({ ...m, [c.id]: !m[c.id] }))}
                       >
                         <CornerUpRight className="h-3.5 w-3.5" /> Responder
                       </button>
@@ -1173,7 +1265,10 @@ function CommentsBlock({
                       <>
                         <button
                           className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                          onClick={() => startEdit(c, false)}
+                          onClick={() => {
+                            setEditing({ id: c.id, isReply: false });
+                            setEditingText(c.text || "");
+                          }}
                         >
                           <Pencil className="h-3.5 w-3.5" /> Editar
                         </button>
@@ -1212,16 +1307,20 @@ function CommentsBlock({
                           <button
                             className="rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
                             disabled={!String(replyText[c.id] || "").trim()}
-                            onClick={() => submitReply(c.id)}
+                            onClick={() => {
+                              onReply?.(c.id, String(replyText[c.id]).trim());
+                              setReplyText((m) => ({ ...m, [c.id]: "" }));
+                              setReplyOpen((m) => ({ ...m, [c.id]: false }));
+                            }}
                           >
                             Responder
                           </button>
                           <button
                             className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
-                            onClick={() => (
-                              setReplyOpen((m) => ({ ...m, [c.id]: false })),
-                              setReplyText((m) => ({ ...m, [c.id]: "" }))
-                            )}
+                            onClick={() => {
+                              setReplyOpen((m) => ({ ...m, [c.id]: false }));
+                              setReplyText((m) => ({ ...m, [c.id]: "" }));
+                            }}
                           >
                             Cancelar
                           </button>
@@ -1235,74 +1334,53 @@ function CommentsBlock({
                     <ul className="mt-2 space-y-2 pl-6">
                       {c.replies.map((r) => {
                         const isMineR = user && user.id === r.author?.id;
-                        const isEditingR =
-                          editing?.id === r.id && editing?.isReply;
+                        const isEditingR = editing?.id === r.id && editing?.isReply;
                         return (
                           <li key={r.id}>
                             <div className="flex items-start gap-2">
                               <Link
-                                to={`/perfil/${r.author?.id}`}
+                                to={`/usuario/${r.author?.id}`}
                                 className="shrink-0"
                                 title={`Ver perfil de ${
-                                  r.author?.username ||
-                                  r.author?.name ||
-                                  "usuário"
+                                  r.author?.username || r.author?.name || "usuário"
                                 }`}
                               >
                                 <AvatarCircle
                                   src={r.author?.avatar || ""}
-                                  alt={
-                                    r.author?.username ||
-                                    r.author?.name ||
-                                    r.author?.email
-                                  }
+                                  alt={r.author?.username || r.author?.name || r.author?.email}
                                   size={28}
                                 />
                               </Link>
                               <div className="flex-1 rounded-lg bg-zinc-50 p-2 text-sm dark:bg-zinc-800/50">
                                 <div className="mb-1 text-xs text-zinc-500">
                                   <Link
-                                    to={`/perfil/${r.author?.id}`}
+                                    to={`/usuario/${r.author?.id}`}
                                     className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
                                     title={`Ver perfil de ${
-                                      r.author?.username ||
-                                      r.author?.name ||
-                                      "usuário"
+                                      r.author?.username || r.author?.name || "usuário"
                                     }`}
                                   >
-                                    {r.author?.username ||
-                                      r.author?.name ||
-                                      r.author?.email}
+                                    {r.author?.username || r.author?.name || r.author?.email}
                                   </Link>{" "}
-                                  ·{" "}
-                                  {new Date(r.createdAt).toLocaleString?.() ||
-                                    ""}{" "}
-                                  {(r.updatedAt || 0) > (r.createdAt || 0) && (
-                                    <span>(editado)</span>
-                                  )}
+                                  · {new Date(r.createdAt).toLocaleString?.() || ""}{" "}
+                                  {(r.updatedAt || 0) > (r.createdAt || 0) && <span>(editado)</span>}
                                 </div>
 
                                 {!isEditingR ? (
-                                  <div className="whitespace-pre-wrap">
-                                    {r.text}
-                                  </div>
+                                  <div className="whitespace-pre-wrap">{r.text}</div>
                                 ) : (
                                   <div className="mt-1">
                                     <textarea
                                       className="w-full rounded-lg border border-zinc-300 bg-white/80 p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900/60"
                                       rows={2}
                                       value={editingText}
-                                      onChange={(e) =>
-                                        setEditingText(e.target.value)
-                                      }
+                                      onChange={(e) => setEditingText(e.target.value)}
                                     />
                                     <div className="mt-1 flex gap-2">
                                       <button
                                         className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
                                         onClick={() => {
-                                          const t = String(
-                                            editingText || ""
-                                          ).trim();
+                                          const t = String(editingText || "").trim();
                                           if (!t) return;
                                           onEditComment?.(r.id, t, true);
                                           setEditing(null);
@@ -1328,15 +1406,16 @@ function CommentsBlock({
                                   <div className="mt-1 flex gap-2">
                                     <button
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                                      onClick={() => startEdit(r, true)}
+                                      onClick={() => {
+                                        setEditing({ id: r.id, isReply: true });
+                                        setEditingText(r.text || "");
+                                      }}
                                     >
                                       <Pencil className="h-3.5 w-3.5" /> Editar
                                     </button>
                                     <button
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                                      onClick={() =>
-                                        onDeleteComment?.(r.id, true, c.id)
-                                      }
+                                      onClick={() => onDeleteComment?.(r.id, true, c.id)}
                                     >
                                       Remover
                                     </button>

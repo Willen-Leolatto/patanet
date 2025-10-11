@@ -3,17 +3,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import Lightbox from "@/components/Lightbox";
 import {
-  Camera,
   Edit3,
   Trash2,
-  Link as LinkIcon,
-  MapPin,
   CalendarDays,
   PawPrint,
   ImagePlus,
   UserPlus,
   UserCheck,
   User as UserIcon,
+  X,
 } from "lucide-react";
 
 import { getMyProfile, getUserProfile } from "@/api/user.api.js";
@@ -23,7 +21,8 @@ import {
   followUser,
   unfollowUser,
   summaryUserConnections,
-  userFolloweds,
+  userFolloweds, // ← Seguindo
+  userFollowers, // ← Seguidores
 } from "@/api/connection.api.ts.js";
 
 /* --------------------------------- utils UI -------------------------------- */
@@ -66,7 +65,6 @@ const speciePt = (s) => {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : "—";
 };
 
-const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "—");
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
 function fmtMemberSince(u) {
@@ -96,17 +94,6 @@ export default function UserProfile() {
   const [coverUrl, setCoverUrl] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
 
-  // campos “legados” só para manter layout (sem storage)
-  const [profileExtras, setProfileExtras] = useState({
-    website: "",
-    location: "",
-    bioLegacy: "",
-  });
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(profileExtras);
-
-  useEffect(() => setDraft(profileExtras), [profileExtras]);
-
   // pets do usuário visualizado
   const [pets, setPets] = useState([]);
   const [petThumbs, setPetThumbs] = useState({});
@@ -118,6 +105,13 @@ export default function UserProfile() {
 
   // lightbox
   const [lb, setLb] = useState({ open: false, slides: [], index: 0 });
+
+  // --------- MODAIS Seguidores / Seguindo ----------
+  const [openFollowers, setOpenFollowers] = useState(false);
+  const [openFollowing, setOpenFollowing] = useState(false);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [loadingModal, setLoadingModal] = useState(false);
 
   // carregar quem sou eu
   useEffect(() => {
@@ -141,7 +135,7 @@ export default function UserProfile() {
   const currentId = me?.id || me?._id || me?.email || me?.username || null;
   const viewedParam = userId || currentId;
 
-  // carregar perfil visualizado (se a rota vier com username/slugs, a API resolve)
+  // carregar perfil visualizado
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -161,7 +155,7 @@ export default function UserProfile() {
     };
   }, [viewedParam, currentId, me]);
 
-  // agora que temos viewedUser, sabemos o id real
+  // id real do perfil visualizado
   const viewedRealId = viewedUser?.id || viewedUser?._id || null;
   const isOwn = !!(
     me?.id &&
@@ -169,16 +163,14 @@ export default function UserProfile() {
     String(me.id) === String(viewedRealId)
   );
 
-  // resolver avatar/capa a partir do perfil
+  // resolver avatar/capa
   useEffect(() => {
     const u = viewedUser || {};
-    const cover = u?.imageCover || u?.cover || "";
-    const avatar = u?.image || u?.avatar || "";
-    setCoverUrl(cover || "");
-    setAvatarUrl(avatar || "");
+    setCoverUrl(u?.imageCover || u?.cover || "");
+    setAvatarUrl(u?.image || u?.avatar || "");
   }, [viewedUser]);
 
-  // seguir / desseguir — usa SEMPRE o ID REAL do perfil visualizado
+  // seguir / desseguir
   async function computeIFollow(viewedId, meId) {
     if (!viewedId || !meId) return false;
     try {
@@ -259,7 +251,7 @@ export default function UserProfile() {
     };
   }, [viewedRealId, me?.id]);
 
-  // carregar pets do usuário visualizado (API correta de owner)
+  // carregar pets do usuário visualizado
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -275,13 +267,9 @@ export default function UserProfile() {
           : Array.isArray(resp)
           ? resp
           : [];
-
-        console.log(list);
         if (cancel) return;
-        +setPets(
+        setPets(
           list.map((p) => {
-            // NOVA ESTRUTURA vinda do server (exemplo do seu JSON)
-            // p.breed = { id, name, image, specie: { id, name } }
             const breedName = p?.breed?.name || "—";
             const breedImage = p?.breed?.image || "";
             const specieName =
@@ -290,20 +278,17 @@ export default function UserProfile() {
               p?.species ||
               p?.specie ||
               "";
-
             return {
               id: p.id || p._id,
               name: p.name || "Sem nome",
-              speciesLabel: speciePt(specieName), // "Cão" | "Gato" | …
-              breedName, // "SRD (Vira-lata)" etc.
-              genderLabel: genderPt(p?.gender), // "Macho" | "Fêmea"
+              speciesLabel: speciePt(specieName),
+              breedName,
+              genderLabel: genderPt(p?.gender),
               birthday: p.birthday || p.birthDate || p.birthdate || "",
               weight: p.weight || 0,
-              // avatar: prioriza avatar do pet; se não tiver, cai para imagem da raça
               image: p.image?.url || p.image || breedImage || "",
               imageCover: p.imageCover?.url || p.imageCover || "",
               mediasCount: Number(p.mediasCount || p.mediaCount || 0),
-              // guardo breedImage para o fallback do thumb também
               _breedImage: breedImage || "",
             };
           })
@@ -317,7 +302,7 @@ export default function UserProfile() {
     };
   }, [viewedRealId]);
 
-  // construir thumbs (com fetch individual se necessário)
+  // construir thumbs
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -376,17 +361,61 @@ export default function UserProfile() {
     setFollowersCount((c) => Math.max(0, c + (willFollow ? 1 : -1)));
 
     try {
-      if (prevIFollow) {
-        await unfollowUser({ id: viewedRealId });
-      } else {
-        await followUser({ id: viewedRealId });
-      }
+      if (prevIFollow) await unfollowUser({ id: viewedRealId });
+      else await followUser({ id: viewedRealId });
       await refetchConnections.current?.();
     } catch {
       setIFollow(prevIFollow);
       setFollowersCount((c) => Math.max(0, c + (prevIFollow ? 1 : -1)));
     } finally {
       isTogglingFollowRef.current = false;
+    }
+  }
+
+  // ---------- abrir modais ----------
+  async function openFollowersModal() {
+    if (!viewedRealId) return;
+    try {
+      setLoadingModal(true);
+      setOpenFollowers(true);
+      const resp = await userFollowers({
+        id: viewedRealId,
+        page: 1,
+        perPage: 200,
+      });
+      const data =
+        (resp && resp.data) ||
+        (Array.isArray(resp) && resp) ||
+        resp?.items ||
+        [];
+      setFollowers(data);
+    } catch {
+      setFollowers([]);
+    } finally {
+      setLoadingModal(false);
+    }
+  }
+
+  async function openFollowingModal() {
+    if (!viewedRealId) return;
+    try {
+      setLoadingModal(true);
+      setOpenFollowing(true);
+      const resp = await userFolloweds({
+        id: viewedRealId,
+        page: 1,
+        perPage: 200,
+      });
+      const data =
+        (resp && resp.data) ||
+        (Array.isArray(resp) && resp) ||
+        resp?.items ||
+        [];
+      setFollowing(data);
+    } catch {
+      setFollowing([]);
+    } finally {
+      setLoadingModal(false);
     }
   }
 
@@ -471,8 +500,16 @@ export default function UserProfile() {
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <Metric label="Pets" value={metrics.totalPets} />
               <Metric label="Mídias" value={metrics.totalMedia} />
-              <Metric label="Seguidores" value={followersCount} />
-              <Metric label="Seguindo" value={followingCount} />
+              <Metric
+                label="Seguidores"
+                value={followersCount}
+                onClick={openFollowersModal}
+              />
+              <Metric
+                label="Seguindo"
+                value={followingCount}
+                onClick={openFollowingModal}
+              />
 
               {!isOwn ? (
                 <button
@@ -504,34 +541,23 @@ export default function UserProfile() {
 
           {/* bio / metadados */}
           <div className="mt-4 border-t border-zinc-200 pt-4 text-sm dark:border-zinc-800">
-            {!editing ? (
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="md:col-span-2">
-                  <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Sobre
-                  </div>
-                  <p className="whitespace-pre-wrap">
-                    {String(viewedUser?.about || "").trim() || "Sem descrição."}
-                  </p>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="md:col-span-2">
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Sobre
                 </div>
+                <p className="whitespace-pre-wrap">
+                  {String(viewedUser?.about || "").trim() || "Sem descrição."}
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
-                    <CalendarDays className="h-4 w-4 opacity-70" />
-                    <span>Membro desde {fmtMemberSince(viewedUser)}</span>
-                  </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                  <CalendarDays className="h-4 w-4 opacity-70" />
+                  <span>Membro desde {fmtMemberSince(viewedUser)}</span>
                 </div>
               </div>
-            ) : (
-              <form
-                className="grid gap-3 md:grid-cols-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setEditing(false);
-                  setProfileExtras(draft);
-                }}
-              />
-            )}
+            </div>
           </div>
         </div>
       </section>
@@ -560,8 +586,8 @@ export default function UserProfile() {
         ) : (
           <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {pets.map((p) => {
-              const cover = petThumbs[p.id]?.coverUrl || p.breedImage;
-              const avatar = petThumbs[p.id]?.avatarUrl || p.breedImage;
+              const cover = petThumbs[p.id]?.coverUrl || p._breedImage;
+              const avatar = petThumbs[p.id]?.avatarUrl || p._breedImage;
 
               return (
                 <li
@@ -683,16 +709,146 @@ export default function UserProfile() {
           onClose={() => setLb({ open: false, slides: [], index: 0 })}
         />
       )}
+
+      {/* ----------------------------- MODAIS ------------------------------ */}
+      <Modal
+        open={openFollowers}
+        title="Seguidores"
+        onClose={() => setOpenFollowers(false)}
+      >
+        {loadingModal && (
+          <div className="p-3 text-sm opacity-70">Carregando…</div>
+        )}
+        {!loadingModal && followers.length === 0 && (
+          <div className="p-3 text-sm opacity-70">
+            Nenhum seguidor por aqui.
+          </div>
+        )}
+        <div className="grid gap-1">
+          {followers.map((u) => (
+            <PersonRow
+              key={u.id || u.userId || u.username}
+              user={u}
+              onClick={() => {
+                const target = `/usuario/${u.id || u.userId || u.username}`;
+                setOpenFollowers(false); // fecha o modal
+                setTimeout(() => navigate(target), 0); // navega em seguida
+              }}
+            />
+          ))}
+        </div>
+      </Modal>
+
+      <Modal
+        open={openFollowing}
+        title="Seguindo"
+        onClose={() => setOpenFollowing(false)}
+      >
+        {loadingModal && (
+          <div className="p-3 text-sm opacity-70">Carregando…</div>
+        )}
+        {!loadingModal && following.length === 0 && (
+          <div className="p-3 text-sm opacity-70">
+            Este usuário ainda não segue ninguém.
+          </div>
+        )}
+        <div className="grid gap-1">
+          {following.map((u) => (
+            <PersonRow
+              key={u.id || u.userId || u.username}
+              user={u}
+              onClick={() => {
+                const target = `/usuario/${u.id || u.userId || u.username}`;
+                setOpenFollowing(false); // fecha o modal
+                setTimeout(() => navigate(target), 0); // navega em seguida
+              }}
+            />
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }
 
 /* --------------------------------- helpers --------------------------------- */
-function Metric({ label, value }) {
+function Metric({ label, value, onClick }) {
+  const clickable = typeof onClick === "function";
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-center text-xs dark:border-zinc-700 dark:bg-zinc-800">
+    <div
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      className={`rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-center text-xs dark:border-zinc-700 dark:bg-zinc-800 ${
+        clickable
+          ? "cursor-pointer hover:bg-black/5 dark:hover:bg-white/10"
+          : ""
+      }`}
+      onKeyDown={(e) => {
+        if (clickable && (e.key === "Enter" || e.key === " ")) onClick();
+      }}
+      title={clickable ? label : undefined}
+    >
       <div className="font-semibold">{value}</div>
       <div className="opacity-70">{label}</div>
     </div>
+  );
+}
+
+/* ------------------------------- Modal base -------------------------------- */
+function Modal({ open, title, onClose, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[100]">
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+      <div className="absolute left-1/2 top-1/2 w-[min(680px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-zinc-900">
+        <div className="flex items-center justify-between border-b border-black/10 p-4 dark:border-white/10">
+          <h3 className="text-base font-semibold">{title}</h3>
+          <button
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label="Fechar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto p-3">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------- List item --------------------------------- */
+function PersonRow({ user, onClick }) {
+  const avatar =
+    user?.image ||
+    user?.avatar ||
+    user?.photo ||
+    user?.imageUrl ||
+    "https://ui-avatars.com/api/?name=" +
+      encodeURIComponent(user?.name || user?.username || "User");
+
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl p-2 text-left hover:bg-black/5 dark:hover:bg-white/5"
+      title={user?.name || user?.username}
+    >
+      <img
+        src={avatar}
+        alt={user?.name || user?.username}
+        className="h-10 w-10 rounded-full object-cover"
+      />
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate text-sm font-medium">
+          {user?.name || user?.username}
+        </span>
+        {user?.username && (
+          <span className="truncate text-xs opacity-70">@{user.username}</span>
+        )}
+      </div>
+    </button>
   );
 }
