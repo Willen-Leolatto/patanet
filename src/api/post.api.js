@@ -6,9 +6,9 @@ export async function createPost({ subtitle, pets, medias }) {
   formData.append('subtitle', subtitle)
 
   if (Array.isArray(pets)) {
-    pets.forEach((pet, index) => {
-      formData.append(`pets[${index}]`, pet)
-    })
+    for (const pet of pets) {
+      formData.append('pets', pet)
+    }
   }
 
   if (Array.isArray(medias)) {
@@ -26,9 +26,9 @@ export async function updatePost({ postId, subtitle, pets, medias }) {
   formData.append('subtitle', subtitle)
 
   if (Array.isArray(pets)) {
-    pets.forEach((pet, index) => {
-      formData.append(`pets[${index}]`, pet)
-    })
+    for (const pet of pets) {
+      formData.append('pets', pet)
+    }
   }
 
   if (Array.isArray(medias)) {
