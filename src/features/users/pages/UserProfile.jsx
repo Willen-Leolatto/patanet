@@ -1,21 +1,6 @@
 // src/features/users/pages/UserProfile.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useAuth } from "@/store/auth";
-import {
-  getUserById as getUserCatalogById,
-  countFollowers,
-  countFollowing,
-  isFollowing,
-  toggleFollow,
-  upsertUser as upsertCatalogUser,
-} from "@/features/users/services/userStorage";
-import { getUserById as getAuthUserById } from "@/features/auth/services/authStorage";
-import {
-  loadPets,
-  removePet,
-  mediaGetUrl,
-} from "@/features/pets/services/petsStorage";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import Lightbox from "@/components/Lightbox";
 import {
   Camera,
@@ -28,34 +13,17 @@ import {
   ImagePlus,
   UserPlus,
   UserCheck,
-  Image as ImageIcon,
   User as UserIcon,
 } from "lucide-react";
 
-/* -------------------------------------------------------------------------- */
-/* Perfil visual (capa/site/local) legado (mantido para compat)               */
-/* -------------------------------------------------------------------------- */
-const PROFILE_KEY = "patanet_user_profiles";
-function readProfiles() {
-  try {
-    return JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-function writeProfiles(map) {
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(map || {}));
-}
-function getProfile(uid) {
-  const map = readProfiles();
-  // bio aqui é legado, NÃO é mais usada na exibição
-  return map[uid] || { cover: "", bio: "", website: "", location: "" };
-}
-function patchProfile(uid, patch) {
-  const map = readProfiles();
-  map[uid] = { ...(map[uid] || {}), ...(patch || {}) };
-  writeProfiles(map);
-}
+import { getMyProfile, getUserProfile } from "@/api/user.api.js";
+import { http } from "@/api/axios.js";
+import { fetchAnimalsById } from "@/api/animal.api.js";
+import {
+  followUser,
+  unfollowUser,
+  summaryUserConnections,
+} from "@/api/connection.api.ts.js";
 
 /* --------------------------------- utils UI -------------------------------- */
 function Avatar({ src, alt, size = 96, className = "" }) {
@@ -83,298 +51,268 @@ function Avatar({ src, alt, size = 96, className = "" }) {
 }
 
 const title = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "—");
-const fmtDate = (iso) =>
-  iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("pt-BR") : "—");
+function fmtMemberSince(u) {
+  const ts = u?.createdAt;
+  try {
+    const d = ts ? new Date(ts) : new Date();
+    return d.getFullYear();
+  } catch {
+    return "—";
+  }
+}
 
 /* ---------------------------------- página --------------------------------- */
 export default function UserProfile() {
   const { userId } = useParams();
-  const authUser = useAuth((s) => s.user);
+  const navigate = useNavigate();
 
-  const currentId =
-    authUser?.id ||
-    authUser?.uid ||
-    authUser?.email ||
-    authUser?.username ||
-    null;
-  const viewedId = userId || currentId;
-  const isOwn = !!currentId && String(viewedId) === String(currentId);
+  // quem sou eu (logado)
+  const [me, setMe] = useState(null);
+  const [loadingMe, setLoadingMe] = useState(true);
 
+  // perfil visualizado
   const [viewedUser, setViewedUser] = useState(null);
 
+  // mídia resolvida para exibição
   const [coverUrl, setCoverUrl] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
 
-  // ainda usamos website/location/capa legados
-  const [profile, setProfile] = useState(getProfile(viewedId));
-  useEffect(() => setProfile(getProfile(viewedId)), [viewedId]);
+  // campos “legados” só para manter layout (sem storage)
+  const [profileExtras, setProfileExtras] = useState({
+    website: "",
+    location: "",
+    bioLegacy: "",
+  });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(profileExtras);
+  useEffect(() => setDraft(profileExtras), [profileExtras]);
 
-  const rebuildViewedUser = React.useCallback(() => {
-    if (!viewedId) return;
-
-    let u = getUserCatalogById?.(viewedId);
-
-    if (isOwn) {
-      const a = authUser || {};
-      const merged = {
-        id: a.id || a.uid || viewedId,
-        name: (u?.name && String(u.name)) || a.name || a.displayName || "",
-        username: (u?.username && String(u.username)) || a.username || "",
-        email: (u?.email && String(u.email)) || a.email || "",
-        image:
-          (u?.image && String(u.image)) ||
-          a.image ||
-          a.avatar ||
-          a.photoURL ||
-          "",
-        avatar:
-          (u?.avatar && String(u.avatar)) ||
-          a.avatar ||
-          a.image ||
-          a.photoURL ||
-          "",
-        avatarId: (u?.avatarId && String(u.avatarId)) || a.avatarId || "",
-        cover: (u?.cover && String(u.cover)) || a.cover || "",
-        coverId: (u?.coverId && String(u.coverId)) || a.coverId || "",
-        bio: (u?.bio && String(u.bio)) || a.bio || "", // <- bio do catálogo
-        createdAt: u?.createdAt || a.createdAt || Date.now(),
-      };
-      setViewedUser(merged);
-      return;
-    }
-
-    if (!u) {
-      const old = getAuthUserById?.(viewedId);
-      if (old) {
-        u = {
-          id: old.id || old.uid || viewedId,
-          name: old.name || old.displayName || "",
-          username: old.username || "",
-          email: old.email || "",
-          image: old.image || old.avatar || old.photoURL || "",
-          avatar: old.avatar || old.image || "",
-          avatarId: old.avatarId || "",
-          cover: old.cover || "",
-          coverId: old.coverId || "",
-          bio: old.bio || "",
-          createdAt: old.createdAt || Date.now(),
-        };
-        try {
-          upsertCatalogUser(u);
-        } catch {}
-      }
-    } else {
-      u = {
-        id: u.id || viewedId,
-        name: u.name || u.displayName || "",
-        username: u.username || "",
-        email: u.email || "",
-        image: u.image || u.avatar || u.photoURL || "",
-        avatar: u.avatar || u.image || "",
-        avatarId: u.avatarId || "",
-        cover: u.cover || "",
-        coverId: u.coverId || "",
-        bio: u.bio || "",
-        createdAt: u.createdAt || Date.now(),
-      };
-    }
-    setViewedUser(
-      u || {
-        id: viewedId,
-        name: "",
-        username: "",
-        email: "",
-        image: "",
-        avatar: "",
-        avatarId: "",
-        cover: "",
-        coverId: "",
-        bio: "",
-        createdAt: Date.now(),
-      }
-    );
-  }, [authUser, isOwn, viewedId]);
-
-  useEffect(() => {
-    rebuildViewedUser();
-  }, [rebuildViewedUser]);
-
-  useEffect(() => {
-    const onUsersUpdated = () => rebuildViewedUser();
-    window.addEventListener("patanet:users-updated", onUsersUpdated);
-    return () =>
-      window.removeEventListener("patanet:users-updated", onUsersUpdated);
-  }, [rebuildViewedUser]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function resolveUserMedia() {
-      const u = viewedUser || {};
-      let c =
-        (typeof u.cover === "string" && u.cover.length > 0 && u.cover) || "";
-      if (!c && u.coverId) {
-        try {
-          c = (await mediaGetUrl(u.coverId)) || "";
-        } catch {
-          c = "";
-        }
-      }
-      if (!c && profile?.cover) c = profile.cover;
-
-      let a =
-        (typeof u.avatar === "string" && u.avatar.length > 0 && u.avatar) ||
-        (typeof u.image === "string" && u.image.length > 0 && u.image) ||
-        "";
-      if (!a && u.avatarId) {
-        try {
-          a = (await mediaGetUrl(u.avatarId)) || "";
-        } catch {
-          a = "";
-        }
-      }
-      if (!a) a = c;
-
-      if (!cancelled) {
-        setCoverUrl(c || "");
-        setAvatarUrl(a || "");
-      }
-    }
-    resolveUserMedia();
-    return () => {
-      cancelled = true;
-    };
-  }, [viewedUser, profile]);
-
-  const fixedUser = viewedUser || { id: viewedId, username: "" };
-
+  // pets do usuário visualizado
   const [pets, setPets] = useState([]);
-  useEffect(() => {
-    const refresh = () => {
-      const all = loadPets() || [];
-      const mine = all.filter(
-        (p) => String(p.ownerId || p.userId || p.createdBy) === String(viewedId)
-      );
-      setPets(mine);
-    };
-    refresh();
-    window.addEventListener("patanet:pets-updated", refresh);
-    return () => window.removeEventListener("patanet:pets-updated", refresh);
-  }, [viewedId]);
-
   const [petThumbs, setPetThumbs] = useState({});
-  useEffect(() => {
-    let cancelled = false;
-    async function resolveAll() {
-      const pairs = await Promise.all(
-        (pets || []).map(async (p) => {
-          let cover = p.cover || "";
-          if (!cover && p.coverId) {
-            try {
-              cover = await mediaGetUrl(p.coverId);
-            } catch {
-              cover = "";
-            }
-          }
-          let avatar = p.avatar || "";
-          if (!avatar && p.avatarId) {
-            try {
-              avatar = await mediaGetUrl(p.avatarId);
-            } catch {
-              avatar = "";
-            }
-          }
-          if (!avatar) avatar = cover;
-          return [p.id, { coverUrl: cover || "", avatarUrl: avatar || "" }];
-        })
-      );
-      if (!cancelled) {
-        const map = {};
-        for (const [id, urls] of pairs) map[id] = urls;
-        setPetThumbs(map);
-      }
-    }
-    resolveAll();
-    return () => {
-      cancelled = true;
-      Object.values(petThumbs).forEach(({ coverUrl: c, avatarUrl: a }) => {
-        [c, a].forEach((u) => {
-          if (u && typeof u === "string" && u.startsWith("blob:")) {
-            try {
-              URL.revokeObjectURL(u);
-            } catch {}
-          }
-        });
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pets.length]);
 
+  // conexões
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [iFollow, setIFollow] = useState(false);
-  const refreshFollows = () => {
-    setFollowersCount(countFollowers(viewedId));
-    setFollowingCount(countFollowing(viewedId));
-    setIFollow(!!(currentId && !isOwn && isFollowing(currentId, viewedId)));
-  };
-  useEffect(() => {
-    refreshFollows();
-    const h = () => refreshFollows();
-    window.addEventListener("patanet:follows-updated", h);
-    return () => window.removeEventListener("patanet:follows-updated", h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewedId, currentId, isOwn]);
 
+  // lightbox
   const [lb, setLb] = useState({ open: false, slides: [], index: 0 });
 
-  const fileRef = useRef(null);
-  const onPickCover = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const dataUrl = await readAsDataURL(f);
-    setProfile((p) => ({ ...p, cover: dataUrl }));
-    patchProfile(viewedId, { cover: dataUrl });
-    e.target.value = "";
-  };
+  // carregar quem sou eu
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        setLoadingMe(true);
+        const u = await getMyProfile();
+        if (!cancel) setMe(u || null);
+      } catch {
+        if (!cancel && !userId) navigate("/auth", { replace: true });
+      } finally {
+        if (!cancel) setLoadingMe(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [navigate, userId]);
 
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(profile);
-  useEffect(() => setDraft(profile), [profile]);
-  const saveProfile = () => {
-    setEditing(false);
-    setProfile(draft);
-    patchProfile(viewedId, draft);
-  };
+  const currentId = me?.id || me?._id || me?.email || me?.username || null;
+  const viewedId = userId || currentId;
+  const isOwn = !!currentId && String(viewedId) === String(currentId);
+
+  // carregar perfil visualizado
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!viewedId) return;
+      try {
+        let u = isOwn ? me : await getUserProfile({ id: viewedId });
+        if (!u && isOwn) u = me;
+        if (!cancel) setViewedUser(u || null);
+      } catch {
+        if (!cancel) setViewedUser(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [viewedId, isOwn, me]);
+
+  // resolver avatar/capa a partir do perfil
+  useEffect(() => {
+    const u = viewedUser || {};
+    const cover = u?.imageCover || u?.cover || "";
+    const avatar = u?.image || u?.avatar || "";
+    setCoverUrl(cover || "");
+    setAvatarUrl(avatar || "");
+  }, [viewedUser]);
+
+  // resumo de conexões (seguidores/seguidos + se eu sigo)
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!viewedId) return;
+      try {
+        const summary = await summaryUserConnections({ id: viewedId });
+        // tentativas de leitura tolerantes ao shape
+        const followers =
+          summary?.followers ??
+          summary?.followersCount ??
+          summary?.data?.followers ??
+          0;
+        const followeds =
+          summary?.followeds ??
+          summary?.following ??
+          summary?.followedsCount ??
+          summary?.data?.followeds ??
+          0;
+        const amIFollowing =
+          summary?.iFollow ??
+          summary?.amIFollowing ??
+          summary?.data?.iFollow ??
+          false;
+
+        if (!cancel) {
+          setFollowersCount(Number(followers) || 0);
+          setFollowingCount(Number(followeds) || 0);
+          setIFollow(!!amIFollowing);
+        }
+      } catch {
+        if (!cancel) {
+          setFollowersCount(0);
+          setFollowingCount(0);
+          setIFollow(false);
+        }
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [viewedId]);
+
+  // carregar pets do usuário visualizado (lista)
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!viewedId) return;
+      try {
+        // Lista por usuário – mantém fallback direto
+        const { data } = await http.get(`/animals/user/${viewedId}`);
+        if (cancel) return;
+        const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+        setPets(
+          list.map((p) => ({
+            id: p.id || p._id,
+            name: p.name || "Sem nome",
+            species: p.species || "",
+            breed: p.breed || "",
+            gender: p.gender || "",
+            birthday: p.birthday || p.birthDate || p.birthdate || "",
+            weight: p.weight || 0,
+            image: p.image?.url || p.image || "",
+            imageCover: p.imageCover?.url || p.imageCover || "",
+          }))
+        );
+      } catch {
+        if (!cancel) setPets([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [viewedId]);
+
+  // construir thumbs (com fetch individual se necessário)
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      const map = {};
+      for (const p of pets) {
+        let avatarUrl = p.image || "";
+        let coverUrl = p.imageCover || "";
+        if (!avatarUrl || !coverUrl) {
+          try {
+            // resolve com fetch individual quando algo vier faltando
+            const pet = await fetchAnimalsById({ animalId: p.id });
+            avatarUrl = avatarUrl || pet?.image?.url || pet?.image || "";
+            coverUrl = coverUrl || pet?.imageCover?.url || pet?.imageCover || "";
+          } catch {
+            // ignora
+          }
+        }
+        map[p.id] = { avatarUrl, coverUrl };
+      }
+      if (!cancel) setPetThumbs(map);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [pets]);
 
   const metrics = useMemo(() => {
     const totalPets = pets.length;
-    const totalMedia = pets.reduce(
-      (acc, p) => acc + (Array.isArray(p.media) ? p.media.length : 0),
-      0
-    );
+    const totalMedia = 0; // manter como 0 até termos endpoint de contagem
     return { totalPets, totalMedia };
   }, [pets]);
-
-  const handleRemovePet = (pet) => {
-    if (!isOwn || !pet?.id) return;
-    if (!window.confirm(`Remover "${pet.name}"?`)) return;
-    removePet(pet.id);
-    setPets((list) => list.filter((x) => x.id !== pet.id));
-  };
-  const toggleFollowAction = () => {
-    if (!currentId || isOwn) return;
-    toggleFollow(currentId, viewedId);
-  };
 
   const openLightbox = (slides, index = 0) =>
     setLb({ open: true, slides, index });
 
-  if (!viewedUser) return null;
+  const fileRef = useRef(null);
+  const onPickCover = async (e) => {
+    // Mantém o fluxo/visual do botão; sem persistência local aqui.
+    e.target.value = "";
+  };
 
-  const displayName = viewedUser.name || viewedUser.username || "Usuário";
-  const displayUsername = viewedUser.username
+  const displayName =
+    viewedUser?.name || viewedUser?.displayName || viewedUser?.username || "Usuário";
+  const displayUsername = viewedUser?.username
     ? `@${viewedUser.username}`
-    : viewedUser.email || "";
+    : viewedUser?.email || "";
+
+  // seguir / desseguir
+  async function handleToggleFollow() {
+    if (!me || isOwn || !viewedId) return;
+    const prevIFollow = iFollow;
+    const delta = prevIFollow ? -1 : 1;
+    // optimistic
+    setIFollow(!prevIFollow);
+    setFollowersCount((c) => Math.max(0, c + delta));
+    try {
+      if (prevIFollow) {
+        await unfollowUser({ id: viewedId });
+      } else {
+        await followUser({ id: viewedId });
+      }
+    } catch {
+      // rollback
+      setIFollow(prevIFollow);
+      setFollowersCount((c) => Math.max(0, c - delta));
+    }
+  }
+
+  if (loadingMe && !viewedId) {
+    return (
+      <div className="min-h-dvh w-full grid place-items-center">
+        <div className="animate-pulse text-sm text-zinc-500 dark:text-zinc-400">
+          Carregando…
+        </div>
+      </div>
+    );
+  }
+
+  if (!viewedUser) {
+    return (
+      <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+          Usuário não encontrado.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
@@ -401,18 +339,12 @@ export default function UserProfile() {
             <button
               className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-xs text-white backdrop-blur hover:bg-black/70"
               onClick={() => fileRef.current?.click()}
-              title="Alterar capa do perfil (modo legado)"
+              title="Alterar capa do perfil"
             >
               <Camera className="h-4 w-4" /> Alterar capa
             </button>
           )}
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={onPickCover}
-          />
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickCover} />
 
           <div className="absolute left-6 -bottom-12 z-10">
             <Avatar src={avatarUrl} alt={displayName} size={104} />
@@ -436,7 +368,7 @@ export default function UserProfile() {
 
               {!isOwn ? (
                 <button
-                  onClick={toggleFollowAction}
+                  onClick={handleToggleFollow}
                   className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${
                     iFollow ? "bg-zinc-700 hover:bg-zinc-800" : "bg-[#f77904] hover:opacity-90"
                   }`}
@@ -456,7 +388,7 @@ export default function UserProfile() {
             </div>
           </div>
 
-          {/* bio / website / location */}
+          {/* bio / website / location – mantém layout; bio usa API (about) */}
           <div className="mt-4 border-t border-zinc-200 pt-4 text-sm dark:border-zinc-800">
             {!editing ? (
               <div className="grid gap-4 md:grid-cols-3">
@@ -464,32 +396,31 @@ export default function UserProfile() {
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Sobre
                   </div>
-                  {/* EXIBE A BIO DO USUÁRIO (userStorage) */}
                   <p className="whitespace-pre-wrap">
-                    {viewedUser?.bio?.trim() ? viewedUser.bio : "Sem descrição."}
+                    {String(viewedUser?.about || "").trim() || "Sem descrição."}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
+                  {/* <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
                     <MapPin className="h-4 w-4 opacity-70" />
-                    <span className="truncate">{profile.location || "—"}</span>
+                    <span className="truncate">{profileExtras.location || "—"}</span>
                   </div>
                   <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
                     <LinkIcon className="h-4 w-4 opacity-70" />
-                    {profile.website ? (
+                    {profileExtras.website ? (
                       <a
-                        href={profile.website}
+                        href={profileExtras.website}
                         target="_blank"
                         rel="noreferrer"
                         className="truncate text-blue-600 hover:underline dark:text-blue-400"
                       >
-                        {profile.website}
+                        {profileExtras.website}
                       </a>
                     ) : (
                       <span>—</span>
                     )}
-                  </div>
+                  </div> */}
                   <div className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
                     <CalendarDays className="h-4 w-4 opacity-70" />
                     <span>Membro desde {fmtMemberSince(viewedUser)}</span>
@@ -501,26 +432,25 @@ export default function UserProfile() {
                 className="grid gap-3 md:grid-cols-3"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  saveProfile();
+                  setEditing(false);
+                  setProfileExtras(draft);
                 }}
               >
-                {/* Mantemos edição local apenas para website/localização legados */}
-                <div className="md:col-span-2">
+                {/* Mantém edição visual local de website/location para não quebrar layout */}
+                {/* <div className="md:col-span-2">
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                    Sobre (legado)
+                    Sobre 
                   </label>
                   <textarea
                     className="w-full rounded-lg border border-zinc-200 bg-white p-2 outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
                     rows={3}
                     maxLength={280}
-                    value={draft.bio}
-                    onChange={(e) =>
-                      setDraft((d) => ({ ...d, bio: e.target.value }))
-                    }
+                    value={draft.bioLegacy}
+                    onChange={(e) => setDraft((d) => ({ ...d, bioLegacy: e.target.value }))}
                   />
-                </div>
+                </div> */}
 
-                <div className="space-y-2">
+                {/* <div className="space-y-2">
                   <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Localização
                   </label>
@@ -528,9 +458,7 @@ export default function UserProfile() {
                     type="text"
                     className="mb-2 w-full rounded-lg border border-zinc-200 bg-white p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
                     value={draft.location}
-                    onChange={(e) =>
-                      setDraft((d) => ({ ...d, location: e.target.value }))
-                    }
+                    onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))}
                   />
                   <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Website
@@ -540,19 +468,17 @@ export default function UserProfile() {
                     className="w-full rounded-lg border border-zinc-200 bg-white p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
                     placeholder="https://…"
                     value={draft.website}
-                    onChange={(e) =>
-                      setDraft((d) => ({ ...d, website: e.target.value }))
-                    }
+                    onChange={(e) => setDraft((d) => ({ ...d, website: e.target.value }))}
                   />
-                </div>
+                </div> */}
 
-                <div className="md:col-span-3 flex items-center justify-end gap-2">
+                {/* <div className="md:col-span-3 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
                     onClick={() => {
                       setEditing(false);
-                      setDraft(profile);
+                      setDraft(profileExtras);
                     }}
                   >
                     Cancelar
@@ -563,11 +489,11 @@ export default function UserProfile() {
                   >
                     Salvar
                   </button>
-                </div>
+                </div> */}
               </form>
             )}
 
-            {isOwn && !editing && (
+            {/* {isOwn && !editing && (
               <div className="mt-3 flex justify-end">
                 <button
                   className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700"
@@ -576,7 +502,7 @@ export default function UserProfile() {
                   <Edit3 className="h-4 w-4" /> Editar seção “Sobre”
                 </button>
               </div>
-            )}
+            )} */}
           </div>
         </div>
       </section>
@@ -622,10 +548,7 @@ export default function UserProfile() {
                           className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
                           onClick={(e) => {
                             e.preventDefault();
-                            openLightbox(
-                              [{ id: p.id + "-cover", url: cover, title: p.name }],
-                              0
-                            );
+                            openLightbox([{ id: p.id + "-cover", url: cover, title: p.name }], 0);
                           }}
                         />
                       ) : (
@@ -644,10 +567,7 @@ export default function UserProfile() {
                           alt=""
                           className="h-12 w-12 rounded-full object-cover ring-2 ring-white dark:ring-zinc-900"
                           onClick={() =>
-                            openLightbox(
-                              [{ id: p.id + "-avatar", url: avatar, title: p.name }],
-                              0
-                            )
+                            openLightbox([{ id: p.id + "-avatar", url: avatar, title: p.name }], 0)
                           }
                         />
                       ) : (
@@ -655,10 +575,7 @@ export default function UserProfile() {
                       )}
 
                       <div className="min-w-0">
-                        <Link
-                          to={`/pets/${p.id}`}
-                          className="group inline-flex items-center gap-1"
-                        >
+                        <Link to={`/pets/${p.id}`} className="group inline-flex items-center gap-1">
                           <h3 className="truncate text-base font-semibold leading-5 group-hover:underline">
                             {p.name || "Sem nome"}
                           </h3>
@@ -684,7 +601,12 @@ export default function UserProfile() {
                             <Edit3 className="h-4 w-4" />
                           </Link>
                           <button
-                            onClick={() => handleRemovePet(p)}
+                            onClick={() => {
+                              if (window.confirm(`Remover "${p.name}"?`)) {
+                                // Sem endpoint de remoção aqui para lista do usuário; visual rápido
+                                setPets((list) => list.filter((x) => x.id !== p.id));
+                              }
+                            }}
                             title="Remover"
                             className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f77904] text-white"
                           >
@@ -722,21 +644,4 @@ function Metric({ label, value }) {
       <div className="opacity-70">{label}</div>
     </div>
   );
-}
-function fmtMemberSince(u) {
-  const ts = u?.createdAt;
-  try {
-    const d = ts ? new Date(ts) : new Date();
-    return d.getFullYear();
-  } catch {
-    return "—";
-  }
-}
-function readAsDataURL(file) {
-  return new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(fr.result);
-    fr.onerror = rej;
-    fr.readAsDataURL(file);
-  });
 }
