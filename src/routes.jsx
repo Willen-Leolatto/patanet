@@ -19,6 +19,7 @@ const PetEdit = lazy(() => import("@/features/pets/pages/PetEdit"));
 // Usuários
 const UserProfile = lazy(() => import("@/features/users/pages/UserProfile"));
 const UserEdit = lazy(() => import("@/features/users/pages/UserEdit")); // ⬅️ NOVO
+const UsersList = lazy(() => import("@/features/users/pages/UsersList")); // ⬅️ NOVO
 
 function Loader() {
   return (
@@ -57,6 +58,7 @@ export default function AppRoutes() {
 
             {/* Perfil de outro usuário (caso exista esse fluxo) */}
             <Route path="/usuario/:userId" element={<UserProfile />} />
+            <Route path="/usuarios" element={<UsersList />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/feed" replace />} />
