@@ -21,6 +21,7 @@ import {
 import Lightbox from "@/components/Lightbox";
 import { useToast } from "@/components/ui/ToastProvider";
 import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
+import heic2any from "heic2any";
 
 // APIs
 import { getMyProfile } from "@/api/user.api.js";
@@ -49,46 +50,121 @@ const readAsDataURL = (file) =>
     fr.readAsDataURL(file);
   });
 
-async function fileToCompressedBlob(file, maxSide = 960, quality = 0.6) {
-  if (!(file instanceof File)) return null;
-  const dataUrl = await readAsDataURL(file);
-  const img = new Image();
-  await new Promise((r, e) => {
-    img.onload = r;
-    img.onerror = e;
-    img.src = dataUrl;
-  });
+/* ----------------------------- helpers img ------------------------------ */
+// mantém o readAsDataURL existente se for usado em outro lugar
+const isHeic = (file) =>
+  file &&
+  (/\.(heic|heif)$/i.test(file.name || "") ||
+    /image\/hei(c|f)/i.test(file.type || ""));
 
-  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
+/** Converte HEIC/HEIF para JPEG antes de qualquer processamento */
+async function ensureJpeg(file) {
+  if (!(file instanceof File)) return file;
+  if (!isHeic(file)) return file;
+  try {
+    const blob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+    return new File(
+      [blob],
+      (file.name || "image").replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" }
+    );
+  } catch {
+    // fallback: se falhar a conversão, retorna o original
+    return file;
+  }
+}
+
+/**
+ * Compressão adaptativa visando um teto de bytes.
+ * - Converte HEIC → JPEG (se necessário)
+ * - Redimensiona até máx. 1920x1920
+ * - Ajusta qualidade até atingir targetMaxBytes (sem cair abaixo de minQuality)
+ * - Se ainda ficar grande, reduz dimensões gradualmente
+ * Retorna um File .jpg
+ */
+async function compressImage(
+  file,
+  {
+    maxW = 1920,
+    maxH = 1920,
+    initialQuality = 0.86,
+    minQuality = 0.6,
+    targetMaxBytes = 900 * 1024, // ~900 KB
+    downscaleStep = 0.9, // reduz 10% se necessário
+  } = {}
+) {
+  if (!(file instanceof File)) return file;
+
+  // 1) Converter HEIC → JPEG
+  const base = await ensureJpeg(file);
+
+  // 2) Criar bitmap (com fallback via <img> se necessário)
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(base);
+  } catch {
+    const url = URL.createObjectURL(base);
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        createImageBitmap(img)
+          .then(resolve)
+          .catch(() => resolve(img));
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  // 3) Redimensionar para caber em maxW x maxH
+  let { width, height } = bitmap;
+  let ratio = Math.min(maxW / width, maxH / height, 1);
+  let w = Math.max(1, Math.round(width * ratio));
+  let h = Math.max(1, Math.round(height * ratio));
 
   const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
 
+  // 4) Ajustar qualidade até atingir o alvo
+  let quality = initialQuality;
   let blob = await new Promise((res) =>
-    canvas.toBlob((b) => res(b), "image/webp", quality)
+    canvas.toBlob(res, "image/jpeg", quality)
   );
-  if (!blob) {
+
+  while (blob && blob.size > targetMaxBytes && quality > minQuality + 0.01) {
+    quality = Math.max(minQuality, quality - 0.08);
     blob = await new Promise((res) =>
-      canvas.toBlob((b) => res(b), "image/jpeg", quality)
+      canvas.toBlob(res, "image/jpeg", quality)
     );
   }
-  if (blob && blob.size > 700 * 1024) {
-    const canvas2 = document.createElement("canvas");
-    const factor = 0.85;
-    canvas2.width = Math.round(w * factor);
-    canvas2.height = Math.round(h * factor);
-    const ctx2 = canvas2.getContext("2d");
-    ctx2.drawImage(canvas, 0, 0, canvas2.width, canvas2.height);
+
+  // 5) Se ainda passou do alvo, reduzir dimensões mantendo qualidade mínima
+  while (blob && blob.size > targetMaxBytes && (w > 640 || h > 640)) {
+    w = Math.max(640, Math.round(w * downscaleStep));
+    h = Math.max(640, Math.round(h * downscaleStep));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(bitmap, 0, 0, w, h);
     blob = await new Promise((res) =>
-      canvas2.toBlob((b) => res(b), "image/webp", Math.max(0.45, quality - 0.1))
+      canvas.toBlob(res, "image/jpeg", minQuality)
     );
   }
-  return blob;
+
+  // 6) Retornar como File .jpg
+  if (!blob) return base;
+  return new File(
+    [blob],
+    (base.name || "image").replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
+    { type: "image/jpeg" }
+  );
 }
 
 /* ----------------------- datas p/ vacinas (utils leves) ------------------- */
@@ -446,14 +522,18 @@ export default function PetDetail() {
     ev.target.value = "";
     if (!file) return;
     try {
-      if (!file.type.startsWith("image/")) return;
-      const blob = await fileToCompressedBlob(file);
-      if (!blob) return;
-      const finalFile = new File(
-        [blob],
-        file.name.replace(/\.[^.]+$/, "") + ".webp",
-        { type: blob.type || "image/webp" }
-      );
+      if (
+        !file.type.startsWith("image/") &&
+        !/\.(heic|heif)$/i.test(file.name || "")
+      )
+        return;
+      const finalFile = await compressImage(file, {
+        maxW: 1920,
+        maxH: 1920,
+        initialQuality: 0.86,
+        minQuality: 0.6,
+        targetMaxBytes: 900 * 1024,
+      });
       await uploadAnimalMedias({ animalId, media: finalFile });
       await refetchGallery.current?.();
       toast.success("Imagem adicionada!");
@@ -967,7 +1047,7 @@ export default function PetDetail() {
                         Adicionar mídia
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/*,.heic,.heif"
                           className="hidden"
                           onChange={handleAddMedia}
                         />

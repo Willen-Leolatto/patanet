@@ -464,6 +464,7 @@ export default function Sidebar() {
 
                     {user ? (
                       <button
+                        type="button"
                         onClick={() => {
                           logout();
                           setMOpen(false);
@@ -636,6 +637,7 @@ export default function Sidebar() {
 
               {user ? (
                 <button
+                  type="button"
                   onClick={() => {
                     logout();
                   }}

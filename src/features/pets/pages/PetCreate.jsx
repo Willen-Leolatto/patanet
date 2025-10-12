@@ -7,6 +7,7 @@ import { fetchSpecies } from "@/api/specie.api.js";
 import { fetchBreeds } from "@/api/breed.api.js";
 import { createAnimal } from "@/api/animal.api.js";
 import { useToast } from "@/components/ui/ToastProvider"; // ← toast para validações
+import heic2any from "heic2any";
 
 /* --------------------------------- estilo -------------------------------- */
 const Styles = () => (
@@ -100,6 +101,7 @@ const BreedTile = ({ breed, active, onClick }) => {
 };
 
 /* ----------------------------- helpers img ------------------------------ */
+/* ----------------------------- helpers img ------------------------------ */
 const readAsDataURL = (file) =>
   new Promise((res, rej) => {
     const fr = new FileReader();
@@ -108,45 +110,119 @@ const readAsDataURL = (file) =>
     fr.readAsDataURL(file);
   });
 
-async function compressImage(file, maxSide = 1200, quality = 0.7) {
-  const dataUrl = await readAsDataURL(file);
-  const img = new Image();
-  await new Promise((r, e) => {
-    img.onload = r;
-    img.onerror = e;
-    img.src = dataUrl;
-  });
+const isHeic = (file) =>
+  file &&
+  (/\.(heic|heif)$/i.test(file.name || "") ||
+    /image\/hei(c|f)/i.test(file.type || ""));
 
-  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
+/** Converte HEIC/HEIF para JPEG antes de qualquer processamento */
+async function ensureJpeg(file) {
+  if (!(file instanceof File)) return file;
+  if (!isHeic(file)) return file;
+  try {
+    const blob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+    return new File(
+      [blob],
+      (file.name || "image").replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" }
+    );
+  } catch {
+    // fallback: devolve o original se não conseguir converter
+    return file;
+  }
+}
+
+/**
+ * Compressão adaptativa visando um teto de bytes.
+ * - Converte HEIC → JPEG (se necessário)
+ * - Redimensiona até máx. 1920x1920
+ * - Ajusta qualidade até atingir targetMaxBytes (sem cair abaixo de minQuality)
+ * - Se ainda ficar grande, reduz dimensões gradualmente
+ * Retorna um File .jpg
+ */
+async function compressImage(
+  file,
+  {
+    maxW = 1920,
+    maxH = 1920,
+    initialQuality = 0.86,
+    minQuality = 0.6,
+    targetMaxBytes = 900 * 1024, // ~900 KB
+    downscaleStep = 0.9, // reduz 10% se necessário
+  } = {}
+) {
+  if (!(file instanceof File)) return file;
+
+  // 1) Converter HEIC → JPEG
+  const base = await ensureJpeg(file);
+
+  // 2) Criar bitmap
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(base);
+  } catch {
+    const url = URL.createObjectURL(base);
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        createImageBitmap(img)
+          .then(resolve)
+          .catch(() => resolve(img));
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  // 3) Redimensionar para caber em maxW x maxH
+  let { width, height } = bitmap;
+  let ratio = Math.min(maxW / width, maxH / height, 1);
+  let w = Math.max(1, Math.round(width * ratio));
+  let h = Math.max(1, Math.round(height * ratio));
 
   const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
 
+  // 4) Ajustar qualidade até atingir o alvo
+  let quality = initialQuality;
   let blob = await new Promise((res) =>
-    canvas.toBlob((b) => res(b), "image/webp", quality)
+    canvas.toBlob(res, "image/jpeg", quality)
   );
-  if (!blob) {
+
+  while (blob && blob.size > targetMaxBytes && quality > minQuality + 0.01) {
+    quality = Math.max(minQuality, quality - 0.08);
     blob = await new Promise((res) =>
-      canvas.toBlob((b) => res(b), "image/jpeg", quality)
+      canvas.toBlob(res, "image/jpeg", quality)
     );
   }
-  if (blob && blob.size > 700 * 1024) {
-    const canvas2 = document.createElement("canvas");
-    const factor = 0.9;
-    canvas2.width = Math.round(w * factor);
-    canvas2.height = Math.round(h * factor);
-    const ctx2 = canvas2.getContext("2d");
-    ctx2.drawImage(canvas, 0, 0, canvas2.width, canvas2.height);
+
+  // 5) Se ainda passou do alvo, reduzir dimensões e manter qualidade mínima
+  while (blob && blob.size > targetMaxBytes && (w > 640 || h > 640)) {
+    w = Math.max(640, Math.round(w * downscaleStep));
+    h = Math.max(640, Math.round(h * downscaleStep));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(bitmap, 0, 0, w, h);
     blob = await new Promise((res) =>
-      canvas2.toBlob((b) => res(b), "image/webp", Math.max(0.5, quality - 0.1))
+      canvas.toBlob(res, "image/jpeg", minQuality)
     );
   }
-  return blob;
+
+  // 6) Retornar como File .jpg
+  if (!blob) return base;
+  return new File(
+    [blob],
+    (base.name || "image").replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
+    { type: "image/jpeg" }
+  );
 }
 
 const norm = (s) =>
@@ -278,14 +354,13 @@ export default function PetCreate() {
     e.target.value = "";
     if (!file || !file.type.startsWith("image/")) return;
     try {
-      const blob = await compressImage(file);
-      const finalFile = new File(
-        [blob],
-        file.name.replace(/\.[^.]+$/, "") + ".webp",
-        {
-          type: blob.type || "image/webp",
-        }
-      );
+      const finalFile = await compressImage(file, {
+        maxW: 1920,
+        maxH: 1920,
+        initialQuality: 0.86,
+        minQuality: 0.6,
+        targetMaxBytes: 900 * 1024,
+      });
       setAvatarFile(finalFile);
       setAvatarPreview(URL.createObjectURL(finalFile));
     } catch {
@@ -300,14 +375,13 @@ export default function PetCreate() {
     e.target.value = "";
     if (!file || !file.type.startsWith("image/")) return;
     try {
-      const blob = await compressImage(file);
-      const finalFile = new File(
-        [blob],
-        file.name.replace(/\.[^.]+$/, "") + ".webp",
-        {
-          type: blob.type || "image/webp",
-        }
-      );
+      const finalFile = await compressImage(file, {
+        maxW: 1920,
+        maxH: 1920,
+        initialQuality: 0.86,
+        minQuality: 0.6,
+        targetMaxBytes: 900 * 1024,
+      });
       setCoverFile(finalFile);
       setCoverPreview(URL.createObjectURL(finalFile));
     } catch {
@@ -450,7 +524,7 @@ export default function PetCreate() {
             <input
               ref={avatarInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               className="hidden"
               onChange={onPickAvatar}
             />
@@ -480,7 +554,7 @@ export default function PetCreate() {
             <input
               ref={coverInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif"
               className="hidden"
               onChange={onPickCover}
             />

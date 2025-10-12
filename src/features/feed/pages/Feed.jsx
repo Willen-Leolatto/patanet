@@ -20,6 +20,7 @@ import {
 import FeedComposer from "@/components/FeedComposer";
 import FeedPostActions from "@/components/FeedPostActions";
 import Lightbox from "@/components/Lightbox";
+import heic2any from "heic2any";
 
 import { getMyProfile } from "@/api/user.api.js";
 import {
@@ -36,30 +37,120 @@ import {
 import { fetchAnimalsById } from "@/api/animal.api.js";
 
 /* -------------------- utils: compress image -------------------- */
+/* -------------------- utils: compress + HEIC → JPEG -------------------- */
+const isHeic = (file) =>
+  file &&
+  (/\.(heic|heif)$/i.test(file.name || "") ||
+    /image\/hei(c|f)/i.test(file.type || ""));
+
+/** Converte HEIC/HEIF para JPEG antes de qualquer processamento */
+async function ensureJpeg(file) {
+  if (!(file instanceof File)) return file;
+  if (!isHeic(file)) return file;
+  try {
+    const blob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+    return new File(
+      [blob],
+      (file.name || "image").replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" }
+    );
+  } catch {
+    // fallback: devolve o original se não conseguir converter
+    return file;
+  }
+}
+
+/**
+ * Compressão adaptativa visando um teto de bytes.
+ * - Converte para JPEG
+ * - Redimensiona até máx. 1920x1920
+ * - Ajusta qualidade até atingir targetMaxBytes (sem cair abaixo de minQuality)
+ * - Se ainda ficar grande, reduz dimensões gradualmente
+ */
 async function compressImage(
   file,
-  { maxW = 1600, maxH = 1600, quality = 0.85 } = {}
+  {
+    maxW = 1920,
+    maxH = 1920,
+    initialQuality = 0.86,
+    minQuality = 0.6,
+    targetMaxBytes = 900 * 1024, // ~900 KB (ajuste se quiser mais/menos agressivo)
+    downscaleStep = 0.9, // reduzir 10% caso qualidade mínima não seja suficiente
+  } = {}
 ) {
   if (!(file instanceof File)) return file;
-  const bitmap = await createImageBitmap(file);
+
+  // 1) Converter HEIC → JPEG antes de tudo
+  const base = await ensureJpeg(file);
+
+  // 2) Cria bitmap
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(base);
+  } catch {
+    // Safari/ambiente sem createImageBitmap para certo tipo → tenta ler via <img>
+    const url = URL.createObjectURL(base);
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        resolve(createImageBitmap(img).catch(() => img));
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  // 3) Redimensiona para caber em maxW x maxH
   let { width, height } = bitmap;
-  const ratio = Math.min(maxW / width, maxH / height, 1);
-  const w = Math.round(width * ratio);
-  const h = Math.round(height * ratio);
+  let ratio = Math.min(maxW / width, maxH / height, 1);
+  let w = Math.max(1, Math.round(width * ratio));
+  let h = Math.max(1, Math.round(height * ratio));
 
   const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
   ctx.drawImage(bitmap, 0, 0, w, h);
 
-  const blob = await new Promise((res) =>
+  // 4) Ajuste de qualidade até atingir o alvo
+  let quality = initialQuality;
+  let blob = await new Promise((res) =>
     canvas.toBlob(res, "image/jpeg", quality)
   );
-  if (!blob) return file;
+
+  while (blob && blob.size > targetMaxBytes && quality > minQuality + 0.01) {
+    quality = Math.max(minQuality, quality - 0.08);
+    blob = await new Promise((res) =>
+      canvas.toBlob(res, "image/jpeg", quality)
+    );
+  }
+
+  // 5) Se ainda passou do alvo, reduzir dimensões e repetir qualidade mínima
+  // (evita estouro com imagens muito detalhadas)
+  while (blob && blob.size > targetMaxBytes && (w > 640 || h > 640)) {
+    w = Math.max(640, Math.round(w * downscaleStep));
+    h = Math.max(640, Math.round(h * downscaleStep));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    // Recomeça do minQuality para ser rápido
+    quality = Math.max(minQuality, quality);
+    blob = await new Promise((res) =>
+      canvas.toBlob(res, "image/jpeg", quality)
+    );
+    // se mesmo assim continuar maior, o loop continua reduzindo 10% as dimensões
+  }
+
+  // 6) Retorno como File .jpg
+  if (!blob) return base;
   return new File(
     [blob],
-    file.name.replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
+    (base.name || "image").replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
     { type: "image/jpeg" }
   );
 }
@@ -145,7 +236,9 @@ const normPost = (p) => {
   const imgsFromMedias = Array.isArray(p?.medias)
     ? p.medias.map(mediaUrl).filter(Boolean)
     : [];
-  const imgsFromImages = Array.isArray(p?.images) ? p.images.filter(Boolean) : [];
+  const imgsFromImages = Array.isArray(p?.images)
+    ? p.images.filter(Boolean)
+    : [];
   return {
     id: p?.id ?? String(Math.random()),
     text: p?.text ?? p?.subtitle ?? "",
@@ -159,7 +252,9 @@ const normPost = (p) => {
     taggedPets: Array.isArray(p?.pets)
       ? p.pets.map((x) => (typeof x === "object" ? String(x?.id) : String(x)))
       : [],
-    petTags: Array.isArray(p?.pets) ? p.pets.map(normPetTag).filter(Boolean) : [],
+    petTags: Array.isArray(p?.pets)
+      ? p.pets.map(normPetTag).filter(Boolean)
+      : [],
   };
 };
 
@@ -212,13 +307,24 @@ function EditPostModal({ open, post, onClose, onSave }) {
     e.target.value = ""; // reset
     if (!files.length) return;
 
-    // compress + previews
     const compressed = [];
     const previews = [];
+
     for (const f of files) {
-      const c = await compressImage(f);
+      // 1) HEIC→JPEG (se necessário) + 2) compressão adaptativa
+      const c = await compressImage(f, {
+        maxW: 1920,
+        maxH: 1920,
+        initialQuality: 0.86,
+        minQuality: 0.6,
+        targetMaxBytes: 900 * 1024, // ajuste se quiser mais agressivo
+      });
+
       compressed.push(c);
-      previews.push(await fileToDataURL(c));
+
+      // Preview
+      const preview = await fileToDataURL(c);
+      previews.push(preview);
     }
 
     setFilesNew((curr) => [...curr, ...compressed]);
@@ -318,9 +424,11 @@ function StatsModal({ open, post, onClose }) {
   const commenters = (() => {
     const uniq = new Map();
     (post.comments || []).forEach((c) => {
-      if (c?.author?.id && !uniq.has(c.author.id)) uniq.set(c.author.id, c.author);
+      if (c?.author?.id && !uniq.has(c.author.id))
+        uniq.set(c.author.id, c.author);
       (c.replies || []).forEach((r) => {
-        if (r?.author?.id && !uniq.has(r.author.id)) uniq.set(r.author.id, r.author);
+        if (r?.author?.id && !uniq.has(r.author.id))
+          uniq.set(r.author.id, r.author);
       });
     });
     return Array.from(uniq.values());
@@ -335,7 +443,7 @@ function StatsModal({ open, post, onClose }) {
             <BarChart3 className="h-5 w-5" />
             <h3 className="text-lg font-semibold">Estatísticas da postagem</h3>
           </div>
-        <button
+          <button
             className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             onClick={onClose}
             aria-label="Fechar"
@@ -366,21 +474,32 @@ function StatsModal({ open, post, onClose }) {
             </div>
             <ul className="max-h-64 overflow-auto p-2">
               {likes.length === 0 && (
-                <li className="p-2 text-sm text-zinc-500">Nenhuma curtida ainda.</li>
+                <li className="p-2 text-sm text-zinc-500">
+                  Nenhuma curtida ainda.
+                </li>
               )}
               {likes.map((u) => (
                 <li
                   key={u.id || u.email}
                   className="flex items-center gap-2 rounded-md p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
                 >
-                  <Link to={`/usuario/${u.id || u.username || ""}`} className="flex items-center gap-2">
-                    <AvatarCircle src={u.avatar || ""} alt={u.username || u.name || u.email} size={28} />
+                  <Link
+                    to={`/usuario/${u.id || u.username || ""}`}
+                    className="flex items-center gap-2"
+                  >
+                    <AvatarCircle
+                      src={u.avatar || ""}
+                      alt={u.username || u.name || u.email}
+                      size={28}
+                    />
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">
                         {u.username || u.name || u.email || "Usuário"}
                       </div>
                       {u.name && u.username && (
-                        <div className="truncate text-xs text-zinc-500">@{u.username}</div>
+                        <div className="truncate text-xs text-zinc-500">
+                          @{u.username}
+                        </div>
                       )}
                     </div>
                   </Link>
@@ -404,14 +523,23 @@ function StatsModal({ open, post, onClose }) {
                   key={u.id || u.email}
                   className="flex items-center gap-2 rounded-md p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
                 >
-                  <Link to={`/usuario/${u.id || u.username || ""}`} className="flex items-center gap-2">
-                    <AvatarCircle src={u.avatar || ""} alt={u.username || u.name || u.email} size={28} />
+                  <Link
+                    to={`/usuario/${u.id || u.username || ""}`}
+                    className="flex items-center gap-2"
+                  >
+                    <AvatarCircle
+                      src={u.avatar || ""}
+                      alt={u.username || u.name || u.email}
+                      size={28}
+                    />
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">
                         {u.username || u.name || u.email || "Usuário"}
                       </div>
                       {u.name && u.username && (
-                        <div className="truncate text-xs text-zinc-500">@{u.username}</div>
+                        <div className="truncate text-xs text-zinc-500">
+                          @{u.username}
+                        </div>
                       )}
                     </div>
                   </Link>
@@ -656,7 +784,16 @@ export default function Feed() {
           const already = (p.likes || []).some((l) => l.id === me?.id);
           const likes = already
             ? p.likes.filter((l) => l.id !== me?.id)
-            : [...p.likes, { id: me?.id, avatar: me?.image || me?.avatar || "", username: me?.username, name: me?.name, email: me?.email }];
+            : [
+                ...p.likes,
+                {
+                  id: me?.id,
+                  avatar: me?.image || me?.avatar || "",
+                  username: me?.username,
+                  name: me?.name,
+                  email: me?.email,
+                },
+              ];
           return { ...p, likes };
         })
       );
@@ -1256,7 +1393,9 @@ function CommentsBlock({
                     {user && (
                       <button
                         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
-                        onClick={() => setReplyOpen((m) => ({ ...m, [c.id]: !m[c.id] }))}
+                        onClick={() =>
+                          setReplyOpen((m) => ({ ...m, [c.id]: !m[c.id] }))
+                        }
                       >
                         <CornerUpRight className="h-3.5 w-3.5" /> Responder
                       </button>
@@ -1334,7 +1473,8 @@ function CommentsBlock({
                     <ul className="mt-2 space-y-2 pl-6">
                       {c.replies.map((r) => {
                         const isMineR = user && user.id === r.author?.id;
-                        const isEditingR = editing?.id === r.id && editing?.isReply;
+                        const isEditingR =
+                          editing?.id === r.id && editing?.isReply;
                         return (
                           <li key={r.id}>
                             <div className="flex items-start gap-2">
@@ -1342,12 +1482,18 @@ function CommentsBlock({
                                 to={`/usuario/${r.author?.id}`}
                                 className="shrink-0"
                                 title={`Ver perfil de ${
-                                  r.author?.username || r.author?.name || "usuário"
+                                  r.author?.username ||
+                                  r.author?.name ||
+                                  "usuário"
                                 }`}
                               >
                                 <AvatarCircle
                                   src={r.author?.avatar || ""}
-                                  alt={r.author?.username || r.author?.name || r.author?.email}
+                                  alt={
+                                    r.author?.username ||
+                                    r.author?.name ||
+                                    r.author?.email
+                                  }
                                   size={28}
                                 />
                               </Link>
@@ -1357,30 +1503,44 @@ function CommentsBlock({
                                     to={`/usuario/${r.author?.id}`}
                                     className="font-medium text-zinc-700 hover:opacity-90 dark:text-zinc-300"
                                     title={`Ver perfil de ${
-                                      r.author?.username || r.author?.name || "usuário"
+                                      r.author?.username ||
+                                      r.author?.name ||
+                                      "usuário"
                                     }`}
                                   >
-                                    {r.author?.username || r.author?.name || r.author?.email}
+                                    {r.author?.username ||
+                                      r.author?.name ||
+                                      r.author?.email}
                                   </Link>{" "}
-                                  · {new Date(r.createdAt).toLocaleString?.() || ""}{" "}
-                                  {(r.updatedAt || 0) > (r.createdAt || 0) && <span>(editado)</span>}
+                                  ·{" "}
+                                  {new Date(r.createdAt).toLocaleString?.() ||
+                                    ""}{" "}
+                                  {(r.updatedAt || 0) > (r.createdAt || 0) && (
+                                    <span>(editado)</span>
+                                  )}
                                 </div>
 
                                 {!isEditingR ? (
-                                  <div className="whitespace-pre-wrap">{r.text}</div>
+                                  <div className="whitespace-pre-wrap">
+                                    {r.text}
+                                  </div>
                                 ) : (
                                   <div className="mt-1">
                                     <textarea
                                       className="w-full rounded-lg border border-zinc-300 bg-white/80 p-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900/60"
                                       rows={2}
                                       value={editingText}
-                                      onChange={(e) => setEditingText(e.target.value)}
+                                      onChange={(e) =>
+                                        setEditingText(e.target.value)
+                                      }
                                     />
                                     <div className="mt-1 flex gap-2">
                                       <button
                                         className="inline-flex items-center gap-1 rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
                                         onClick={() => {
-                                          const t = String(editingText || "").trim();
+                                          const t = String(
+                                            editingText || ""
+                                          ).trim();
                                           if (!t) return;
                                           onEditComment?.(r.id, t, true);
                                           setEditing(null);
@@ -1415,7 +1575,9 @@ function CommentsBlock({
                                     </button>
                                     <button
                                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                                      onClick={() => onDeleteComment?.(r.id, true, c.id)}
+                                      onClick={() =>
+                                        onDeleteComment?.(r.id, true, c.id)
+                                      }
                                     >
                                       Remover
                                     </button>
