@@ -72,21 +72,30 @@ export default function Lightbox({
       slides={lbSlides}
       plugins={[Captions, Zoom]}
       // Animações e comportamento
-      animation={{ fade: 280, swipe: 380 }}
-      carousel={{ finite: false }}
+      animation={{ fade: 200, swipe: 400, zoom: 320 }}
+      carousel={{ finite: true }}
       controller={{ closeOnBackdropClick: true }}
       on={{ view: ({ index: i }) => onIndexChange?.(i) }}
       // Config do Zoom (desktop: roda do mouse; mobile: pinch/duplo toque)
       zoom={{
-        maxZoomPixelRatio: 3.2,
-        zoomInMultiplier: 1.5,
-        doubleTapDelay: 260,
-        doubleClickDelay: 260,
-        doubleClickMaxStops: 2,
-        keyboardMoveDistance: 50,
-        wheelZoomDistanceFactor: 180,
-        pinchZoomDistanceFactor: 2,
-        scrollToZoom: true,
+        // limites e “passos” do zoom para suavizar
+        maxZoomPixelRatio: 2.5, // limita o zoom máximo (evita “pulo”)
+        zoomInMultiplier: 1.3, // antes era ~2; menor = passos mais curtos
+
+        // mouse wheel: menos sensível e com passos menores
+        wheelZoomSpeed: 0.08, // padrão ~0.1–0.2 (reduz para suavizar)
+        wheelZoomDistanceFactor: 110, // maior = precisa “rolar” mais para o mesmo zoom
+
+        // pinch (mobile): mais suave ao juntar/dedilhar
+        pinchZoomDistanceFactor: 140, // maior = menos sensível, mais controle
+
+        // duplo toque/clique: não “teletransporta” pro máximo
+        doubleTapDelay: 300,
+        doubleClickDelay: 300,
+        doubleClickMaxStops: 2, // no máx. 2 “degraus” por duplo clique
+
+        // evita scroll da página virar zoom em desktop (mais previsível)
+        scrollToZoom: false,
       }}
       // Barra de ações personalizada (mantida)
       render={{
@@ -129,7 +138,7 @@ export default function Lightbox({
                            bg-slate-900/85 backdrop-blur px-3 py-2"
                 style={{ zIndex: 1000000000 }}
               >
-                <span className="text-slate-200 text-sm max-w-[40vw] truncate">
+                <span className="text-slate-200 text-sm max-w-[40vw] truncate overflow-auto">
                   {current.title || ""}
                 </span>
                 <div className="w-px h-5 bg-slate-700 mx-2" />

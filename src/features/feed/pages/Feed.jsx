@@ -612,6 +612,7 @@ export default function Feed() {
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(false);
+  const likePendingRef = useRef(new Set());
 
   const sentinelRef = useRef(null);
   const loadingRef = useRef(false);
@@ -778,48 +779,66 @@ export default function Feed() {
   // like
   const handleToggleLike = useCallback(
     async (postId) => {
+      if (!me?.id) return;
+
+      // evita duplo clique / múltiplas requisições concorrentes
+      if (likePendingRef.current.has(postId)) return;
+      likePendingRef.current.add(postId);
+
+      // Descobre se já era curtido ANTES do otimista e já aplica o otimista
+      let wasLiked = false;
       setPosts((curr) =>
         curr.map((p) => {
           if (p.id !== postId) return p;
-          const already = (p.likes || []).some((l) => l.id === me?.id);
-          const likes = already
-            ? p.likes.filter((l) => l.id !== me?.id)
+          wasLiked = (p.likes || []).some((l) => l.id === me.id);
+          const likes = wasLiked
+            ? p.likes.filter((l) => l.id !== me.id)
             : [
                 ...p.likes,
                 {
-                  id: me?.id,
-                  avatar: me?.image || me?.avatar || "",
-                  username: me?.username,
-                  name: me?.name,
-                  email: me?.email,
+                  id: me.id,
+                  avatar: me.image || me.avatar || "",
+                  username: me.username,
+                  name: me.name,
+                  email: me.email,
                 },
               ];
           return { ...p, likes };
         })
       );
+
       try {
-        const target = posts.find((p) => p.id === postId);
-        const already = (target?.likes || []).some((l) => l.id === me?.id);
-        if (already) {
+        // Chama a API com base no estado ANTERIOR (wasLiked)
+        if (wasLiked) {
           await removeLikePost({ postId });
         } else {
           await addLikePost({ postId });
         }
-      } catch {
-        // rollback simples
+      } catch (err) {
+        // Rollback exato (reverte o otimista)
         setPosts((curr) =>
           curr.map((p) => {
             if (p.id !== postId) return p;
-            const already = (p.likes || []).some((l) => l.id === me?.id);
-            const likes = already
-              ? p.likes.filter((l) => l.id !== me?.id)
-              : [...p.likes, { id: me?.id }];
+            const likes = wasLiked
+              ? [
+                  ...p.likes,
+                  {
+                    id: me.id,
+                    avatar: me.image || me.avatar || "",
+                    username: me.username,
+                    name: me.name,
+                    email: me.email,
+                  },
+                ]
+              : p.likes.filter((l) => l.id !== me.id);
             return { ...p, likes };
           })
         );
+      } finally {
+        likePendingRef.current.delete(postId);
       }
     },
-    [me?.id, me?.image, me?.avatar, me?.username, me?.name, me?.email, posts]
+    [me?.id, me?.image, me?.avatar, me?.username, me?.name, me?.email]
   );
 
   // comentar novo
