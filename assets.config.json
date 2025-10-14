@@ -1,0 +1,12 @@
+{
+  "platforms": {
+    "android": {
+      "icon": { "source": "assets/icon.png" },
+      "splash": {
+        "source": "assets/splash.png",
+        "backgroundColor": "#0B0F14",
+        "imageDensity": "DEFAULT"
+      }
+    }
+  }
+}

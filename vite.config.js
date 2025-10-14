@@ -14,7 +14,7 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       devOptions: { enabled: true, type: "module" },
-      includeAssets: ["favicon.ico", "robots.txt", "apple-touch-icon.png"],
+      includeAssets: ["favicon.png", "robots.txt", "apple-touch-icon.png"],
       manifest: {
         name: "PataNet",
         short_name: "PataNet",
@@ -75,6 +75,8 @@ export default defineConfig({
       "@features": path.resolve(__dirname, "src/features"),
       "@components": path.resolve(__dirname, "src/components"),
       "@layouts": path.resolve(__dirname, "src/layouts"),
+      "@assets": path.resolve(__dirname, "src/assets"),
     },
   },
+  base: './'
 });

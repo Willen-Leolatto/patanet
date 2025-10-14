@@ -1,77 +1,70 @@
-import React, { Suspense, lazy } from 'react'
-import { createBrowserRouter, createRoutesFromElements, Route } from 'react-router-dom'
+// src/routes.jsx
+import React, { Suspense, lazy } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-// Layouts
-import FeedLayout from '@layouts/FeedLayout.jsx'
-import DashboardLayout from '@layouts/DashboardLayout.jsx'
+import AppShell from "@/layouts/AppShell";
 
-// Lazy pages por feature (code-splitting)
-const Feed = lazy(() => import('@features/feed/pages/Feed.jsx'))
-const Login = lazy(() => import('@features/auth/pages/Login.jsx'))
+// Auth / sessão
+const Login = lazy(() => import("@/features/auth/pages/Login"));
 
-const DashboardHome = lazy(() => import('@features/dashboard/pages/DashboardHome.jsx'))
-const Settings = lazy(() => import('@features/dashboard/pages/Settings.jsx'))
+// Feed
+const Feed = lazy(() => import("@/features/feed/pages/Feed"));
 
-const Photos = lazy(() => import('@features/photos/pages/Fotos.jsx'))
-const PhotoCreate = lazy(() => import('@features/photos/pages/FotoCreate.jsx'))
+// Pets
+const PetList = lazy(() => import("@/features/pets/pages/PetList"));
+const PetCreate = lazy(() => import("@/features/pets/pages/PetCreate"));
+const PetDetail = lazy(() => import("@/features/pets/pages/PetDetail"));
+const PetEdit = lazy(() => import("@/features/pets/pages/PetEdit"));
 
-const Family = lazy(() => import('@features/family/pages/Family.jsx'))
-const FamilyInvite = lazy(() => import('@features/family/pages/FamilyInvite.jsx'))
+// Usuários
+const UserProfile = lazy(() => import("@/features/users/pages/UserProfile"));
+const UserEdit = lazy(() => import("@/features/users/pages/UserEdit")); // ⬅️ NOVO
+const UsersList = lazy(() => import("@/features/users/pages/UsersList")); // ⬅️ NOVO
 
-const Pets = lazy(() => import('@features/pets/pages/Pets.jsx'))
-const PetCreate = lazy(() => import('@features/pets/pages/PetCreate.jsx'))
-const PetDetail = lazy(() => import('@features/pets/pages/PetDetail.jsx'))
-const PetEdit = lazy(() => import('@features/pets/pages/PetEdit.jsx'))
+function Loader() {
+  return (
+    <div className="min-h-dvh grid place-items-center text-sm text-zinc-500 dark:text-zinc-400">
+      Carregando…
+    </div>
+  );
+}
 
-const Vacinas = lazy(() => import('@features/vaccines/pages/Vacinas.jsx'))
-const VacinaCreate = lazy(() => import('@features/vaccines/pages/VacinaCreate.jsx'))
-const VacinaDetail = lazy(() => import('@features/vaccines/pages/VacinaDetail.jsx'))
-const VacinaEdit = lazy(() => import('@features/vaccines/pages/VacinaEdit.jsx'))
+export default function AppRoutes() {
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<Loader />}>
+        <Routes>
+          {/* Rotas públicas de autenticação */}
+          <Route path="/auth" element={<Login />} />
 
-import NotFound from './pages/NotFound.jsx'
-import ProtectedRoute from '@components/ProtectedRoute.jsx'
+          {/* AppShell gerencia layout + proteção internamente */}
+          <Route element={<AppShell />}>
+            {/* Home -> feed */}
+            <Route index element={<Navigate to="/feed" replace />} />
 
-const withSuspense = (el) => <Suspense fallback={null}>{el}</Suspense>
+            {/* Feed */}
+            <Route path="/feed" element={<Feed />} />
 
-export const router = createBrowserRouter(
-  createRoutesFromElements(
-    <>
-      <Route path="/" element={<FeedLayout />}>
-        <Route index element={withSuspense(<Feed />)} />
-        <Route path="feed" element={withSuspense(<Feed />)} />
-      </Route>
+            {/* Pets */}
+            <Route path="/pets" element={<PetList />} />
+            <Route path="/pets/novo" element={<PetCreate />} />
+            <Route path="/pets/:id" element={<PetDetail />} />
+            <Route path="/pets/:id/editar" element={<PetEdit />} />
 
-      <Route path="/login" element={withSuspense(<Login />)} />
+            {/* Perfil do usuário (próprio) */}
+            <Route path="/perfil" element={<UserProfile />} />
+            {/* ⬇️ NOVA ROTA: editar perfil */}
+            <Route path="/perfil/editar" element={<UserEdit />} />
 
-      <Route
-        element={
-          <ProtectedRoute>
-            <DashboardLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/dashboard" element={withSuspense(<DashboardHome />)} />
+            {/* Perfil de outro usuário (caso exista esse fluxo) */}
+            <Route path="/usuario/:userId" element={<UserProfile />} />
+            <Route path="/usuarios" element={<UsersList />} />
 
-        <Route path="/dashboard/pets" element={withSuspense(<Pets />)} />
-        <Route path="/dashboard/pets/novo" element={withSuspense(<PetCreate />)} />
-        <Route path="/dashboard/pets/:id" element={withSuspense(<PetDetail />)} />
-        <Route path="/dashboard/pets/:id/editar" element={withSuspense(<PetEdit />)} />
-
-        <Route path="/dashboard/vacinas" element={withSuspense(<Vacinas />)} />
-        <Route path="/dashboard/vacinas/nova" element={withSuspense(<VacinaCreate />)} />
-        <Route path="/dashboard/vacinas/:id" element={withSuspense(<VacinaDetail />)} />
-        <Route path="/dashboard/vacinas/:id/editar" element={withSuspense(<VacinaEdit />)} />
-
-        <Route path="/dashboard/fotos" element={withSuspense(<Photos />)} />
-        <Route path="/dashboard/fotos/nova" element={withSuspense(<PhotoCreate />)} />
-
-        <Route path="/dashboard/familia" element={withSuspense(<Family />)} />
-        <Route path="/dashboard/familia/novo" element={withSuspense(<FamilyInvite />)} />
-
-        <Route path="/dashboard/configuracoes" element={withSuspense(<Settings />)} />
-      </Route>
-
-      <Route path="*" element={<NotFound />} />
-    </>
-  )
-)
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/feed" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}

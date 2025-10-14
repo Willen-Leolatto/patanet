@@ -1,148 +1,162 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { X, ChevronLeft, ChevronRight, Share2, Download } from 'lucide-react'
+// src/components/Lightbox.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import YaLightbox from "yet-another-react-lightbox";
+import Captions from "yet-another-react-lightbox/plugins/captions";
+import Zoom from "yet-another-react-lightbox/plugins/zoom";
+import "yet-another-react-lightbox/styles.css";
+import "yet-another-react-lightbox/plugins/captions.css";
 
-function dataUrlToFile(dataUrl, filename = 'patanet-foto.jpg') {
-  const [head, body] = (dataUrl || '').split(',')
-  const mime = (head && head.match(/:(.*?);/) || [,'image/jpeg'])[1]
-  const bin = atob(body || '')
-  const u8 = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i)
-  return new File([u8], filename, { type: mime })
-}
+// 👇 importado do AppShell
+import { registerBackHandler } from "@/layouts/AppShell";
 
-export default function Lightbox({ photos, index, onClose, onPrev, onNext, getPetName }) {
-  const i = typeof index === 'number' ? index : -1
-  const list = Array.isArray(photos) ? photos : []
-  const curr = i >= 0 ? list[i] : null
-  const srcCurr = curr ? (curr.imageSrc || curr.src) : null
+/**
+ * slides: [{ id, url|src, title|description }]
+ * open, index, onClose, onIndexChange
+ * onSetCover(item), onEditTitle(item), onRemove(item)
+ */
+export default function Lightbox({
+  slides = [],
+  assets = [],
+  open = false,
+  index = 0,
+  onClose,
+  onIndexChange,
+  onSetCover,
+  onEditTitle,
+  onRemove,
+}) {
+  // Map para o formato exigido pela lib
+  const lbSlides = useMemo(() => {
+    const base = slides?.length ? slides : assets || [];
+    return base
+      .map((s) => ({
+        src: s.src ?? s.url,
+        description: s.description ?? s.title ?? s.caption ?? "",
+        alt: s.alt ?? s.title ?? "",
+        id: s.id ?? s.src ?? s.url,
+        title: s.title ?? s.description ?? "",
+      }))
+      .filter((s) => !!s.src);
+  }, [slides, assets]);
 
-  const closeBtnRef = useRef(null)
-
-  // crossfade com preload
-  const DURATION = 250
-  const [activeSrc, setActiveSrc] = useState(srcCurr)
-  const [prevSrc, setPrevSrc] = useState(null)
-  const [activeOpacity, setActiveOpacity] = useState(1)
-  const [prevOpacity, setPrevOpacity] = useState(0)
-
+  // Dica de zoom para dispositivos touch (some depois de alguns segundos)
+  const [showHint, setShowHint] = useState(false);
   useEffect(() => {
-    if (!srcCurr) return
-    if (srcCurr === activeSrc) return
-
-    setPrevSrc(activeSrc)
-    setPrevOpacity(1)
-    setActiveOpacity(0)
-
-    // pré-carrega a nova antes de animar
-    const img = new Image()
-    img.onload = () => {
-      setActiveSrc(srcCurr)
-      requestAnimationFrame(() => {
-        setPrevOpacity(0)
-        setActiveOpacity(1)
-      })
-      setTimeout(() => setPrevSrc(null), DURATION + 40)
+    const isTouch =
+      typeof window !== "undefined" &&
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+    if (open && isTouch) {
+      setShowHint(true);
+      const t = setTimeout(() => setShowHint(false), 3000);
+      return () => clearTimeout(t);
+    } else {
+      setShowHint(false);
     }
-    img.src = srcCurr
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [i, srcCurr])
+  }, [open]);
 
+  // 👇 registra um handler de back enquanto o lightbox está aberto
   useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const t = setTimeout(() => closeBtnRef.current?.focus(), 0)
-    return () => { document.body.style.overflow = prev; clearTimeout(t) }
-  }, [])
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose()
-      else if (e.key === 'ArrowLeft') onPrev()
-      else if (e.key === 'ArrowRight') onNext()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, onPrev, onNext])
-
-  if (!curr || !activeSrc) return null
-
-  const ids = Array.isArray(curr.petIds) && curr.petIds.length ? curr.petIds : (curr.petId != null ? [curr.petId] : [])
-  const petNames = ids.map(pid => getPetName ? (getPetName(pid) || '—') : '—').join(', ')
-  const stop = (e)=>e.stopPropagation()
-
-  async function handleShare(e) {
-    stop(e)
-    try {
-      const file = dataUrlToFile(activeSrc)
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'PataNet', text: curr.caption || '' })
-      } else if (navigator.share) {
-        await navigator.share({ title: 'PataNet', text: curr.caption || '' })
-      } else {
-        handleDownload(e)
-      }
-    } catch { handleDownload(e) }
-  }
-
-  function handleDownload(e) {
-    stop(e)
-    const a = document.createElement('a')
-    a.href = activeSrc
-    a.download = 'patanet-foto.jpg'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-  }
+    if (!open) return;
+    const unregister = registerBackHandler(() => {
+      onClose?.();
+      return true; // tratou o back
+    });
+    return unregister;
+  }, [open, onClose]);
 
   return (
-    <div className="fixed inset-0 z-[1200] bg-black/90 text-white" onClick={onClose}>
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-2 p-3" onClick={stop}>
-        <div className="min-w-0 px-1">
-          <div className="truncate text-xs opacity-80">{petNames || '—'}</div>
-          <div className="truncate text-base font-medium">{curr.caption || 'Sem legenda'}</div>
-        </div>
-        <div className="flex gap-2">
-          <button type="button" onClick={handleShare} className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 focus:outline-none">
-            <span className="inline-flex items-center gap-2"><Share2 className="h-4 w-4" /> Compartilhar</span>
-          </button>
-          <button type="button" onClick={handleDownload} className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 focus:outline-none">
-            <span className="inline-flex items-center gap-2"><Download className="h-4 w-4" /> Baixar</span>
-          </button>
-          <button type="button" ref={closeBtnRef} onClick={(e)=>{e.stopPropagation(); onClose()}} className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 focus:outline-none">
-            <span className="inline-flex items-center gap-2"><X className="h-4 w-4" /> Fechar</span>
-          </button>
-        </div>
-      </div>
+    <YaLightbox
+      open={open}
+      index={index}
+      close={onClose}
+      slides={lbSlides}
+      plugins={[Captions, Zoom]}
+      // Animações e comportamento
+      animation={{ fade: 200, swipe: 400, zoom: 320 }}
+      carousel={{ finite: true }}
+      controller={{ closeOnBackdropClick: true }}
+      on={{ view: ({ index: i }) => onIndexChange?.(i) }}
+      // Config do Zoom (desktop: roda do mouse; mobile: pinch/duplo toque)
+      zoom={{
+        // limites e “passos” do zoom para suavizar
+        maxZoomPixelRatio: 2.5, // limita o zoom máximo (evita “pulo”)
+        zoomInMultiplier: 1.3, // antes era ~2; menor = passos mais curtos
 
-      <div className="absolute inset-0 z-10 flex items-center justify-center p-6" onClick={stop}>
-        {prevSrc && (
-          <img
-            src={prevSrc}
-            alt=""
-            className="pointer-events-none absolute max-h-full max-w-full select-none rounded-lg shadow-2xl transition-opacity"
-            style={{ opacity: prevOpacity, transitionDuration: `${DURATION}ms`, willChange: 'opacity' }}
-            draggable={false}
-          />
-        )}
-        <img
-          src={activeSrc}
-          alt={curr.caption || petNames || 'Foto'}
-          className="max-h-full max-w-full select-none rounded-lg shadow-2xl transition-opacity"
-          style={{ opacity: activeOpacity, transitionDuration: `${DURATION}ms`, willChange: 'opacity' }}
-          draggable={false}
-        />
-      </div>
+        // mouse wheel: menos sensível e com passos menores
+        wheelZoomSpeed: 0.08, // padrão ~0.1–0.2 (reduz para suavizar)
+        wheelZoomDistanceFactor: 110, // maior = precisa “rolar” mais para o mesmo zoom
 
-      {list.length > 1 && (
-        <>
-          <button type="button" onClick={(e)=>{e.stopPropagation(); onPrev()}} className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/10 p-3 hover:bg-white/20 focus:outline-none" aria-label="Anterior">
-            <ChevronLeft className="h-6 w-6" />
-          </button>
-          <button type="button" onClick={(e)=>{e.stopPropagation(); onNext()}} className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-white/10 p-3 hover:bg-white/20 focus:outline-none" aria-label="Próxima">
-            <ChevronRight className="h-6 w-6" />
-          </button>
-        </>
-      )}
-    </div>
-  )
+        // pinch (mobile): mais suave ao juntar/dedilhar
+        pinchZoomDistanceFactor: 140, // maior = menos sensível, mais controle
+
+        // duplo toque/clique: não “teletransporta” pro máximo
+        doubleTapDelay: 300,
+        doubleClickDelay: 300,
+        doubleClickMaxStops: 2, // no máx. 2 “degraus” por duplo clique
+
+        // evita scroll da página virar zoom em desktop (mais previsível)
+        scrollToZoom: false,
+      }}
+      // Barra de ações personalizada (mantida)
+      render={{
+        toolbar: ({ index: i }) => {
+          const current = lbSlides[i];
+          if (!current) return null;
+
+          const Btn = ({ children, onClick, variant = "neutral" }) => {
+            const base =
+              "px-3 py-1.5 rounded-md text-sm font-medium border transition-colors";
+            const styles =
+              variant === "danger"
+                ? "bg-red-600/90 border-red-500 text-white hover:bg-red-600"
+                : variant === "primary"
+                ? "bg-amber-600/95 border-amber-500 text-white hover:bg-amber-600"
+                : "bg-slate-800/80 border-slate-700 text-slate-100 hover:bg-slate-800";
+            return (
+              <button onClick={onClick} className={`${base} ${styles}`}>
+                {children}
+              </button>
+            );
+          };
+
+          return (
+            <>
+              {/* Dica de zoom para mobile */}
+              {showHint && (
+                <div
+                  className="pointer-events-none fixed top-5 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-xs text-white backdrop-blur"
+                  style={{ zIndex: 1000000001 }}
+                >
+                  Toque duplo ou “pinça” para dar zoom
+                </div>
+              )}
+
+              {/* Barra de ações */}
+              <div
+                className="pointer-events-auto fixed left-1/2 -translate-x-1/2 bottom-6
+                           flex items-center gap-2 rounded-xl border border-slate-700
+                           bg-slate-900/85 backdrop-blur px-3 py-2"
+                style={{ zIndex: 1000000000 }}
+              >
+                <span className="text-slate-200 text-sm max-w-[40vw] truncate overflow-auto">
+                  {current.title || ""}
+                </span>
+                <div className="w-px h-5 bg-slate-700 mx-2" />
+                <Btn variant="primary" onClick={() => onSetCover?.(slides[i])}>
+                  ⭐ Capa
+                </Btn>
+                <Btn onClick={() => onEditTitle?.(slides[i])}>✏️ Título</Btn>
+                <Btn variant="danger" onClick={() => onRemove?.(slides[i])}>
+                  🗑️ Remover
+                </Btn>
+              </div>
+            </>
+          );
+        },
+      }}
+      styles={{
+        container: { backgroundColor: "rgba(0,0,0,0.85)" },
+      }}
+    />
+  );
 }

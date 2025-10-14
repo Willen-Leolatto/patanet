@@ -1,226 +1,822 @@
-import React, { useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
-import PageHeader from "../../../components/PageHeader";
-import FormCard from "../../../components/forms/FormCard";
-import { getPetById, updatePet } from "../services/petsStorage";
-import { useToast } from "../../../components/ui/ToastProvider";
+// src/features/pets/pages/PetEdit.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 
-const PetSchema = z.object({
-  name: z.string().min(2, "Informe ao menos 2 caracteres"),
-  species: z.enum(["dog", "cat", "other"]),
-  breed: z.string().trim().optional(),
-  sex: z.enum(["m", "f"]),
-  birthDate: z
-    .string()
-    .nonempty("Informe a data")
-    .refine((s) => !Number.isNaN(new Date(s).getTime()), "Data inválida"),
-  weightKg: z
-    .number({ invalid_type_error: "Peso inválido" })
-    .min(0, "Peso inválido")
-    .max(200, "Peso exagerado")
-    .optional(),
-  notes: z.string().max(500, "Máx. 500 caracteres").optional(),
-  photo: z.any().optional(),
-});
+// APIs
+import { fetchAnimalsById, updateAnimal } from "@/api/animal.api.js";
+import { fetchSpecies } from "@/api/specie.api.js";
+import { fetchBreeds } from "@/api/breed.api.js";
 
-const fileToDataURL = (file) =>
-  new Promise((resolve) => {
-    if (!file) return resolve(undefined);
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.readAsDataURL(file);
+/* ------------------------------ helpers base ----------------------------- */
+const norm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const isoToYMD = (s) => {
+  if (!s) return "";
+  const str = String(s).trim();
+  const datePart = str.includes("T") ? str.split("T")[0] : str;
+  const [y, m, d] = datePart.split("-");
+  if (!y || !m || !d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+};
+
+// enums API ⇄ UI
+const genderIn = (g) => (String(g).toUpperCase() === "MALE" ? "macho" : "fêmea");
+const genderOut = (g) => (g === "macho" ? "MALE" : "FEMALE");
+
+const sizeIn = (s) => {
+  const v = String(s).toUpperCase();
+  if (v === "SMALL") return "pequeno";
+  if (v === "LARGE") return "grande";
+  return "médio";
+};
+const sizeOut = (s) => {
+  if (s === "pequeno") return "SMALL";
+  if (s === "grande") return "LARGE";
+  return "MEDIUM";
+};
+
+const sizeHuman = (enumVal) => {
+  const v = String(enumVal || "").toUpperCase();
+  if (v === "SMALL") return "Pequeno";
+  if (v === "LARGE") return "Grande";
+  if (v === "MEDIUM") return "Médio";
+  // tentativa com labels alternativos
+  if (v === "PEQUENO") return "Pequeno";
+  if (v === "GRANDE") return "Grande";
+  if (v === "MÉDIO" || v === "MEDIO") return "Médio";
+  return "—";
+};
+
+/* --------------------------------- estilo -------------------------------- */
+const Styles = () => (
+  <style>{`
+    .pe-pill[data-active="true"]{
+      box-shadow: 0 0 0 6px rgba(255,147,62,.28), 0 6px 18px rgba(255,147,62,.30);
+    }
+    .pe-range{ -webkit-appearance:none; width:100%; height:6px; border-radius:9999px;
+      background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5)); outline:none }
+    .pe-range::-webkit-slider-thumb{ -webkit-appearance:none; height:22px; width:22px; border-radius:50%;
+      background:#fff; border:none; cursor:pointer;
+      box-shadow:0 2px 8px rgba(0,0,0,.25), 0 0 0 3px rgba(255,147,62,.55) }
+    .dark .pe-range::-webkit-slider-thumb{ background:#0a0a0a;
+      box-shadow:0 2px 8px rgba(0,0,0,.45), 0 0 0 3px rgba(255,147,62,.6) }
+    .pe-range::-moz-range-track{ height:6px; background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5));
+      border-radius:9999px }
+    .pe-range::-moz-range-thumb{ height:22px; width:22px; border:none; border-radius:50%; background:#fff;
+      box-shadow:0 2px 8px rgba(0,0,0,.25), 0 0 0 3px rgba(255,147,62,.55) }
+  `}</style>
+);
+
+/* --------------------------------- UI ------------------------------------ */
+const Pill = ({ active, children, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    data-active={active ? "true" : "false"}
+    className="
+      pe-pill inline-flex items-center gap-2 rounded-full px-4 h-9 text-sm font-medium
+      transition-all duration-300 bg-orange-500 text-white shadow-sm hover:bg-orange-600
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400
+    "
+  >
+    {children}
+  </button>
+);
+
+const Card = ({ className = "", children, ...rest }) => (
+  <section
+    {...rest}
+    className={`rounded-2xl shadow-lg bg-[color-mix(in_oklab,canvas,black_6%)]
+      dark:bg-[color-mix(in_oklab,canvas,white_6%)] backdrop-blur-sm ${className}`}
+  >
+    {children}
+  </section>
+);
+
+const BreedTile = ({ breed, active, onClick }) => {
+  const cover = breed?.image;
+  return (
+    <button
+      type="button"
+      title={breed?.name}
+      onClick={onClick}
+      data-active={active ? "true" : "false"}
+      className="
+        group relative overflow-hidden rounded-xl w-full aspect-[4/3]
+        ring-1 ring-black/5 dark:ring-white/5 hover:ring-orange-400/50
+        transition-all duration-300
+        data-[active=true]:ring-2 data-[active=true]:ring-orange-500
+        data-[active=true]:shadow-[0_0_0_6px_rgba(255,147,62,.25)]
+        bg-neutral-100 dark:bg-neutral-900
+      "
+    >
+      {!!cover && (
+        <img
+          src={cover}
+          alt={breed?.name}
+          className="
+            absolute inset-0 h-full w-full object-cover
+            transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)]
+            group-hover:scale-[1.05]
+            data-[active=true]:scale-[1.02]
+            data-[active=true]:brightness-110 data-[active=true]:saturate-125
+          "
+        />
+      )}
+      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
+      <div className="absolute left-0 right-0 bottom-0 px-3 pb-2 flex items-end justify-between">
+        <span className="text-white/95 font-semibold drop-shadow-sm">{breed?.name}</span>
+        {active && (
+          <span className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-[11px] text-white shadow">
+            selecionado
+          </span>
+        )}
+      </div>
+    </button>
+  );
+};
+
+/* ----------------------------- helpers img ------------------------------ */
+const readAsDataURL = (file) =>
+  new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
   });
 
-export default function PetEdit() {
-  const toast = useToast();
-  const { id } = useParams();
-  const pet = getPetById(id);
-  const navigate = useNavigate();
-  const [preview, setPreview] = useState(pet?.photo);
+async function compressImage(file, maxSide = 1200, quality = 0.7) {
+  if (!(file instanceof File)) return null;
+  const dataUrl = await readAsDataURL(file);
+  const img = new Image();
+  await new Promise((r, e) => {
+    img.onload = r;
+    img.onerror = e;
+    img.src = dataUrl;
+  });
 
-  if (!pet) {
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+
+  let blob = await new Promise((res) =>
+    canvas.toBlob((b) => res(b), "image/webp", quality)
+  );
+  if (!blob) {
+    blob = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), "image/jpeg", quality)
+    );
+  }
+  if (blob && blob.size > 700 * 1024) {
+    const canvas2 = document.createElement("canvas");
+    const factor = 0.9;
+    canvas2.width = Math.round(w * factor);
+    canvas2.height = Math.round(h * factor);
+    const ctx2 = canvas2.getContext("2d");
+    ctx2.drawImage(canvas, 0, 0, canvas2.width, canvas2.height);
+    blob = await new Promise((res) =>
+      canvas2.toBlob((b) => res(b), "image/webp", Math.max(0.5, quality - 0.1))
+    );
+  }
+  return blob;
+}
+
+/* --------------------------------- Página --------------------------------- */
+export default function PetEdit() {
+  const { id: animalId } = useParams();
+  const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [pet, setPet] = useState(null);
+
+  // campos editáveis
+  const [species, setSpecies] = useState("cão"); // UI label
+  const [sex, setSex] = useState("fêmea");       // UI ("macho" | "fêmea")
+  const [size, setSize] = useState("médio");     // UI ("pequeno" | "médio" | "grande")
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [weightUnit, setWeightUnit] = useState("kg");
+  const [weight, setWeight] = useState(0);
+  const [birth, setBirth] = useState("");
+  const [adoption, setAdoption] = useState("");
+
+  // species/breeds
+  const [speciesList, setSpeciesList] = useState([]);
+  const [currentSpecieId, setCurrentSpecieId] = useState(null);
+  const [breeds, setBreeds] = useState([]);
+  const [query, setQuery] = useState("");
+  const [breed, setBreed] = useState(null);
+  const [breedInfo, setBreedInfo] = useState(null);
+
+  // Avatar e Capa
+  const avatarInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [coverPreview, setCoverPreview] = useState("");
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
+  const [avatarChanged, setAvatarChanged] = useState(false);
+  const [coverChanged, setCoverChanged] = useState(false);
+
+  /* ---------------------------- carregar pet ---------------------------- */
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const full = await fetchAnimalsById({ animalId });
+        const a = full?.data || full || {};
+        if (cancel) return;
+
+        // espécie a partir da breed/specie (fallback: campo solto)
+        const specieName =
+          a?.breed?.specie?.name || a?.breed?.specie?.title || a.species || a.specie || "";
+        const uiSpecies = ["gato", "felino", "cat"].includes(String(specieName).toLowerCase())
+          ? "gato"
+          : "cão";
+
+        setPet(a);
+        setSpecies(uiSpecies);
+        setSex(genderIn(a.gender));    // <- marca pílulas
+        setSize(sizeIn(a.size));        // <- marca pílulas
+        setName(a.name || "");
+        setDesc(a.about || a.description || "");
+        setWeight(Number(a.weight || 0));
+        setBirth(isoToYMD(a.birthDate || a.birthday || a.birthdate || ""));
+        setAdoption(isoToYMD(a.adoptionDate || a.adoption || ""));
+
+        const avatar = a?.image?.url || a.image || "";
+        const cover = a?.imageCover?.url || a.imageCover || "";
+        setAvatarPreview(avatar);
+        setCoverPreview(cover);
+
+        // guarda seleção mínima de raça (será enriquecida quando a lista chegar)
+        setBreed(
+          a?.breed
+            ? { id: a.breed.id || a.breedId, name: a.breed.name }
+            : a?.breedId
+            ? { id: a.breedId, name: "" }
+            : null
+        );
+
+        // informações de “sobre a raça” (fallback caso não ache na lista)
+        setBreedInfo({
+          description: a?.breed?.about || a?.breed?.description || "—",
+          appearance: a?.breed?.appearance || "—",
+          temperament: a?.breed?.temperament || "—",
+          trainability: a?.breed?.trainability || "—",
+          exercise: a?.breed?.exercise || "—",
+          coat: a?.breed?.coat || "—",
+        });
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  /* ---------------------------- carregar species ---------------------------- */
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const resp = await fetchSpecies({ page: 1, perPage: 100 });
+        const list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) setSpeciesList(list);
+      } catch {
+        if (!cancel) setSpeciesList([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // map UI "cão/gato" -> specieId
+  useEffect(() => {
+    const wanted =
+      species === "gato"
+        ? ["gato", "felino", "cat"]
+        : ["cachorro", "cão", "cao", "dog", "canino"];
+    const found =
+      speciesList.find((s) =>
+        wanted.includes(String(s.name || s.title || "").toLowerCase())
+      ) || null;
+    setCurrentSpecieId(found?.id || null);
+    // ao trocar espécie, reseta busca (não reseta a raça já selecionada)
+    setQuery("");
+  }, [species, speciesList]);
+
+  // buscar breeds por espécie (superset) e enriquecer a raça selecionada
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!currentSpecieId) {
+        setBreeds([]);
+        return;
+      }
+      try {
+        const resp = await fetchBreeds({
+          specieId: currentSpecieId,
+          page: 1,
+          perPage: 100,
+        });
+        let list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+
+        // unicidade por id
+        const map = new Map();
+        for (const b of list) {
+          const id = String(b.id || "");
+          if (!map.has(id)) map.set(id, b);
+        }
+        list = Array.from(map.values());
+
+        if (cancel) return;
+        setBreeds(list);
+
+        // ENRIQUECE raça previamente salva (mostra highlight e sugestões)
+        if (breed?.id) {
+          const fullB = list.find((x) => String(x.id) === String(breed.id)) || null;
+          if (fullB) {
+            setBreed({
+              id: fullB.id,
+              name: fullB.name,
+              suggestedSize: fullB.suggestedSize || fullB.size,       // enum
+              weightTip: fullB.weightTip || fullB.weight || fullB.typicalWeight,
+              heightTip: fullB.heightTip || fullB.height || fullB.typicalHeight,
+              lifespan: fullB.lifespan || fullB.lifeExpectancy,
+              image: fullB.image,
+            });
+            setBreedInfo({
+              description: fullB.about || fullB.description || breedInfo?.description || "—",
+              appearance: fullB.appearance || breedInfo?.appearance || "—",
+              temperament: fullB.temperament || breedInfo?.temperament || "—",
+              trainability: fullB.trainability || breedInfo?.trainability || "—",
+              exercise: fullB.exercise || breedInfo?.exercise || "—",
+              coat: fullB.coat || breedInfo?.coat || "—",
+            });
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancel) setBreeds([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [currentSpecieId]); // somente por espécie
+
+  // lista filtrada visualmente (espécie + busca por nome)
+  const filteredBreeds = useMemo(() => {
+    const q = norm(query);
+    return breeds.filter((b) => {
+      const sid = String(
+        b.specieId || b.speciesId || b.specie?.id || b.species?.id || ""
+      );
+      const sameSpecie = currentSpecieId ? String(currentSpecieId) === sid : true;
+      if (!sameSpecie) return false;
+      const name = norm(b.name);
+      return !q || name.includes(q);
+    });
+  }, [breeds, currentSpecieId, query]);
+
+  /* ------------------------ avatar / cover handlers ------------------------ */
+  const onPickAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const blob = await compressImage(file);
+      const finalFile = new File([blob], file.name.replace(/\.[^.]+$/, "") + ".webp", {
+        type: blob.type || "image/webp",
+      });
+      setAvatarFile(finalFile);
+      setAvatarPreview(URL.createObjectURL(finalFile));
+      setAvatarChanged(true);
+    } catch (err) {
+      console.error(err);
+      alert("Não foi possível processar a imagem de perfil. Tente novamente.");
+    }
+  };
+
+  const onPickCover = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const blob = await compressImage(file);
+      const finalFile = new File([blob], file.name.replace(/\.[^.]+$/, "") + ".webp", {
+        type: blob.type || "image/webp",
+      });
+      setCoverFile(finalFile);
+      setCoverPreview(URL.createObjectURL(finalFile));
+      setCoverChanged(true);
+    } catch (err) {
+      console.error(err);
+      alert("Não foi possível processar a imagem de capa. Tente novamente.");
+    }
+  };
+
+  /* --------------------------- pesos / conversão --------------------------- */
+  const sliderValue = useMemo(() => {
+    if (weightUnit === "kg") return weight;
+    return Math.round(weight * 2.20462 * 10) / 10;
+  }, [weight, weightUnit]);
+
+  const sliderValueKg =
+    weightUnit === "kg" ? weight : Math.round((weight / 2.20462) * 10) / 10;
+
+  /* -------------------------------- submit --------------------------------- */
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (!pet?.id) return;
+
+    try {
+      const payload = {
+        name: (name || "").trim() || pet.name,
+        about: String(desc || ""),
+        birthDate: birth || "",
+        adoptionDate: adoption || "",
+        weight: Number(sliderValueKg) || 0,
+        size: sizeOut(size),       // enum API
+        gender: genderOut(sex),    // enum API
+        breedId: breed?.id || "",
+      };
+
+      if (avatarChanged && avatarFile) payload.image = avatarFile;
+      if (coverChanged && coverFile) payload.imageCover = coverFile;
+
+      await updateAnimal({ animalId: pet.id, ...payload });
+
+      window.dispatchEvent(new CustomEvent("patanet:pets-updated"));
+      navigate(`/pets/${pet.id}`);
+    } catch (err) {
+      console.error(err);
+      alert("Não foi possível salvar as alterações. Tente novamente.");
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="w-full">
-        <PageHeader
-          title="Pet não encontrado"
-          breadcrumbs={[
-            { label: "Dashboard", to: "/dashboard" },
-            { label: "Meus Pets", to: "/dashboard/pets" },
-          ]}
-        />
+      <div className="mx-auto max-w-[1200px] px-4 py-8">
+        <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+          Carregando informações do pet…
+        </div>
       </div>
     );
   }
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    watch,
-  } = useForm({
-    resolver: zodResolver(PetSchema),
-    defaultValues: {
-      name: pet.name,
-      species: pet.species,
-      breed: pet.breed || "",
-      sex: pet.sex,
-      birthDate: pet.birthDate,
-      weightKg: pet.weightKg ?? "",
-      notes: pet.notes || "",
-    },
-  });
-
-  const photoFile = watch("photo");
-  useMemo(() => {
-    if (photoFile && photoFile.length > 0) {
-      const url = URL.createObjectURL(photoFile[0]);
-      setPreview(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setPreview(pet.photo);
-    }
-  }, [photoFile, pet.photo]);
-
-  const onSubmit = handleSubmit(async (raw) => {
-    const photoDataUrl = await fileToDataURL(raw.photo?.[0]);
-    updatePet(id, {
-      name: raw.name.trim(),
-      species: raw.species,
-      breed: raw.breed?.trim() || "",
-      sex: raw.sex,
-      birthDate: raw.birthDate,
-      weightKg: typeof raw.weightKg === "number" ? raw.weightKg : undefined,
-      notes: raw.notes?.trim() || "",
-      photo: photoDataUrl ?? pet.photo,
-    });
-    toast.success("Alterações salvas");
-    navigate(`/dashboard/pets/${id}`);
-  });
-
-  const inputBase =
-    "w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors " +
-    "border-slate-300 bg-white focus:border-slate-400 " +
-    "dark:border-slate-700 dark:bg-slate-900 dark:focus:border-slate-600";
-
-  const errorText = (msg) => (
-    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{msg}</p>
-  );
+  if (!pet) {
+    return (
+      <div className="mx-auto max-w-[1200px] px-4 py-8">
+        <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm opacity-70 dark:border-zinc-800 dark:bg-zinc-900">
+          Pet não encontrado.
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full">
-      <PageHeader
-        title={`Editar: ${pet.name}`}
-        breadcrumbs={[
-          { label: "Dashboard", to: "/dashboard" },
-          { label: "Meus Pets", to: "/dashboard/pets" },
-          { label: pet.name, to: `/dashboard/pets/${id}` },
-          { label: "Editar" },
-        ]}
-      />
+    <form onSubmit={onSubmit} className="mx-auto max-w-[1200px] px-4 py-8 space-y-8">
+      <Styles />
 
-      <FormCard title="Informações do Pet" onSubmit={onSubmit}>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          {/* Foto */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Foto</label>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="h-20 w-20 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                {preview && (
-                  <img
-                    src={preview}
-                    alt={pet.name}
-                    className="h-full w-full object-cover"
-                  />
-                )}
-              </div>
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Editar Pet</h1>
+          <p className="text-sm opacity-70">Atualize as informações do seu companheiro.</p>
+        </div>
+      </header>
+
+      {/* Identificação + Avatar e Capa */}
+      <Card className="p-4 sm:p-6">
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start gap-6">
+          {/* Avatar + Capa */}
+          <div className="flex flex-col items-center gap-6">
+            {/* Avatar */}
+            <div className="relative w-24 h-24 rounded-full overflow-hidden ring-2 ring-white/10 shadow-md">
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem avatar
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar avatar"
+              >
+                trocar avatar
+              </button>
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPickAvatar}
+            />
+
+            {/* Capa */}
+            <div className="relative w-44 h-28 rounded-xl overflow-hidden ring-2 ring-white/10 shadow-md">
+              {coverPreview ? (
+                <img src={coverPreview} alt="capa" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem capa
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar capa"
+              >
+                trocar capa
+              </button>
+            </div>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={onPickCover}
+            />
+          </div>
+
+          {/* Infos do Pet */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium opacity-70">Nome do pet</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex.: Max, Nina, Mimi…"
+              className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Pill active={species === "cão"} onClick={() => setSpecies("cão")}>
+                Cão
+              </Pill>
+              <Pill active={species === "gato"} onClick={() => setSpecies("gato")}>
+                Gato
+              </Pill>
+              <span className="mx-1 opacity-30">|</span>
+              <Pill active={sex === "fêmea"} onClick={() => setSex("fêmea")}>
+                Fêmea
+              </Pill>
+              <Pill active={sex === "macho"} onClick={() => setSex("macho")}>
+                Macho
+              </Pill>
+              <span className="mx-1 opacity-30">|</span>
+              <Pill active={size === "pequeno"} onClick={() => setSize("pequeno")}>
+                Pequeno
+              </Pill>
+              <Pill active={size === "médio"} onClick={() => setSize("médio")}>
+                Médio
+              </Pill>
+              <Pill active={size === "grande"} onClick={() => setSize("grande")}>
+                Grande
+              </Pill>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Raça + Sobre a raça */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="p-4 sm:p-6 lg:col-span-2">
+          <div className="mb-4">
+            <h3 className="font-semibold">Raça</h3>
+            <div className="mt-3">
+              <label className="text-xs font-medium opacity-70">Buscar raça</label>
               <input
-                type="file"
-                accept="image/*"
-                className="block text-sm file:mr-2 file:rounded-md file:border file:px-3 file:py-1.5
-                           file:border-slate-300 file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200
-                           dark:file:border-slate-700 dark:file:bg-slate-800 dark:file:text-slate-100 dark:hover:file:bg-slate-700"
-                {...register("photo")}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Buscar raça de ${species}…`}
+                className="mt-1 h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
               />
             </div>
           </div>
 
-          {/* Nome */}
-          <div className="lg:col-span-4">
-            <label className="text-sm font-medium">Nome *</label>
-            <input type="text" className={inputBase} {...register("name")} />
-            {errors.name && errorText(errors.name.message)}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {filteredBreeds.map((b) => (
+              <BreedTile
+                key={b.id}
+                breed={b}
+                active={breed?.id === b.id}
+                onClick={() => {
+                  setBreed({
+                    id: b.id,
+                    name: b.name,
+                    suggestedSize: b.suggestedSize || b.size,
+                    weightTip: b.weightTip || b.weight || b.typicalWeight,
+                    heightTip: b.heightTip || b.height || b.typicalHeight,
+                    lifespan: b.lifespan || b.lifeExpectancy,
+                    image: b.image,
+                  });
+                  setBreedInfo((prev) => ({
+                    ...prev,
+                    description: b.about || b.description || prev?.description || "—",
+                    appearance: b.appearance || prev?.appearance || "—",
+                    temperament: b.temperament || prev?.temperament || "—",
+                    trainability: b.trainability || prev?.trainability || "—",
+                    exercise: b.exercise || prev?.exercise || "—",
+                    coat: b.coat || prev?.coat || "—",
+                  }));
+                }}
+              />
+            ))}
           </div>
+        </Card>
 
-          {/* Espécie */}
-          <div className="lg:col-span-2">
-            <label className="text-sm font-medium">Espécie *</label>
-            <select className={inputBase} {...register("species")}>
-              <option value="dog">Cachorro</option>
-              <option value="cat">Gato</option>
-              <option value="other">Outro</option>
-            </select>
-            {errors.species && errorText(errors.species.message)}
-          </div>
+        <Card className="p-4 sm:p-6">
+          <h3 className="font-semibold mb-3">Sugestões da raça</h3>
+          {breed ? (
+            <dl className="grid grid-cols-1 gap-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Porte sugerido</dt>
+                <dd className="font-medium">{sizeHuman(breed?.suggestedSize)}</dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Peso típico</dt>
+                <dd className="font-medium">{breed?.weightTip || "—"}</dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Altura típica</dt>
+                <dd className="font-medium">{breed?.heightTip || "—"}</dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Expectativa de vida</dt>
+                <dd className="font-medium">{breed?.lifespan || "—"}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="opacity-60 text-sm">Selecione uma raça.</p>
+          )}
+        </Card>
+      </div>
 
-          {/* Raça */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Raça</label>
-            <input type="text" className={inputBase} {...register("breed")} />
-            {errors.breed && errorText(errors.breed.message)}
-          </div>
-
-          {/* Sexo */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Sexo *</label>
-            <div className="mt-2 flex gap-4">
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" value="m" {...register("sex")} /> Macho
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" value="f" {...register("sex")} /> Fêmea
-              </label>
-            </div>
-            {errors.sex && errorText(errors.sex.message)}
-          </div>
-
-          {/* Nascimento */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Nascimento *</label>
-            <input
-              type="date"
-              className={inputBase}
-              {...register("birthDate")}
-            />
-            {errors.birthDate && errorText(errors.birthDate.message)}
-          </div>
+      {/* Medidas & datas */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="p-4 sm:p-6 lg:col-span-2">
+          <h3 className="font-semibold mb-4">Medidas & datas</h3>
 
           {/* Peso */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Peso (kg)</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              className={inputBase}
-              {...register("weightKg", {
-                setValueAs: (v) =>
-                  v === "" || v === null ? undefined : Number(v),
-              })}
-            />
-            {errors.weightKg && errorText(errors.weightKg.message)}
+          <div className="mb-4">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Peso</label>
+              <div className="flex gap-1 rounded-lg ring-1 ring-black/10 dark:ring-white/10 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setWeightUnit("kg")}
+                  className={`px-2 py-1 text-sm ${
+                    weightUnit === "kg"
+                      ? "bg-orange-500 text-white"
+                      : "hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  kg
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeightUnit("lb")}
+                  className={`px-2 py-1 text-sm ${
+                    weightUnit === "lb"
+                      ? "bg-orange-500 text-white"
+                      : "hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  lb
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl p-4 bg-black/5 dark:bg-white/5">
+              <div className="text-4xl font-semibold">
+                {weightUnit === "kg"
+                  ? weight
+                  : Math.round(weight * 2.20462 * 10) / 10}
+                <span className="text-lg font-normal opacity-70 ml-1">{weightUnit}</span>
+              </div>
+
+              <input
+                type="range"
+                min={weightUnit === "kg" ? 1 : 2.2}
+                max={weightUnit === "kg" ? 80 : 176}
+                step={weightUnit === "kg" ? 0.1 : 0.2}
+                value={weightUnit === "kg" ? weight : weight * 2.20462}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (weightUnit === "kg") setWeight(v);
+                  else setWeight(Math.round((v / 2.20462) * 10) / 10);
+                }}
+                className="pe-range mt-3 w-full"
+              />
+            </div>
           </div>
 
-          {/* Observações */}
-          <div className="lg:col-span-12">
-            <label className="text-sm font-medium">Observações</label>
-            <textarea rows={4} className={inputBase} {...register("notes")} />
-            {errors.notes && errorText(errors.notes.message)}
+          {/* Datas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium opacity-70">Data de nascimento</label>
+              <input
+                type="date"
+                value={birth}
+                onChange={(e) => setBirth(e.target.value)}
+                className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium opacity-70">Data de adoção</label>
+              <input
+                type="date"
+                value={adoption}
+                onChange={(e) => setAdoption(e.target.value)}
+                className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
           </div>
-        </div>
-      </FormCard>
-    </div>
+        </Card>
+
+        {/* Sugestões (lado) */}
+        <Card className="p-4 sm:p-6">
+          <h3 className="font-semibold mb-3">Sugestões da raça</h3>
+          {breed ? (
+            <dl className="grid grid-cols-1 gap-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Porte sugerido</dt>
+                <dd className="font-medium">{sizeHuman(breed?.suggestedSize)}</dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Peso típico</dt>
+                <dd className="font-medium">{breed?.weightTip || "—"}</dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Altura típica</dt>
+                <dd className="font-medium">{breed?.heightTip || "—"}</dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Expectativa de vida</dt>
+                <dd className="font-medium">{breed?.lifespan || "—"}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="opacity-60 text-sm">Selecione uma raça.</p>
+          )}
+        </Card>
+      </div>
+
+      {/* Sobre o pet */}
+      <Card className="p-4 sm:p-6">
+        <h3 className="font-semibold mb-3">Sobre o pet</h3>
+        <textarea
+          rows={4}
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          placeholder="Conte um pouco sobre a aparência e o jeitinho dele(a)…"
+          className="w-full rounded-xl p-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+        />
+      </Card>
+
+      <div className="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => navigate(`/pets`)}
+          className="h-10 px-4 rounded-lg ring-1 ring-black/10 dark:ring-white/10 hover:bg-black/5 dark:hover:bg-white/5"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          className="h-10 px-5 rounded-lg bg-orange-500 text-white shadow hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+        >
+          Salvar
+        </button>
+      </div>
+    </form>
   );
 }

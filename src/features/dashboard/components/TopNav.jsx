@@ -1,3 +1,4 @@
+// src/features/dashboard/components/TopNav.jsx
 import React from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../../store/auth.jsx";
@@ -6,7 +7,7 @@ import { Moon, Sun } from "lucide-react";
 import InstallPWAButton from "../../../components/InstallPWAButton.jsx";
 import UserMenu from "@features/auth/components/UserMenu.jsx";
 
-export default function TopNav({ variant = "feed", onToggleSidebar }) {
+export default function TopNav({ onToggleSidebar }) {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
 
@@ -14,40 +15,35 @@ export default function TopNav({ variant = "feed", onToggleSidebar }) {
   const toggleTheme = useTheme((s) => s.toggle);
 
   return (
-    <header className="fixed top-0 inset-x-0 z-40 border-b border-slate-800 bg-slate-900 text-slate-100 shadow-sm">
+    <header className="fixed top-0 inset-x-0 z-40 topbar-surface border-b border-white/10">
       <div className="flex h-14 w-full items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
-          {variant === "dashboard" && (
-            <button
-              onClick={onToggleSidebar}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-100"
-              aria-label="Alternar menu"
-              title="Menu"
-            >
-              ≡
-            </button>
-          )}
-          <Link to="/" className="font-semibold text-slate-100">
+          {/* botão de abrir/fechar sidebar (só aparece quando há sidebar) */}
+          <button
+            onClick={onToggleSidebar}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 hover:bg-white/5 text-[var(--chrome-fg)]"
+            aria-label="Alternar menu"
+            title="Menu"
+          >
+            ≡
+          </button>
+
+          <Link to="/" className="font-semibold text-[var(--chrome-fg)]">
             PataNet
           </Link>
         </div>
 
         <nav className="flex items-center gap-3">
+          <InstallPWAButton />
+
           <Link
-            className="text-sm text-slate-200 opacity-80 hover:opacity-100"
-            to="/"
-          >
-            <InstallPWAButton />
-            Baixar
-          </Link>
-          <Link
-            className="text-sm text-slate-200 opacity-80 hover:opacity-100"
+            className="text-sm opacity-90 hover:opacity-100 text-[var(--chrome-fg)]"
             to="/"
           >
             Feed
           </Link>
           <Link
-            className="text-sm text-slate-200 opacity-80 hover:opacity-100"
+            className="text-sm opacity-90 hover:opacity-100 text-[var(--chrome-fg)]"
             to="/dashboard"
           >
             Dashboard
@@ -56,7 +52,7 @@ export default function TopNav({ variant = "feed", onToggleSidebar }) {
           {/* Toggle Light/Dark (só afeta o conteúdo) */}
           <button
             onClick={toggleTheme}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-100"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 hover:bg-white/5 text-[var(--chrome-fg)]"
             aria-label="Alternar tema"
             title={theme === "dark" ? "Modo claro" : "Modo escuro"}
           >
@@ -70,14 +66,14 @@ export default function TopNav({ variant = "feed", onToggleSidebar }) {
           {user ? (
             <button
               onClick={logout}
-              className="rounded-md border border-slate-700 px-3 py-1 text-sm hover:bg-slate-800 text-slate-100"
+              className="rounded-md border border-white/10 px-3 py-1 text-sm hover:bg-white/5 text-[var(--chrome-fg)]"
             >
               Sair
             </button>
           ) : (
             <Link
               to="/login"
-              className="rounded-md border border-slate-700 px-3 py-1 text-sm hover:bg-slate-800 text-slate-100"
+              className="rounded-md border border-white/10 px-3 py-1 text-sm hover:bg-white/5 text-[var(--chrome-fg)]"
             >
               Entrar
             </Link>

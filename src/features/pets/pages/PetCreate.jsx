@@ -1,239 +1,852 @@
-import React, { useMemo, useState } from "react";
+// src/features/pets/pages/PetCreate.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
-import PageHeader from "../../../components/PageHeader";
-import FormCard from "../../../components/forms/FormCard";
-import { useToast } from "../../../components/ui/ToastProvider";
 
-/* ----- schema ----- */
-const PetSchema = z.object({
-  name: z.string().min(2, "Informe ao menos 2 caracteres"),
-  species: z.enum(["dog", "cat", "other"], {
-    required_error: "Selecione a espécie",
-  }),
-  breed: z.string().trim().optional(),
-  sex: z.enum(["m", "f"], { required_error: "Selecione o sexo" }),
-  birthDate: z
-    .string()
-    .nonempty("Informe a data")
-    .refine((s) => !Number.isNaN(new Date(s).getTime()), "Data inválida"),
-  weightKg: z
-    .number({ invalid_type_error: "Peso inválido" })
-    .min(0, "Peso inválido")
-    .max(200, "Peso exagerado")
-    .optional(),
-  notes: z.string().max(500, "Máx. 500 caracteres").optional(),
-  photo: z.any().optional(), // file (image)
-});
+// APIs (somente consumo; não alterei os arquivos)
+import { fetchSpecies } from "@/api/specie.api.js";
+import { fetchBreeds } from "@/api/breed.api.js";
+import { createAnimal } from "@/api/animal.api.js";
+import { useToast } from "@/components/ui/ToastProvider"; // ← toast para validações
+import heic2any from "heic2any";
 
-/* util: converte File -> dataURL */
-const fileToDataURL = (file) =>
-  new Promise((resolve) => {
-    if (!file) return resolve(undefined);
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.readAsDataURL(file);
-  });
-
-export default function PetCreate() {
-  const navigate = useNavigate();
-  const toast = useToast();
-  const [preview, setPreview] = useState();
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-    watch,
-    setValue,
-  } = useForm({
-    resolver: zodResolver(PetSchema),
-    defaultValues: {
-      species: "dog",
-      sex: "m",
-    },
-  });
-
-  // preview da foto
-  const photoFile = watch("photo");
-  useMemo(() => {
-    if (photoFile && photoFile.length > 0) {
-      const url = URL.createObjectURL(photoFile[0]);
-      setPreview(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setPreview(undefined);
+/* --------------------------------- estilo -------------------------------- */
+const Styles = () => (
+  <style>{`
+    .pc-pill[data-active="true"]{
+      box-shadow: 0 0 0 6px rgba(255,147,62,.28), 0 6px 18px rgba(255,147,62,.30);
     }
-  }, [photoFile]);
+    .pc-range{ -webkit-appearance:none; width:100%; height:6px; border-radius:9999px;
+      background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5)); outline:none }
+    .pc-range::-webkit-slider-thumb{ -webkit-appearance:none; height:22px; width:22px; border-radius:50%;
+      background:#fff; border:none; cursor:pointer;
+      box-shadow:0 2px 8px rgba(0,0,0,.25), 0 0 0 3px rgba(255,147,62,.55) }
+    .dark .pc-range::-webkit-slider-thumb{ background:#0a0a0a;
+      box-shadow:0 2px 8px rgba(0,0,0,.45), 0 0 0 3px rgba(255,147,62,.6) }
+    .pc-range::-moz-range-track{ height:6px; background:linear-gradient(90deg, rgba(255,147,62,.9), rgba(255,147,62,.5));
+      border-radius:9999px }
+    .pc-range::-moz-range-thumb{ height:22px; width:22px; border:none; border-radius:50%; background:#fff;
+      box-shadow:0 2px 8px rgba(0,0,0,.25), 0 0 0 3px rgba(255,147,62,.55) }
+  `}</style>
+);
 
-  const onSubmit = handleSubmit(async (raw) => {
-    // prepara payload
-    const photoDataUrl = await fileToDataURL(raw.photo?.[0]);
-    const pet = {
-      id: Date.now(),
-      name: raw.name.trim(),
-      species: raw.species,
-      breed: raw.breed?.trim() || "",
-      sex: raw.sex,
-      birthDate: raw.birthDate,
-      weightKg: typeof raw.weightKg === "number" ? raw.weightKg : undefined,
-      notes: raw.notes?.trim() || "",
-      photo: photoDataUrl, // base64
-    };
+/* --------------------------------- UI ------------------------------------ */
+const Pill = ({ active, children, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    data-active={active ? "true" : "false"}
+    className="
+      pc-pill inline-flex items-center gap-2 rounded-full px-4 h-9 text-sm font-medium
+      transition-all duration-300 bg-orange-500 text-white shadow-sm hover:bg-orange-600
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400
+    "
+  >
+    {children}
+  </button>
+);
 
-    // persiste no localStorage (mock de backend)
-    try {
-      const key = "patanet_pets";
-      const list = JSON.parse(localStorage.getItem(key) || "[]");
-      list.push(pet);
-      localStorage.setItem(key, JSON.stringify(list));
-      toast.success("Pet criado com sucesso");
-    } catch {
-      toast.error("Não foi possível salvar o pet");
-      return;
-    }
-    navigate("/dashboard/pets");
+const Card = ({ className = "", children, ...rest }) => (
+  <section
+    {...rest}
+    className={`rounded-2xl shadow-lg bg-[color-mix(in_oklab,canvas,black_6%)]
+      dark:bg-[color-mix(in_oklab,canvas,white_6%)] backdrop-blur-sm ${className}`}
+  >
+    {children}
+  </section>
+);
+
+const BreedTile = ({ breed, active, onClick }) => {
+  const cover = breed?.image;
+  return (
+    <button
+      type="button"
+      title={breed?.name}
+      onClick={onClick}
+      data-active={active ? "true" : "false"}
+      className="
+        group relative overflow-hidden rounded-xl w-full aspect-[4/3]
+        ring-1 ring-black/5 dark:ring-white/5 hover:ring-orange-400/50
+        transition-all duration-300
+        data-[active=true]:ring-2 data-[active=true]:ring-orange-500
+        data-[active=true]:shadow-[0_0_0_6px_rgba(255,147,62,.25)]
+        bg-neutral-100 dark:bg-neutral-900
+      "
+    >
+      {!!cover && (
+        <img
+          src={cover}
+          alt={breed?.name}
+          className="
+            absolute inset-0 h-full w-full object-cover
+            transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)]
+            group-hover:scale-[1.05]
+            data-[active=true]:scale-[1.02]
+            data-[active=true]:brightness-110 data-[active=true]:saturate-125
+          "
+        />
+      )}
+      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/55 to-transparent" />
+      <div className="absolute left-0 right-0 bottom-0 px-3 pb-2 flex items-end justify-between">
+        <span className="text-white/95 font-semibold drop-shadow-sm">
+          {breed?.name}
+        </span>
+        {active && (
+          <span className="ml-2 rounded-full bg-orange-500 px-2 py-0.5 text-[11px] text-white shadow">
+            selecionado
+          </span>
+        )}
+      </div>
+    </button>
+  );
+};
+
+/* ----------------------------- helpers img ------------------------------ */
+/* ----------------------------- helpers img ------------------------------ */
+const readAsDataURL = (file) =>
+  new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
   });
 
-  // estilos de campo
-  const inputBase =
-    "w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors " +
-    "border-slate-300 bg-white focus:border-slate-400 " +
-    "dark:border-slate-700 dark:bg-slate-900 dark:focus:border-slate-600";
+const isHeic = (file) =>
+  file &&
+  (/\.(heic|heif)$/i.test(file.name || "") ||
+    /image\/hei(c|f)/i.test(file.type || ""));
 
-  const errorText = (msg) => (
-    <p className="mt-1 text-xs text-red-600 dark:text-red-400">{msg}</p>
+/** Converte HEIC/HEIF para JPEG antes de qualquer processamento */
+async function ensureJpeg(file) {
+  if (!(file instanceof File)) return file;
+  if (!isHeic(file)) return file;
+  try {
+    const blob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+    return new File(
+      [blob],
+      (file.name || "image").replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" }
+    );
+  } catch {
+    // fallback: devolve o original se não conseguir converter
+    return file;
+  }
+}
+
+/**
+ * Compressão adaptativa visando um teto de bytes.
+ * - Converte HEIC → JPEG (se necessário)
+ * - Redimensiona até máx. 1920x1920
+ * - Ajusta qualidade até atingir targetMaxBytes (sem cair abaixo de minQuality)
+ * - Se ainda ficar grande, reduz dimensões gradualmente
+ * Retorna um File .jpg
+ */
+async function compressImage(
+  file,
+  {
+    maxW = 1920,
+    maxH = 1920,
+    initialQuality = 0.86,
+    minQuality = 0.6,
+    targetMaxBytes = 900 * 1024, // ~900 KB
+    downscaleStep = 0.9, // reduz 10% se necessário
+  } = {}
+) {
+  if (!(file instanceof File)) return file;
+
+  // 1) Converter HEIC → JPEG
+  const base = await ensureJpeg(file);
+
+  // 2) Criar bitmap
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(base);
+  } catch {
+    const url = URL.createObjectURL(base);
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        createImageBitmap(img)
+          .then(resolve)
+          .catch(() => resolve(img));
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  // 3) Redimensionar para caber em maxW x maxH
+  let { width, height } = bitmap;
+  let ratio = Math.min(maxW / width, maxH / height, 1);
+  let w = Math.max(1, Math.round(width * ratio));
+  let h = Math.max(1, Math.round(height * ratio));
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  canvas.width = w;
+  canvas.height = h;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  // 4) Ajustar qualidade até atingir o alvo
+  let quality = initialQuality;
+  let blob = await new Promise((res) =>
+    canvas.toBlob(res, "image/jpeg", quality)
   );
 
+  while (blob && blob.size > targetMaxBytes && quality > minQuality + 0.01) {
+    quality = Math.max(minQuality, quality - 0.08);
+    blob = await new Promise((res) =>
+      canvas.toBlob(res, "image/jpeg", quality)
+    );
+  }
+
+  // 5) Se ainda passou do alvo, reduzir dimensões e manter qualidade mínima
+  while (blob && blob.size > targetMaxBytes && (w > 640 || h > 640)) {
+    w = Math.max(640, Math.round(w * downscaleStep));
+    h = Math.max(640, Math.round(h * downscaleStep));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    blob = await new Promise((res) =>
+      canvas.toBlob(res, "image/jpeg", minQuality)
+    );
+  }
+
+  // 6) Retornar como File .jpg
+  if (!blob) return base;
+  return new File(
+    [blob],
+    (base.name || "image").replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
+    { type: "image/jpeg" }
+  );
+}
+
+const norm = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+/* --------------------------------- Página --------------------------------- */
+export default function PetCreate() {
+  const navigate = useNavigate();
+  const toast = useToast(); // ← toast
+
+  // básicos
+  const [species, setSpecies] = useState("cão"); // cão | gato
+  const [sex, setSex] = useState("fêmea");
+  const [size, setSize] = useState("médio");
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+
+  const [weightUnit, setWeightUnit] = useState("kg");
+  const [weight, setWeight] = useState(8.5);
+  const [birth, setBirth] = useState("");
+  const [adoption, setAdoption] = useState("");
+
+  // species/breeds por API
+  const [speciesList, setSpeciesList] = useState([]); // [{id,name}]
+  const [currentSpecieId, setCurrentSpecieId] = useState(null);
+  const [breeds, setBreeds] = useState([]); // [{id, name, image}]
+  const [query, setQuery] = useState("");
+  const [breed, setBreed] = useState(null);
+
+  // Avatar e Capa (arquivos + previews)
+  const avatarInputRef = useRef(null);
+  const coverInputRef = useRef(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [coverPreview, setCoverPreview] = useState("");
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
+
+  // carregar species
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const resp = await fetchSpecies({ page: 1, perPage: 100 });
+        const list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) setSpeciesList(list);
+      } catch {
+        if (!cancel) setSpeciesList([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // quando muda "cão/gato"
+  useEffect(() => {
+    const wanted =
+      species === "gato"
+        ? ["gato", "felino", "cat"]
+        : ["cachorro", "cão", "cao", "dog", "canino"];
+    const found =
+      speciesList.find((s) =>
+        wanted.includes(String(s.name || s.title || "").toLowerCase())
+      ) || null;
+    setCurrentSpecieId(found?.id || null);
+    setBreed(null);
+    setQuery("");
+  }, [species, speciesList]);
+
+  // buscar breeds da espécie
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!currentSpecieId) {
+        setBreeds([]);
+        return;
+      }
+      try {
+        const resp = await fetchBreeds({
+          specieId: currentSpecieId,
+          page: 1,
+          perPage: 100,
+        });
+        let list =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        const map = new Map();
+        for (const b of list) {
+          const id = String(b.id || "");
+          if (!map.has(id)) map.set(id, b);
+        }
+        list = Array.from(map.values());
+        if (!cancel) setBreeds(list);
+      } catch {
+        if (!cancel) setBreeds([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [currentSpecieId]);
+
+  const filteredBreeds = useMemo(() => {
+    const q = norm(query);
+    return breeds.filter((b) => {
+      const sid = String(
+        b.specieId || b.speciesId || b.specie?.id || b.species?.id || ""
+      );
+      const sameSpecie = currentSpecieId
+        ? String(currentSpecieId) === sid
+        : true;
+      if (!sameSpecie) return false;
+      const name = norm(b.name);
+      return !q || name.includes(q);
+    });
+  }, [breeds, currentSpecieId, query]);
+
+  const onPickAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const finalFile = await compressImage(file, {
+        maxW: 1920,
+        maxH: 1920,
+        initialQuality: 0.86,
+        minQuality: 0.6,
+        targetMaxBytes: 900 * 1024,
+      });
+      setAvatarFile(finalFile);
+      setAvatarPreview(URL.createObjectURL(finalFile));
+    } catch {
+      setAvatarFile(null);
+      setAvatarPreview("");
+      alert("Não foi possível processar a imagem de perfil.");
+    }
+  };
+
+  const onPickCover = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const finalFile = await compressImage(file, {
+        maxW: 1920,
+        maxH: 1920,
+        initialQuality: 0.86,
+        minQuality: 0.6,
+        targetMaxBytes: 900 * 1024,
+      });
+      setCoverFile(finalFile);
+      setCoverPreview(URL.createObjectURL(finalFile));
+    } catch {
+      setCoverFile(null);
+      setCoverPreview("");
+      alert("Não foi possível processar a imagem de capa.");
+    }
+  };
+
+  // peso exibido
+  const sliderValue = useMemo(() => {
+    if (weightUnit === "kg") return weight;
+    return Math.round(weight * 2.20462 * 10) / 10;
+  }, [weight, weightUnit]);
+
+  const sliderValueKg =
+    weightUnit === "kg" ? weight : Math.round((weight / 2.20462) * 10) / 10;
+
+  // mapeamentos UI → API
+  const mapSize = (ui) => {
+    const v = String(ui || "").toLowerCase();
+    if (v.startsWith("p")) return "SMALL";
+    if (v.startsWith("m")) return "MEDIUM";
+    if (v.startsWith("g")) return "LARGE";
+    return "MEDIUM";
+  };
+  const mapGender = (ui) => {
+    const v = String(ui || "").toLowerCase();
+    if (v.startsWith("m")) return "MALE";
+    if (v.startsWith("f")) return "FEMALE";
+    return "NOT_INFORMED";
+  };
+  const toApiDate = (d) => (d ? `${d}T00:00:00.000Z` : "");
+
+  // --------- validações (front) ----------
+  const validate = () => {
+    const errors = [];
+    // novos obrigatórios
+    if (!String(name).trim()) errors.push("Informe o nome do pet.");
+    if (!avatarFile) errors.push("Selecione uma foto de perfil (avatar).");
+    // já existiam
+    if (!coverFile) errors.push("Selecione uma imagem de capa.");
+    if (!breed?.id) errors.push("Selecione uma raça.");
+    if (!String(desc).trim()) errors.push('Preencha o campo "Sobre o pet".');
+
+    if (errors.length) {
+      toast.error("Preencha os campos obrigatórios", {
+        description: errors.map((e) => `• ${e}`).join("\n"),
+        duration: 5000,
+      });
+      return false;
+    }
+    return true;
+  };
+  // submit
+  const onSubmit = async (e) => {
+    e.preventDefault();
+
+    // validações no front (capa, raça e sobre)
+    if (!validate()) return;
+
+    try {
+      const payload = {
+        name: (name || "").trim() || "Sem nome",
+        about: String(desc || ""),
+        image: avatarFile || "",
+        imageCover: coverFile || "",
+        birthDate: toApiDate(birth),
+        adoptionDate: toApiDate(adoption),
+        weight: String(Number(sliderValueKg) || 0),
+        size: mapSize(size),
+        gender: mapGender(sex),
+        breedId: breed?.id ? String(breed.id) : "",
+      };
+
+      const created = await createAnimal(payload);
+      const newId =
+        created?.id ||
+        created?.data?.id ||
+        created?.animal?.id ||
+        created?.animalId;
+
+      toast.success("Pet cadastrado com sucesso!", { duration: 3000 });
+
+      if (newId) navigate(`/pets/${newId}`);
+      else history.back();
+    } catch (err) {
+      console.error("create pet error:", err?.response?.data || err);
+      toast.error("Não foi possível cadastrar o pet.", {
+        description:
+          err?.response?.data?.message ||
+          "Verifique os campos e tente novamente.",
+      });
+    }
+  };
+
   return (
-    <div className="w-full">
-      <PageHeader
-        title="Novo Pet"
-        breadcrumbs={[
-          { label: "Dashboard", to: "/dashboard" },
-          { label: "Meus Pets", to: "/dashboard/pets" },
-          { label: "Novo" },
-        ]}
-        description="Preencha os dados do seu pet."
-      />
+    <form
+      onSubmit={onSubmit}
+      className="mx-auto max-w-[1200px] px-4 py-8 space-y-8"
+    >
+      <Styles />
 
-      <FormCard
-        title="Informações do Pet"
-        description="Campos essenciais. Você poderá editar depois."
-        onSubmit={onSubmit}
-      >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          {/* Foto */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Foto</label>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="h-20 w-20 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                {preview && (
-                  // eslint-disable-next-line jsx-a11y/img-redundant-alt
-                  <img
-                    src={preview}
-                    alt="Foto do pet"
-                    className="h-full w-full object-cover"
-                  />
-                )}
-              </div>
-              <div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="block text-sm file:mr-2 file:rounded-md file:border file:px-3 file:py-1.5
-                             file:border-slate-300 file:bg-slate-100 file:text-slate-800
-                             hover:file:bg-slate-200
-                             dark:file:border-slate-700 dark:file:bg-slate-800 dark:file:text-slate-100
-                             dark:hover:file:bg-slate-700"
-                  {...register("photo")}
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Adicionar novo Pet</h1>
+          <p className="text-sm opacity-70">
+            Preencha as informações principais do seu companheiro.
+          </p>
+        </div>
+      </header>
+
+      {/* Identificação + Avatar e Capa */}
+      <Card className="p-4 sm:p-6">
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start gap-6">
+          {/* Avatar + Capa */}
+          <div className="flex flex-col items-center gap-6">
+            {/* Avatar */}
+            <div className="relative w-24 h-24 rounded-full overflow-hidden ring-2 ring-white/10 shadow-md">
+              {avatarPreview ? (
+                <img
+                  src={avatarPreview}
+                  alt="avatar"
+                  className="w-full h-full object-cover"
                 />
-                <p className="mt-1 text-xs opacity-70">PNG/JPG, até ~2MB.</p>
-              </div>
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem avatar
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar avatar"
+              >
+                trocar avatar
+              </button>
             </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*,.heic,.heif"
+              className="hidden"
+              onChange={onPickAvatar}
+            />
+
+            {/* Capa */}
+            <div className="relative w-44 h-28 rounded-xl overflow-hidden ring-2 ring-white/10 shadow-md">
+              {coverPreview ? (
+                <img
+                  src={coverPreview}
+                  alt="capa"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-xs text-white/70 bg-white/5">
+                  sem capa
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => coverInputRef.current?.click()}
+                className="absolute inset-0 grid place-items-center text-[11px] font-medium text-white/90 bg-black/40 opacity-0 hover:opacity-100 transition"
+                title="Trocar capa"
+              >
+                trocar capa
+              </button>
+            </div>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept="image/*,.heic,.heif"
+              className="hidden"
+              onChange={onPickCover}
+            />
           </div>
 
-          {/* Nome */}
-          <div className="lg:col-span-4">
-            <label className="text-sm font-medium">Nome *</label>
-            <input type="text" className={inputBase} {...register("name")} />
-            {errors.name && errorText(errors.name.message)}
-          </div>
+          {/* Infos do Pet */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium opacity-70">
+              Nome do pet
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex.: Max, Nina, Mimi…"
+              className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
 
-          {/* Espécie */}
-          <div className="lg:col-span-2">
-            <label className="text-sm font-medium">Espécie *</label>
-            <select className={inputBase} {...register("species")}>
-              <option value="dog">Cachorro</option>
-              <option value="cat">Gato</option>
-              <option value="other">Outro</option>
-            </select>
-            {errors.species && errorText(errors.species.message)}
-          </div>
-
-          {/* Raça */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Raça</label>
-            <input type="text" className={inputBase} {...register("breed")} />
-            {errors.breed && errorText(errors.breed.message)}
-          </div>
-
-          {/* Sexo */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Sexo *</label>
-            <div className="mt-2 flex gap-4">
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" value="m" {...register("sex")} />
-                Macho
-              </label>
-              <label className="inline-flex items-center gap-2 text-sm">
-                <input type="radio" value="f" {...register("sex")} />
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Pill
+                active={species === "cão"}
+                onClick={() => setSpecies("cão")}
+              >
+                Cão
+              </Pill>
+              <Pill
+                active={species === "gato"}
+                onClick={() => setSpecies("gato")}
+              >
+                Gato
+              </Pill>
+              <span className="mx-1 opacity-30">|</span>
+              <Pill active={sex === "fêmea"} onClick={() => setSex("fêmea")}>
                 Fêmea
-              </label>
+              </Pill>
+              <Pill active={sex === "macho"} onClick={() => setSex("macho")}>
+                Macho
+              </Pill>
+              <span className="mx-1 opacity-30">|</span>
+              <Pill
+                active={size === "pequeno"}
+                onClick={() => setSize("pequeno")}
+              >
+                Pequeno
+              </Pill>
+              <Pill active={size === "médio"} onClick={() => setSize("médio")}>
+                Médio
+              </Pill>
+              <Pill
+                active={size === "grande"}
+                onClick={() => setSize("grande")}
+              >
+                Grande
+              </Pill>
             </div>
-            {errors.sex && errorText(errors.sex.message)}
-          </div>
-
-          {/* Nascimento */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Nascimento *</label>
-            <input
-              type="date"
-              className={inputBase}
-              {...register("birthDate")}
-            />
-            {errors.birthDate && errorText(errors.birthDate.message)}
-          </div>
-
-          {/* Peso */}
-          <div className="lg:col-span-3">
-            <label className="text-sm font-medium">Peso (kg)</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              className={inputBase}
-              {...register("weightKg", {
-                setValueAs: (v) =>
-                  v === "" || v === null ? undefined : Number(v),
-              })}
-            />
-            {errors.weightKg && errorText(errors.weightKg.message)}
-          </div>
-
-          {/* Observações */}
-          <div className="lg:col-span-12">
-            <label className="text-sm font-medium">Observações</label>
-            <textarea rows={4} className={inputBase} {...register("notes")} />
-            {errors.notes && errorText(errors.notes.message)}
           </div>
         </div>
+      </Card>
 
-        {/* footer padrão do FormCard já tem Cancelar/Salvar */}
-        <div className="mt-2 text-xs opacity-70">* Campos obrigatórios</div>
-      </FormCard>
-    </div>
+      {/* Raça + Sobre a raça (lado direito) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="p-4 sm:p-6 lg:col-span-2">
+          <div className="mb-4">
+            <h3 className="font-semibold">Raça</h3>
+            <div className="mt-3">
+              <label className="text-xs font-medium opacity-70">
+                Buscar raça
+              </label>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`Buscar raça de ${species}…`}
+                className="mt-1 h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {filteredBreeds.map((b) => (
+              <BreedTile
+                key={b.id}
+                breed={b}
+                active={breed?.id === b.id}
+                onClick={() => setBreed(b)}
+              />
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-4 sm:p-6">
+          <h3 className="font-semibold mb-3">Sobre a raça</h3>
+          {breed ? (
+            <div className="space-y-3 text-sm leading-relaxed">
+              <p className="opacity-80">
+                {breed?.description || "Informações da raça não disponíveis."}
+              </p>
+
+              <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                <h4 className="font-medium mb-2">Aparência</h4>
+                <p className="opacity-80">{breed?.appearance || "—"}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                  <h4 className="font-medium mb-1">Temperamento</h4>
+                  <p className="opacity-80">{breed?.temperament || "—"}</p>
+                </div>
+                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                  <h4 className="font-medium mb-1">Treinabilidade</h4>
+                  <p className="opacity-80">{breed?.trainability || "—"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                  <h4 className="font-medium mb-1">Exercício</h4>
+                  <p className="opacity-80">{breed?.exercise || "—"}</p>
+                </div>
+                <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                  <h4 className="font-medium mb-1">Pelagem</h4>
+                  <p className="opacity-80">{breed?.coat || "—"}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-black/5 dark:bg-white/5 p-3">
+                <h4 className="font-medium mb-1">Saúde</h4>
+                <p className="opacity-80">{breed?.health || "—"}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="opacity-60 text-sm">
+              Selecione uma raça para ver detalhes.
+            </p>
+          )}
+        </Card>
+      </div>
+
+      {/* Medidas & datas */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="p-4 sm:p-6 lg:col-span-2">
+          <h3 className="font-semibold mb-4">Medidas & datas</h3>
+
+          {/* Peso */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Peso</label>
+              <div className="flex gap-1 rounded-lg ring-1 ring-black/10 dark:ring-white/10 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setWeightUnit("kg")}
+                  className={`px-2 py-1 text-sm ${
+                    weightUnit === "kg"
+                      ? "bg-orange-500 text-white"
+                      : "hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  kg
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWeightUnit("lb")}
+                  className={`px-2 py-1 text-sm ${
+                    weightUnit === "lb"
+                      ? "bg-orange-500 text-white"
+                      : "hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  lb
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl p-4 bg-black/5 dark:bg-white/5">
+              <div className="text-4xl font-semibold">
+                {sliderValue}
+                <span className="text-lg font-normal opacity-70 ml-1">
+                  {weightUnit}
+                </span>
+              </div>
+
+              <input
+                type="range"
+                min={weightUnit === "kg" ? 1 : 2.2}
+                max={weightUnit === "kg" ? 80 : 176}
+                step={weightUnit === "kg" ? 0.1 : 0.2}
+                value={weightUnit === "kg" ? weight : weight * 2.20462}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (weightUnit === "kg") setWeight(v);
+                  else setWeight(Math.round((v / 2.20462) * 10) / 10);
+                }}
+                className="pc-range mt-3 w-full"
+              />
+            </div>
+          </div>
+
+          {/* Datas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium opacity-70">
+                Data de nascimento
+              </label>
+              <input
+                type="date"
+                value={birth}
+                onChange={(e) => setBirth(e.target.value)}
+                className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium opacity-70">
+                Data de adoção
+              </label>
+              <input
+                type="date"
+                value={adoption}
+                onChange={(e) => setAdoption(e.target.value)}
+                className="h-10 w-full rounded-lg px-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* Sugestões da raça */}
+        <Card className="p-4 sm:p-6">
+          <h3 className="font-semibold mb-3">Sugestões da raça</h3>
+          {breed ? (
+            <dl className="grid grid-cols-1 gap-2 text-sm">
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Porte sugerido</dt>
+                <dd className="font-medium">
+                  {breed?.suggestedSize || breed?.size || "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Peso típico</dt>
+                <dd className="font-medium">
+                  {breed?.typicalWeight || breed?.weightTip || "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg:white/5 px-3 py-2 dark:bg-white/5">
+                <dt className="opacity-70">Altura típica</dt>
+                <dd className="font-medium">
+                  {breed?.typicalHeight || breed?.heightTip || "—"}
+                </dd>
+              </div>
+              <div className="flex justify-between rounded-lg bg-black/5 dark:bg-white/5 px-3 py-2">
+                <dt className="opacity-70">Expectativa de vida</dt>
+                <dd className="font-medium">
+                  {breed?.lifeExpectancy || breed?.lifespan || "—"}
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="opacity-60 text-sm">Selecione uma raça.</p>
+          )}
+        </Card>
+      </div>
+
+      {/* Sobre o pet */}
+      <Card className="p-4 sm:p-6">
+        <h3 className="font-semibold mb-3">Sobre o pet</h3>
+        <textarea
+          rows={4}
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          placeholder="Conte um pouco sobre a aparência e o jeitinho dele(a)…"
+          className="w-full rounded-xl p-3 ring-1 ring-black/10 dark:ring-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+        />
+      </Card>
+
+      <div className="flex items-center justify-end gap-3">
+        <button
+          type="button"
+          onClick={() => history.back()}
+          className="h-10 px-4 rounded-lg ring-1 ring-black/10 dark:ring-white/10 hover:bg-black/5 dark:hover:bg-white/5"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={
+            !name.trim() ||
+            !avatarFile ||
+            !coverFile ||
+            !breed?.id ||
+            !desc.trim()
+          }
+          className="h-10 px-5 rounded-lg bg-orange-500 text-white shadow hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          Confirmar
+        </button>
+      </div>
+    </form>
   );
 }

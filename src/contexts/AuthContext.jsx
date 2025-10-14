@@ -1,45 +1,58 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import { getSession, loginMock, logoutMock } from "@features/auth/services/authStorage";
+// src/contexts/AuthContext.jsx
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  getCurrentUser,
+  loginWithPassword,
+  logout as storageLogout,
+  registerUser,
+} from "@/features/auth/services/authStorage";
 
-const AuthCtx = createContext(null);
+const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(getSession().user);
+  const [me, setMe] = useState(null);
+  const [loading, setLoading] = useState(true);
 
+  // carrega sessão ao iniciar
   useEffect(() => {
-    const onUpd = () => setUser(getSession().user);
-    window.addEventListener("patanet:auth-updated", onUpd);
-    return () => window.removeEventListener("patanet:auth-updated", onUpd);
+    setMe(getCurrentUser());
+    setLoading(false);
+
+    // sincroniza entre abas
+    const onStorage = (ev) => {
+      if (ev.key === "pe_session" || ev.key === "pe_users") {
+        setMe(getCurrentUser());
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  const login = async ({ login, password }) => {
+    const user = loginWithPassword({ login, password });
+    setMe(user);
+    return user;
+  };
+
+  const register = async (payload) => {
+    const user = registerUser(payload);
+    setMe(user);
+    return user;
+  };
+
+  const signout = () => {
+    storageLogout();
+    setMe(null);
+  };
+
   const value = useMemo(
-    () => ({
-      user,
-      isAuthenticated: !!user,
-      async login({ email, password, name }) {
-        const { user: u } = await loginMock({ email, password, name });
-        setUser(u);
-        return u;
-      },
-      async logout() {
-        await logoutMock();
-        setUser(null);
-      },
-    }),
-    [user]
+    () => ({ me, loading, login, register, logout: signout }),
+    [me, loading]
   );
 
-  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthCtx);
-  if (!ctx) throw new Error("useAuth deve ser usado dentro de <AuthProvider>");
-  return ctx;
+  return useContext(AuthContext);
 }

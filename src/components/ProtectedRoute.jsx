@@ -1,9 +1,12 @@
 import React from "react";
-import { Navigate } from "react-router-dom";
-import { getSession } from "@features/auth/services/authStorage";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
-export default function ProtectedRoute({ children }) {
-  const { user } = getSession();
-  if (user) return children;
-  return <Navigate to="/login" replace />;
+export default function ProtectedRoute() {
+  const { me, loading } = useAuth();
+  const loc = useLocation();
+
+  if (loading) return null; // ou um skeleton
+  if (!me) return <Navigate to="/auth" replace state={{ from: loc }} />;
+  return <Outlet />;
 }

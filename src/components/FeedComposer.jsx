@@ -1,181 +1,430 @@
-import React, { useMemo, useState } from "react";
-import ContentCard from "./ContentCard";
-import { addPosts } from "@features/feed/services/feedStorage";
-import { loadPets } from "@features/pets/services/petsStorage";
-import { compressImageSmart } from "../utils/image";
-import { useToast } from "./ui/ToastProvider";
-import { ImagePlus } from "lucide-react";
+// src/components/FeedComposer.jsx
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { ImagePlus, PawPrint } from "lucide-react";
+// (mantive a UI/fluxo igual; se quiser, depois trocamos pets para API)
+import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
+import { createPost } from "@/api/post.api.js";
+import { getMyProfile } from "@/api/user.api.js";
+import { fetchAnimalsByOwner } from "@/api/owner.api.js";
+import { fetchAnimalsById } from "@/api/animal.api.js";
+import heic2any from "heic2any";
 
-export default function FeedComposer({ onPosted }) {
-  const pets = useMemo(() => loadPets(), []);
-  const [text, setText] = useState("");
-  const [petIds, setPetIds] = useState([]);
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const toast = useToast();
 
-  function togglePet(idStr) {
-    setPetIds((prev) =>
-      prev.includes(idStr) ? prev.filter((x) => x !== idStr) : [...prev, idStr]
-    );
-  }
+/* ---------- utils: compressão igual ao registro ---------- */
+/* -------------------- utils: compress + HEIC → JPEG -------------------- */
+const isHeic = (file) =>
+  file &&
+  (/\.(heic|heif)$/i.test(file.name || "") ||
+    /image\/hei(c|f)/i.test(file.type || ""));
 
-  async function onPickFile(e) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (!f.type.startsWith("image/")) {
-      toast.info("Apenas imagens.");
-      return;
-    }
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
-  }
-
-  function clearImage() {
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(null);
-    setFile(null);
-  }
-
-  async function publish() {
-  const content = text.trim()
-  if (!content && !file) {
-    toast.info('Escreva algo ou anexe uma imagem.')
-    return
-  }
-
-  const now = Date.now()
-  const author = { id: 'me', name: 'Você', avatar: null }
-
-  // 1) Se tiver imagem: salva só na Galeria (sem criar post de foto no feed)
-  if (file) {
-    try {
-      const { dataUrl } = await compressImageSmart(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.85 })
-      // salva na galeria
-      const photo = {
-        id: now,
-        petIds: petIds.map(Number),
-        caption: content,
-        src: dataUrl,
-        createdAt: now,
-        originalName: file.name,
-      }
-      addPhoto(photo)
-      toast.success('Foto salva na Galeria. Em breve: publicação com imagem no feed.')
-      // limpa composer
-      setText(''); setPetIds([]); if (preview) URL.revokeObjectURL(preview); setPreview(null); setFile(null)
-      onPosted?.()
-      return
-    } catch {
-      toast.error('Falha ao processar a imagem.')
-      return
-    }
-  }
-
-  // 2) Post de texto normal (continua funcionando)
-  const post = {
-    id: now,
-    type: 'text',
-    text: content,
-    petIds: petIds.map(Number),
-    createdAt: now,
-    author,
-    likes: 0,
-    comments: [],
-  }
-
+/** Converte HEIC/HEIF para JPEG antes de qualquer processamento */
+async function ensureJpeg(file) {
+  if (!(file instanceof File)) return file;
+  if (!isHeic(file)) return file;
   try {
-    addPosts([post])
-    toast.success('Publicado!')
-    setText(''); setPetIds([])
-    onPosted?.()
+    const blob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.92,
+    });
+    return new File(
+      [blob],
+      (file.name || "image").replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" }
+    );
   } catch {
-    toast.error('Sem espaço para publicar. Remova itens antigos.')
+    // fallback: devolve o original se não conseguir converter
+    return file;
   }
 }
 
+/**
+ * Compressão adaptativa visando um teto de bytes.
+ * - Converte HEIC → JPEG
+ * - Redimensiona até máx. 1920x1920
+ * - Ajusta qualidade até atingir targetMaxBytes (sem cair abaixo de minQuality)
+ * - Se ainda ficar grande, reduz dimensões gradualmente
+ */
+async function compressImage(
+  file,
+  {
+    maxW = 1920,
+    maxH = 1920,
+    initialQuality = 0.86,
+    minQuality = 0.6,
+    targetMaxBytes = 900 * 1024, // ~900 KB (ajuste conforme seu backend)
+    downscaleStep = 0.9, // reduz 10% se necessário
+  } = {}
+) {
+  if (!(file instanceof File)) return file;
+
+  // 1) Converter HEIC → JPEG
+  const base = await ensureJpeg(file);
+
+  // 2) Criar bitmap
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(base);
+  } catch {
+    const url = URL.createObjectURL(base);
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        // tenta criar bitmap; se falhar, usa o próprio <img>
+        createImageBitmap(img).then(resolve).catch(() => resolve(img));
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+  }
+
+  // 3) Redimensionar para caber em maxW x maxH
+  let { width, height } = bitmap;
+  let ratio = Math.min(maxW / width, maxH / height, 1);
+  let w = Math.max(1, Math.round(width * ratio));
+  let h = Math.max(1, Math.round(height * ratio));
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  canvas.width = w;
+  canvas.height = h;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  // 4) Ajustar qualidade até atingir o alvo
+  let quality = initialQuality;
+  let blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+
+  while (blob && blob.size > targetMaxBytes && quality > minQuality + 0.01) {
+    quality = Math.max(minQuality, quality - 0.08);
+    blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", quality));
+  }
+
+  // 5) Se ainda passou do alvo, reduzir dimensões e manter qualidade mínima
+  while (blob && blob.size > targetMaxBytes && (w > 640 || h > 640)) {
+    w = Math.max(640, Math.round(w * downscaleStep));
+    h = Math.max(640, Math.round(h * downscaleStep));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", minQuality));
+  }
+
+  // 6) Retornar como File .jpg
+  if (!blob) return base;
+  return new File(
+    [blob],
+    (base.name || "image").replace(/\.(png|webp|gif|heic|heif)$/i, ".jpg"),
+    { type: "image/jpeg" }
+  );
+}
+
+
+function dataUrlToFile(dataUrl, name = "media.jpg") {
+  const arr = dataUrl.split(",");
+  const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+  const bstr = atob(arr[1] || "");
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) u8arr[n] = bstr.charCodeAt(n);
+  return new File([u8arr], name, { type: mime });
+}
+
+export default function FeedComposer({ user }) {
+  const [text, setText] = useState("");
+  const [images, setImages] = useState([]); // dataURLs (UI)
+  const [files, setFiles] = useState([]); // File[] (API)
+  const [taggedPets, setTaggedPets] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  // ids possíveis do usuário
+  const [me, setMe] = useState(null);
+  const [pets, setPets] = useState([]);
+  const [petThumbs, setPetThumbs] = useState({});
+
+  // Carrega pets (mesmo layout/fluxo)
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const u = await getMyProfile();
+        if (!cancel) setMe(u || null);
+      } catch {
+        if (!cancel) setMe(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // Carrega pets do dono autenticado
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!me?.id) {
+        setPets([]);
+        return;
+      }
+      try {
+        const resp = await fetchAnimalsByOwner({
+          userId: me.id,
+          page: 1,
+          perPage: 100,
+        });
+        const list = Array.isArray(resp?.data)
+          ? resp.data
+          : Array.isArray(resp)
+          ? resp
+          : [];
+        if (cancel) return;
+        // mapeia campos principais
+        setPets(
+          list.map((p) => ({
+            id: p.id || p._id,
+            name: p.name || "Pet",
+            image: p.image?.url || p.image || "", // avatar do pet (se houver)
+            imageCover: p.imageCover?.url || p.imageCover || "",
+            breedImage: p.breed?.image || "", // fallback: imagem da raça
+          }))
+        );
+      } catch {
+        if (!cancel) setPets([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [me?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const pairs = await Promise.all(
+        pets.map(async (p) => {
+          let avatarUrl = p.image || p.breedImage || p.imageCover || "";
+          if (!avatarUrl) {
+            try {
+              const full = await fetchAnimalsById({ animalId: p.id });
+              avatarUrl =
+                full?.image?.url ||
+                full?.image ||
+                full?.breed?.image ||
+                full?.imageCover ||
+                "";
+            } catch {}
+          }
+          return [p.id, { name: p.name || "Pet", avatarUrl }];
+        })
+      );
+      if (!cancelled) {
+        const map = {};
+        for (const [id, meta] of pairs) map[id] = meta;
+        setPetThumbs(map);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pets]);
+
+  async function onPickFiles(e) {
+  const selected = Array.from(e.target.files || []);
+  e.target.value = ""; // permite selecionar o mesmo arquivo novamente
+  if (!selected.length) return;
+
+  const previews = [];
+  const compressed = [];
+
+  for (const f of selected) {
+    // HEIC→JPEG + compressão adaptativa
+    const cf = await compressImage(f, {
+      maxW: 1920,
+      maxH: 1920,
+      initialQuality: 0.86,
+      minQuality: 0.6,
+      targetMaxBytes: 900 * 1024,
+    });
+    compressed.push(cf);
+
+    // Preview do arquivo comprimido
+    const preview = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = rej;
+      fr.readAsDataURL(cf);
+    });
+    previews.push(preview);
+  }
+
+  setImages((g) => [...g, ...previews]);
+  setFiles((g) => [...g, ...compressed]);
+}
+
+
+  function togglePet(pid) {
+    setTaggedPets((list) =>
+      list.includes(pid) ? list.filter((x) => x !== pid) : [...list, pid]
+    );
+  }
+
+  function canPost() {
+    return user && !sending && (text.trim().length > 0 || images.length > 0);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canPost()) return;
+
+    setSending(true);
+    setError("");
+
+    try {
+      // Garante Files (se só houver dataURL)
+      let medias = files.slice();
+      if (medias.length === 0 && images.length > 0) {
+        medias = images.map((d, i) => dataUrlToFile(d, `media_${i + 1}.jpg`));
+      }
+
+      // Chamada de criação
+      const created = await createPost({
+        subtitle: String(text || ""),
+        pets: taggedPets.map(String),
+        medias, // File[]
+      });
+
+      // Limpa o formulário
+      setText("");
+      setImages([]);
+      setFiles([]);
+      setTaggedPets([]);
+
+      // Notifica o Feed para atualizar imediatamente
+      // Se a API retornar o post criado, enviamos no detail.
+      window.dispatchEvent(
+        new CustomEvent("patanet:feed-new-post", { detail: created })
+      );
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Não foi possível publicar.";
+      setError(String(msg));
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
-    <ContentCard>
-      <div className="flex flex-col gap-3">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Escreva algo…"
-          className="min-h-[44px] w-full rounded-md border px-3 py-2 text-sm outline-none
-                     border-slate-300 bg-white focus:border-slate-400
-                     dark:border-slate-700 dark:bg-slate-900 dark:focus:border-slate-600"
-        />
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <textarea
+        className="w-full resize-none rounded-lg border border-zinc-300 bg-white/80 p-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
+        rows={3}
+        placeholder="Compartilhe algo com a comunidade…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
 
-        {/* Pets (tags) */}
-        {pets.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+      {/* Galeria prévia */}
+      {!!images.length && (
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+          {images.map((src, i) => (
+            <div key={i} className="overflow-hidden rounded-xl">
+              <img
+                src={src || null}
+                alt=""
+                className="aspect-video w-full object-cover"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Seleção de pets (opcional) */}
+      {pets.length > 0 ? (
+        <div className="mt-3">
+          <div className="mb-1 inline-flex items-center gap-2 text-xs font-medium opacity-80">
+            <PawPrint className="h-4 w-4" />
+            Marcar pets (opcional)
+          </div>
+          <div className="flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-rounded-full scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
             {pets.map((p) => {
-              const idStr = String(p.id);
-              const active = petIds.includes(idStr);
+              const active = taggedPets.includes(p.id);
+              const src = petThumbs[p.id]?.avatarUrl || undefined;
               return (
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => togglePet(idStr)}
-                  className={`rounded-full border px-3 py-1 text-xs ${
+                  onClick={() => togglePet(p.id)}
+                  title={petThumbs[p.id]?.name || p.name || "Pet"}
+                  className={`group inline-flex items-center gap-2 rounded-full px-2 py-1 ring-1 text-xs transition ${
                     active
-                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-200 dark:bg-slate-200 dark:text-slate-900"
-                      : "border-slate-300 bg-white hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+                      ? "bg-[#f77904] text-white ring-[#f77904]"
+                      : "bg-zinc-50 ring-zinc-200 hover:bg-zinc-100 dark:bg-zinc-800 dark:ring-zinc-700"
                   }`}
                 >
-                  {p.name}
+                  <PetChipAvatar src={src} />
+                  <span className="pr-1">{p.name || "Pet"}</span>
                 </button>
               );
             })}
           </div>
-        )}
-
-        {/* Imagem opcional */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => document.getElementById("composer-image")?.click()}
-            className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm
-                       border-slate-300 hover:bg-slate-100
-                       dark:border-slate-700 dark:hover:bg-slate-800"
-          >
-            <ImagePlus className="h-4 w-4" /> Anexar imagem
-          </button>
-          <input
-            id="composer-image"
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={onPickFile}
-          />
-          {preview && (
-            <div className="flex items-center gap-2">
-              <img
-                src={preview}
-                alt="Pré-visualização"
-                className="h-12 w-12 rounded object-cover"
-              />
-              <button
-                type="button"
-                onClick={clearImage}
-                className="text-xs opacity-70 hover:opacity-100"
-              >
-                Remover
-              </button>
-            </div>
-          )}
-          <div className="ml-auto">
-            <button
-              type="button"
-              onClick={publish}
-              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:opacity-90 dark:bg-slate-200 dark:text-slate-900"
-            >
-              Publicar
-            </button>
-          </div>
         </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700">
+          Você ainda não marcou pets neste dispositivo. Cadastre seus pets em{" "}
+          <span className="font-medium">Meus Pets</span> para poder marcá-los
+          nas postagens (opcional).
+        </div>
+      )}
+
+      {/* Ações */}
+      <div className="mt-3 flex items-center justify-between">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800">
+          <ImagePlus className="h-4 w-4" />
+          Adicionar mídia
+          <input
+            type="file"
+            accept="image/*,.heic,.heif"
+            multiple
+            onChange={onPickFiles}
+            className="hidden"
+          />
+        </label>
+
+        <button
+          type="submit"
+          disabled={!canPost()}
+          className="rounded-lg bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+        >
+          Publicar
+        </button>
       </div>
-    </ContentCard>
+
+      {!!error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
+          {error}
+        </div>
+      )}
+    </form>
+  );
+}
+
+function PetChipAvatar({ src }) {
+  if (!src) {
+    return (
+      <span className="inline-block h-6 w-6 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+    );
+  }
+  return (
+    <img
+      src={src || undefined}
+      alt=""
+      className="h-6 w-6 rounded-full object-cover ring-1 ring-white dark:ring-zinc-900"
+    />
   );
 }
