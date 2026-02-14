@@ -16,6 +16,9 @@ import {
   Check,
   Image as ImageIcon,
   PawPrint,
+  CalendarDays,
+  Clock,
+  MapPin,
 } from "lucide-react";
 import FeedComposer from "@/components/FeedComposer";
 import FeedPostActions from "@/components/FeedPostActions";
@@ -239,6 +242,22 @@ const normPost = (p) => {
   const imgsFromImages = Array.isArray(p?.images)
     ? p.images.filter(Boolean)
     : [];
+
+  const eventObj = p?.event || p?.evento || null;
+  const eventId =
+    p?.eventId ??
+    p?.eventoId ??
+    eventObj?.id ??
+    eventObj?._id ??
+    null;
+
+  const isEvent =
+    !!eventObj ||
+    !!eventId ||
+    String(p?.type || "").toUpperCase() === "EVENT" ||
+    p?.isEvent === true ||
+    p?.hasEvent === true;
+
   return {
     id: p?.id ?? String(Math.random()),
     text: p?.text ?? p?.subtitle ?? "",
@@ -255,6 +274,11 @@ const normPost = (p) => {
     petTags: Array.isArray(p?.pets)
       ? p.pets.map(normPetTag).filter(Boolean)
       : [],
+
+    // Eventos (quando o backend vincular evento ↔ post)
+    isEvent,
+    eventId,
+    event: eventObj,
   };
 };
 
@@ -1051,6 +1075,21 @@ export default function Feed() {
     <div className="mx-auto w-full max-w-3xl">
       <FeedComposer user={me} />
 
+      <div className="mt-3 flex justify-end gap-2">
+        <Link
+          to="/eventos"
+          className="inline-flex items-center rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        >
+          Eventos
+        </Link>
+        <Link
+          to="/eventos/novo"
+          className="inline-flex items-center rounded-lg bg-[#f77904] px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+        >
+          Criar evento
+        </Link>
+      </div>
+
       <div className="mt-6 space-y-4">
         {posts.map((post) => {
           const likesArr = normLikes(post.likes);
@@ -1118,6 +1157,62 @@ export default function Feed() {
               {/* Texto */}
               {post.text && (
                 <p className="mb-3 whitespace-pre-wrap text-sm">{post.text}</p>
+              )}
+
+              {/* Evento vinculado */}
+              {post.isEvent && (post.eventId || post.event?.id) && (
+                <Link
+                  to={`/eventos/${post.event?.id || post.eventId}`}
+                  className="mb-3 block overflow-hidden rounded-xl border border-orange-200 bg-orange-50/50 hover:bg-orange-50 dark:border-orange-900/50 dark:bg-orange-950/20"
+                  title="Ver detalhes do evento"
+                >
+                  <div className="flex gap-3 p-3">
+                    <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-orange-200 dark:bg-zinc-900 dark:ring-orange-900/40">
+                      {post.event?.image || post.event?.image?.url ? (
+                        <img
+                          src={post.event?.image?.url || post.event?.image}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <CalendarDays className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 inline-flex items-center gap-2">
+                        <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          Evento
+                        </span>
+                        <span className="truncate text-sm font-semibold">
+                          {post.event?.title || post.event?.name || "Ver evento"}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+                        {(post.event?.date || post.event?.day) && (
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {new Date(post.event?.date || post.event?.day).toLocaleDateString("pt-BR")}
+                          </span>
+                        )}
+                        {post.event?.time && (
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 opacity-70" />
+                            {post.event.time}
+                          </span>
+                        )}
+                        {post.event?.locationText && (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5 opacity-70" />
+                            <span className="max-w-[260px] truncate">{post.event.locationText}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
               )}
 
               {/* Pets marcados */}

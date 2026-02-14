@@ -17,6 +17,10 @@ import {
   MapPin,
   NotebookText,
   X,
+  UserPlus,
+  UserMinus,
+  Search,
+  Users,
 } from "lucide-react";
 import Lightbox from "@/components/Lightbox";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -24,8 +28,9 @@ import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
 import heic2any from "heic2any";
 
 // APIs
-import { getMyProfile } from "@/api/user.api.js";
+import { getMyProfile, fetchUsersProfile, getUserProfile } from "@/api/user.api.js";
 import { fetchAnimalsById } from "@/api/animal.api.js";
+import { addOwner, removeOwner } from "@/api/owner.api.js";
 import {
   fetchAnimalMedias,
   uploadAnimalMedias,
@@ -368,6 +373,13 @@ export default function PetDetail() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
 
+  // Tutores (owners)
+  const [owners, setOwners] = useState([]); // [{id, username, name, image}]
+  const [tutorModalOpen, setTutorModalOpen] = useState(false);
+  const [tutorQuery, setTutorQuery] = useState("");
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorResults, setTutorResults] = useState([]);
+
   // Modal de Vacina (create/edit)
   const [vacModalOpen, setVacModalOpen] = useState(false);
   const [vacEditId, setVacEditId] = useState(null);
@@ -407,6 +419,17 @@ export default function PetDetail() {
           ? a.owners.map((o) => o?.id).filter(Boolean)
           : [];
 
+        const ownerObjsFromArray = Array.isArray(a?.owners)
+          ? a.owners
+              .map((o) => ({
+                id: o?.id,
+                username: o?.username || "",
+                name: o?.name || o?.displayName || "",
+                image: o?.image?.url || o?.image || o?.avatar || "",
+              }))
+              .filter((o) => !!o.id)
+          : [];
+
         const primaryOwnerId =
           a?.ownerId || // se existir
           ownersFromArray[0] || // ou primeiro da lista
@@ -437,8 +460,16 @@ export default function PetDetail() {
           image: a?.image?.url || a.image || a?.breed?.image || "",
           imageCover: a?.imageCover?.url || a.imageCover || "",
           ownerId: primaryOwnerId,
-          ownerIds: ownersFromArray,
+          ownerIds: ownersFromArray.length ? ownersFromArray : primaryOwnerId ? [primaryOwnerId] : [],
         });
+
+        setOwners(
+          ownerObjsFromArray.length
+            ? ownerObjsFromArray
+            : primaryOwnerId
+            ? [{ id: primaryOwnerId }]
+            : []
+        );
         // Header usa o mesmo fallback para não ficar sem foto
         setAvatarUrl(a?.image?.url || a.image || a?.breed?.image || "");
         PetDetail;
@@ -463,6 +494,149 @@ export default function PetDetail() {
     return myId === primary || many.includes(myId);
   }, [me?.id, pet?.ownerId, pet?.ownerIds]);
 
+
+
+  // Completa dados dos tutores quando o backend só envia IDs
+  useEffect(() => {
+    let cancel = false;
+
+    (async () => {
+      const ids = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
+      if (!ids.length) {
+        setOwners([]);
+        return;
+      }
+
+      const known = new Map();
+      for (const o of owners || []) {
+        if (o?.id) known.set(String(o.id), o);
+      }
+
+      const resolved = [];
+      for (const id of ids) {
+        const have = known.get(String(id));
+        if (have && (have.username || have.name || have.image)) {
+          resolved.push(have);
+          continue;
+        }
+        try {
+          const prof = await getUserProfile({ id });
+          const u = prof?.data || prof || {};
+          resolved.push({
+            id: u?.id || id,
+            username: u?.username || "",
+            name: u?.name || u?.displayName || "",
+            image: u?.imageCover?.url || u?.image?.url || u?.image || "",
+          });
+        } catch {
+          resolved.push({ id });
+        }
+      }
+
+      if (!cancel) setOwners(resolved);
+    })();
+
+    return () => {
+      cancel = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(pet?.ownerIds || [])]);
+
+  const openTutorModal = () => {
+    if (!canEdit) {
+      toast.error("Apenas um tutor pode gerenciar tutores.");
+      return;
+    }
+    setTutorQuery("");
+    setTutorResults([]);
+    setTutorModalOpen(true);
+  };
+
+  const searchTutors = async (q) => {
+    const query = String(q || "").trim();
+    setTutorQuery(query);
+    if (!query) {
+      setTutorResults([]);
+      return;
+    }
+
+    setTutorLoading(true);
+    try {
+      const resp = await fetchUsersProfile({ query, page: 1, perPage: 10 });
+      const list = Array.isArray(resp?.data) ? resp.data : Array.isArray(resp) ? resp : [];
+
+      const existing = new Set((pet?.ownerIds || []).map(String));
+      setTutorResults(list.filter((u) => !existing.has(String(u?.id))));
+    } catch (e) {
+      console.error(e);
+      setTutorResults([]);
+    } finally {
+      setTutorLoading(false);
+    }
+  };
+
+  const addTutorToPet = async (user) => {
+    const ownerId = user?.id;
+    if (!ownerId) return;
+    try {
+      await addOwner({ ownerId, animalId });
+      toast.success("Tutor vinculado ao pet.");
+      setPet((p) => {
+        const ids = new Set([...(p?.ownerIds || []).map(String), String(ownerId)]);
+        return { ...p, ownerIds: Array.from(ids) };
+      });
+      setOwners((curr) => {
+        const ids = new Set(curr.map((o) => String(o?.id)));
+        if (ids.has(String(ownerId))) return curr;
+        return [
+          ...curr,
+          {
+            id: user.id,
+            username: user.username || "",
+            name: user.name || user.displayName || "",
+            image: user.image?.url || user.image || "",
+          },
+        ];
+      });
+      setTutorModalOpen(false);
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao vincular tutor.");
+    }
+  };
+
+  const removeTutorFromPet = async (ownerId) => {
+    const id = ownerId ? String(ownerId) : null;
+    if (!id) return;
+
+    // não deixa remover o último tutor
+    const current = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
+    if (current.length <= 1) {
+      toast.error("O pet precisa ter pelo menos 1 tutor.");
+      return;
+    }
+
+    const ok = await confirm({
+      title: "Remover tutor?",
+      description: "O perfil deixará de estar vinculado a este pet.",
+      confirmText: "Remover",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    try {
+      await removeOwner({ ownerId: id, animalId });
+      toast.success("Tutor removido.");
+      setPet((p) => ({
+        ...p,
+        ownerIds: (p?.ownerIds || []).map(String).filter((x) => x !== id),
+      }));
+      setOwners((curr) => curr.filter((o) => String(o?.id) != id));
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao remover tutor.");
+    }
+  };
   /* -------------------------- galeria: listar/upload/delete ---------------- */
   const refetchGallery = useRef(null);
 
@@ -875,6 +1049,72 @@ export default function PetDetail() {
               />
             </div>
           </div>
+
+          {/* Tutores */}
+          <div className="mt-6">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium opacity-80 inline-flex items-center gap-2">
+                <Users className="h-4 w-4 opacity-70" /> Tutores
+              </h3>
+
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={openTutorModal}
+                  className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                  title="Adicionar tutor"
+                >
+                  <UserPlus className="h-3.5 w-3.5" /> Adicionar
+                </button>
+              )}
+            </div>
+
+            {owners.length === 0 ? (
+              <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                —
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {owners.map((o) => (
+                  <li
+                    key={o.id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-[var(--chip-bg)] px-3 py-2 ring-1 ring-black/5 dark:ring-white/5"
+                  >
+                    <Link
+                      to={`/usuario/${o.id}`}
+                      className="flex min-w-0 items-center gap-3 hover:opacity-90"
+                      title="Ver perfil"
+                    >
+                      <img
+                        src={o.image || undefined}
+                        alt=""
+                        className="h-9 w-9 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {o.username ? `@${o.username}` : o.name || 'usuário'}
+                        </div>
+                        {o.name && (
+                          <div className="truncate text-xs opacity-70">{o.name}</div>
+                        )}
+                      </div>
+                    </Link>
+
+                    {canEdit && owners.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeTutorFromPet(o.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                        title="Remover tutor"
+                      >
+                        <UserMinus className="h-3.5 w-3.5" /> Remover
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </section>
 
         {/* DIREITA */}
@@ -1242,6 +1482,86 @@ export default function PetDetail() {
                 onClick={submitVaccine}
               >
                 {vacEditId ? "Salvar alterações" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: adicionar tutor */}
+      {tutorModalOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2 text-sm font-semibold">
+                <UserPlus className="h-4 w-4" /> Selecionar tutor
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => setTutorModalOpen(false)}
+                title="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+              <input
+                value={tutorQuery}
+                onChange={(e) => searchTutors(e.target.value)}
+                placeholder="Buscar por nome ou @username…"
+                className="w-full rounded-lg border border-zinc-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </div>
+
+            <div className="mt-3 max-h-[50vh] overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+              {tutorLoading ? (
+                <div className="p-4 text-sm opacity-70">Buscando…</div>
+              ) : tutorQuery && tutorResults.length === 0 ? (
+                <div className="p-4 text-sm opacity-70">Nenhum perfil encontrado.</div>
+              ) : tutorResults.length === 0 ? (
+                <div className="p-4 text-sm opacity-70">Digite para buscar perfis.</div>
+              ) : (
+                <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {tutorResults.map((u) => (
+                    <li key={u.id} className="flex items-center justify-between gap-3 p-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <img
+                          src={(u?.image?.url || u?.image) || undefined}
+                          alt=""
+                          className="h-10 w-10 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">
+                            {u?.username ? `@${u.username}` : u?.name || "usuário"}
+                          </div>
+                          {u?.name && (
+                            <div className="truncate text-xs opacity-70">{u.name}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => addTutorToPet(u)}
+                        className="inline-flex items-center gap-1 rounded-lg bg-[#f77904] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+                      >
+                        <Check className="h-3.5 w-3.5" /> Vincular
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTutorModalOpen(false)}
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                Fechar
               </button>
             </div>
           </div>

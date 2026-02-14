@@ -17,6 +17,7 @@ import {
   ChevronRight,
   X,
   Menu as MenuIcon,
+  ShieldAlert,
 } from "lucide-react";
 
 import Logo from "@/assets/logo.png"; // coloque sua logo em src/assets/logo.png
@@ -242,6 +243,49 @@ export default function Sidebar() {
         <Ico className="h-4 w-4" />
         <span>{label}</span>
       </Link>
+    );
+  };
+
+  const ExternalItem = ({ href, icon: Ico, label }) => {
+    const active = false;
+
+    const onClick = (e) => {
+      e.preventDefault();
+      try {
+        window.open(href, "_blank", "noopener,noreferrer");
+      } catch {
+        window.location.href = href;
+      }
+      closeIfMobile?.();
+    };
+
+    if (!open) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          className={
+            "flex items-center justify-center rounded-lg p-2 text-sm transition-colors hover:bg-white/10"
+          }
+          title={label}
+        >
+          <Ico className="h-5 w-5" />
+        </button>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={
+          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-white/10"
+        }
+        title={label}
+      >
+        <Ico className="h-5 w-5" />
+        <span>{label}</span>
+      </button>
     );
   };
 
@@ -636,6 +680,7 @@ export default function Sidebar() {
           <nav className={`flex flex-col ${open ? "gap-1" : "gap-2"}`}>
             <NavItem to="/" icon={HomeIcon} label="Página inicial" />
             <NavItem to="/usuarios" icon={Users} label="Explorar" />
+            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de Denúncia" />
           </nav>
 
           <hr className="border-white/10" />

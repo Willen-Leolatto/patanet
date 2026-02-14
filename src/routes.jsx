@@ -18,8 +18,13 @@ const PetEdit = lazy(() => import("@/features/pets/pages/PetEdit"));
 
 // Usuários
 const UserProfile = lazy(() => import("@/features/users/pages/UserProfile"));
-const UserEdit = lazy(() => import("@/features/users/pages/UserEdit")); // ⬅️ NOVO
-const UsersList = lazy(() => import("@/features/users/pages/UsersList")); // ⬅️ NOVO
+const UserEdit = lazy(() => import("@/features/users/pages/UserEdit"));
+const UsersList = lazy(() => import("@/features/users/pages/UsersList"));
+
+// Eventos
+const EventsList = lazy(() => import("@/features/events/pages/EventsList"));
+const EventCreate = lazy(() => import("@/features/events/pages/EventCreate"));
+const EventDetail = lazy(() => import("@/features/events/pages/EventDetail"));
 
 function Loader() {
   return (
@@ -53,12 +58,16 @@ export default function AppRoutes() {
 
             {/* Perfil do usuário (próprio) */}
             <Route path="/perfil" element={<UserProfile />} />
-            {/* ⬇️ NOVA ROTA: editar perfil */}
             <Route path="/perfil/editar" element={<UserEdit />} />
 
-            {/* Perfil de outro usuário (caso exista esse fluxo) */}
+            {/* Perfil de outro usuário */}
             <Route path="/usuario/:userId" element={<UserProfile />} />
             <Route path="/usuarios" element={<UsersList />} />
+
+            {/* Eventos */}
+            <Route path="/eventos" element={<EventsList />} />
+            <Route path="/eventos/novo" element={<EventCreate />} />
+            <Route path="/eventos/:eventId" element={<EventDetail />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/feed" replace />} />
