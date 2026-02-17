@@ -5,7 +5,8 @@ import {
   Shield,
   Images,
   Syringe,
-  // Pill,
+  Pill,
+  Bug,
   // Stethoscope,
   // Bandage,
   Plus,
@@ -42,6 +43,18 @@ import {
   deleteVaccines,
   updateVaccine,
 } from "@/api/vaccines.api.js";
+import {
+  addDeworming,
+  fetchDewormings,
+  deleteDeworming,
+  updateDeworming,
+} from "@/api/deworming.api.js";
+import {
+  addMedication,
+  fetchMedications,
+  deleteMedication,
+  updateMedication,
+} from "@/api/medications.api.js";
 
 /* ------------------------------------------------------------- */
 const DUE_SOON_DAYS = 7;
@@ -356,6 +369,8 @@ export default function PetDetail() {
 
   const [tab, setTab] = useState("health"); // 'health' | 'gallery'
   const [vaccinesOpen, setVaccinesOpen] = useState(true);
+  const [dewormingsOpen, setDewormingsOpen] = useState(true);
+  const [medicationsOpen, setMedicationsOpen] = useState(true);
 
   // Lightbox
   const [lbOpen, setLbOpen] = useState(false);
@@ -368,6 +383,14 @@ export default function PetDetail() {
   // Vacinas (do servidor)
   const [vaccines, setVaccines] = useState([]);
   const [loadingVaccines, setLoadingVaccines] = useState(false);
+
+  // Vermifugação (do servidor)
+  const [dewormings, setDewormings] = useState([]);
+  const [loadingDewormings, setLoadingDewormings] = useState(false);
+
+  // Medicamentos (do servidor)
+  const [medications, setMedications] = useState([]);
+  const [loadingMedications, setLoadingMedications] = useState(false);
 
   // Header (avatar/capa)
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -387,6 +410,30 @@ export default function PetDetail() {
     name: "",
     date: "",
     nextDoseDate: "",
+    clinic: "",
+    notes: "",
+  });
+
+  // Modal de Vermifugação (create/edit)
+  const [dewModalOpen, setDewModalOpen] = useState(false);
+  const [dewEditId, setDewEditId] = useState(null);
+  const [dewForm, setDewForm] = useState({
+    name: "",
+    date: "",
+    nextDoseDate: "",
+    clinic: "",
+    notes: "",
+  });
+
+  // Modal de Medicamentos (create/edit)
+  const [medModalOpen, setMedModalOpen] = useState(false);
+  const [medEditId, setMedEditId] = useState(null);
+  const [medForm, setMedForm] = useState({
+    name: "",
+    startAt: "",
+    endAt: "",
+    dosage: "",
+    frequency: "",
     clinic: "",
     notes: "",
   });
@@ -967,6 +1014,340 @@ export default function PetDetail() {
     }
   }
 
+
+
+  /* ------------------------------ vermifugação ------------------------------ */
+  const refetchDewormings = useRef(null);
+
+  useEffect(() => {
+    let cancel = false;
+    async function loadDewormings() {
+      if (!animalId) return;
+      setLoadingDewormings(true);
+      try {
+        const resp = await fetchDewormings({ animalId, page: 1, perPage: 200 });
+        const arr =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) {
+          setDewormings(
+            arr
+              .map((d) => ({
+                id: d.id || d._id,
+                name: d.name || d.dewormer || d.vermifugo || "",
+                date: d.appliedAt || d.date || "",
+                nextDoseDate: d.nextDose || d.nextDoseDate || "",
+                clinic: d.clinic || "",
+                notes: d.observations || d.notes || "",
+              }))
+              .filter((d) => !!d.id || !!d.name)
+          );
+        }
+      } catch {
+        if (!cancel) setDewormings([]);
+      } finally {
+        if (!cancel) setLoadingDewormings(false);
+      }
+    }
+
+    refetchDewormings.current = loadDewormings;
+    loadDewormings();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  const dewormingsCount = dewormings.length;
+
+  const openDewCreate = () => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+    setDewEditId(null);
+    setDewForm({ name: "", date: "", nextDoseDate: "", clinic: "", notes: "" });
+    setDewModalOpen(true);
+  };
+
+  const openDewEdit = (dw) => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+
+    const toDateInput = (val) => {
+      if (!val) return "";
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      } catch {
+        return "";
+      }
+    };
+
+    setDewEditId(dw.id);
+    setDewForm({
+      name: dw.name || "",
+      date: toDateInput(dw.date) || "",
+      nextDoseDate: toDateInput(dw.nextDoseDate) || "",
+      clinic: dw.clinic || "",
+      notes: dw.notes || "",
+    });
+    setDewModalOpen(true);
+  };
+
+  async function submitDeworming() {
+    if (!canEdit) return;
+
+    const name = String(dewForm.name || "").trim();
+    const appliedAt = String(dewForm.date || "");
+    const nextDose = dewForm.nextDoseDate || undefined;
+    const clinic = String(dewForm.clinic || "").trim();
+    const observations = String(dewForm.notes || "").trim();
+
+    if (!name || !appliedAt) {
+      toast.error("Informe ao menos o vermífugo e a data.");
+      return;
+    }
+
+    try {
+      if (dewEditId) {
+        await updateDeworming({
+          animalId,
+          dewormingId: dewEditId,
+          name,
+          observations,
+          clinic,
+          appliedAt,
+          nextDose,
+        });
+        toast.success("Vermifugação atualizada.");
+      } else {
+        await addDeworming({ animalId, name, observations, clinic, appliedAt, nextDose });
+        toast.success("Vermifugação registrada.");
+      }
+
+      await refetchDewormings.current?.();
+      setDewModalOpen(false);
+      setDewEditId(null);
+    } catch (e) {
+      console.error(e);
+      toast.error("Não foi possível salvar. Tente novamente.");
+    }
+  }
+
+  async function markDewAsToday(dw) {
+    if (!canEdit) return;
+
+    const ok = await confirm({
+      title: "Marcar como aplicada hoje?",
+      description:
+        "A data de aplicação será atualizada para hoje. A próxima dose (se houver) permanece.",
+      confirmText: "Marcar",
+      tone: "confirm",
+    });
+    if (!ok) return;
+
+    try {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+        today.getDate()
+      ).padStart(2, "0")}`;
+
+      await updateDeworming({
+        animalId,
+        dewormingId: dw.id,
+        name: dw.name,
+        observations: dw.notes || "",
+        clinic: dw.clinic || "",
+        appliedAt: iso,
+        nextDose: dw.nextDoseDate || undefined,
+      });
+
+      await refetchDewormings.current?.();
+      toast.success("Aplicação marcada para hoje.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Não foi possível atualizar a aplicação.");
+    }
+  }
+
+  async function removeDeworming(dw) {
+    if (!canEdit) return;
+    const ok = await confirm({
+      title: "Excluir registro?",
+      description: "Esta ação não pode ser desfeita.",
+      confirmText: "Excluir",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteDeworming({ animalId, dewormingId: dw.id });
+      setDewormings((list) => list.filter((d) => d.id !== dw.id));
+      toast.success("Registro removido.");
+    } catch {
+      toast.error("Falha ao remover o registro.");
+    }
+  }
+
+  /* ------------------------------ medicamentos ------------------------------ */
+  const refetchMedications = useRef(null);
+
+  useEffect(() => {
+    let cancel = false;
+    async function loadMedications() {
+      if (!animalId) return;
+      setLoadingMedications(true);
+      try {
+        const resp = await fetchMedications({ animalId, page: 1, perPage: 200 });
+        const arr =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) {
+          setMedications(
+            arr
+              .map((m) => ({
+                id: m.id || m._id,
+                name: m.name || m.medication || m.medicamento || "",
+                startAt: m.startAt || m.startDate || m.appliedAt || m.date || "",
+                endAt: m.endAt || m.endDate || "",
+                dosage: m.dosage || "",
+                frequency: m.frequency || m.interval || "",
+                clinic: m.clinic || "",
+                notes: m.observations || m.notes || "",
+              }))
+              .filter((m) => !!m.id || !!m.name)
+          );
+        }
+      } catch {
+        if (!cancel) setMedications([]);
+      } finally {
+        if (!cancel) setLoadingMedications(false);
+      }
+    }
+
+    refetchMedications.current = loadMedications;
+    loadMedications();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  const medicationsCount = medications.length;
+
+  const openMedCreate = () => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+    setMedEditId(null);
+    setMedForm({ name: "", startAt: "", endAt: "", dosage: "", frequency: "", clinic: "", notes: "" });
+    setMedModalOpen(true);
+  };
+
+  const openMedEdit = (mx) => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+
+    const toDateInput = (val) => {
+      if (!val) return "";
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      } catch {
+        return "";
+      }
+    };
+
+    setMedEditId(mx.id);
+    setMedForm({
+      name: mx.name || "",
+      startAt: toDateInput(mx.startAt) || "",
+      endAt: toDateInput(mx.endAt) || "",
+      dosage: mx.dosage || "",
+      frequency: mx.frequency || "",
+      clinic: mx.clinic || "",
+      notes: mx.notes || "",
+    });
+    setMedModalOpen(true);
+  };
+
+  async function submitMedication() {
+    if (!canEdit) return;
+
+    const name = String(medForm.name || "").trim();
+    const startAt = String(medForm.startAt || "");
+    const endAt = medForm.endAt || undefined;
+    const dosage = String(medForm.dosage || "").trim() || undefined;
+    const frequency = String(medForm.frequency || "").trim() || undefined;
+    const clinic = String(medForm.clinic || "").trim() || undefined;
+    const observations = String(medForm.notes || "").trim() || undefined;
+
+    if (!name || !startAt) {
+      toast.error("Informe ao menos o medicamento e a data de início.");
+      return;
+    }
+
+    try {
+      if (medEditId) {
+        await updateMedication({
+          animalId,
+          medicationId: medEditId,
+          name,
+          startAt,
+          endAt,
+          dosage,
+          frequency,
+          clinic,
+          observations,
+        });
+        toast.success("Medicamento atualizado.");
+      } else {
+        await addMedication({ animalId, name, startAt, endAt, dosage, frequency, clinic, observations });
+        toast.success("Medicamento registrado.");
+      }
+
+      await refetchMedications.current?.();
+      setMedModalOpen(false);
+      setMedEditId(null);
+    } catch (e) {
+      console.error(e);
+      toast.error("Não foi possível salvar. Tente novamente.");
+    }
+  }
+
+  async function removeMedication(mx) {
+    if (!canEdit) return;
+    const ok = await confirm({
+      title: "Excluir registro?",
+      description: "Esta ação não pode ser desfeita.",
+      confirmText: "Excluir",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteMedication({ animalId, medicationId: mx.id });
+      setMedications((list) => list.filter((m) => m.id !== mx.id));
+      toast.success("Registro removido.");
+    } catch {
+      toast.error("Falha ao remover o registro.");
+    }
+  }
+
   /* --------------------------- lightbox / slides --------------------------- */
   const lbSlides = useMemo(
     () =>
@@ -1264,6 +1645,236 @@ export default function PetDetail() {
                   )}
                 </Accordion>
 
+                {/* VERMIFUGAÇÃO */}
+                <Accordion
+                  open={dewormingsOpen}
+                  onToggle={() => setDewormingsOpen((v) => !v)}
+                  leftIcon={<Bug className="h-4 w-4 opacity-70" />}
+                  title="Vermifugação"
+                  rightActions={
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs opacity-60">
+                        {loadingDewormings ? "…" : `${dewormingsCount} registro(s)`}
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={openDewCreate}
+                          className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                          title="Adicionar vermifugação"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Adicionar
+                        </button>
+                      )}
+                    </div>
+                  }
+                >
+                  {loadingDewormings ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Carregando vermifugações…
+                    </div>
+                  ) : dewormings.length === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Nenhuma vermifugação registrada para este pet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {dewormings
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            (parseISODateLocal(b.date)?.getTime() || 0) -
+                            (parseISODateLocal(a.date)?.getTime() || 0)
+                        )
+                        .map((d) => (
+                          <li
+                            key={d.id}
+                            className="flex items-start justify-between gap-3 rounded-lg border border-black/10 p-3 text-sm dark:border-white/10"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium inline-flex items-center gap-2">
+                                  <Bug className="h-4 w-4 opacity-70" />
+                                  {d.name}
+                                </span>
+                                {!!d.nextDoseDate && vaccineBadge(d.nextDoseDate)}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-80">
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarDays className="h-3.5 w-3.5" />
+                                  Aplicada em: <strong>{formatPt(d.date)}</strong>
+                                </span>
+                                {d.nextDoseDate && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    Próxima dose: <strong>{formatPt(d.nextDoseDate)}</strong>
+                                  </span>
+                                )}
+                                {d.clinic && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    {d.clinic}
+                                  </span>
+                                )}
+                              </div>
+                              {d.notes && (
+                                <div className="mt-2 text-xs opacity-80">
+                                  • {d.notes}
+                                </div>
+                              )}
+                            </div>
+
+                            {canEdit && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => markDewAsToday(d)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                  title="Marcar como hoje"
+                                >
+                                  Hoje
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDewEdit(d)}
+                                  className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white p-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                  title="Editar"
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeDeworming(d)}
+                                  className="inline-flex items-center justify-center rounded-md border border-red-300 bg-white p-2 text-xs text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/20"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </Accordion>
+
+                {/* MEDICAMENTOS */}
+                <Accordion
+                  open={medicationsOpen}
+                  onToggle={() => setMedicationsOpen((v) => !v)}
+                  leftIcon={<Pill className="h-4 w-4 opacity-70" />}
+                  title="Medicamentos"
+                  rightActions={
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs opacity-60">
+                        {loadingMedications ? "…" : `${medicationsCount} registro(s)`}
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={openMedCreate}
+                          className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                          title="Adicionar medicamento"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Adicionar
+                        </button>
+                      )}
+                    </div>
+                  }
+                >
+                  {loadingMedications ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Carregando medicamentos…
+                    </div>
+                  ) : medications.length === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Nenhum medicamento registrado para este pet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {medications
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            (parseISODateLocal(b.startAt)?.getTime() || 0) -
+                            (parseISODateLocal(a.startAt)?.getTime() || 0)
+                        )
+                        .map((m) => (
+                          <li
+                            key={m.id}
+                            className="flex items-start justify-between gap-3 rounded-lg border border-black/10 p-3 text-sm dark:border-white/10"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium inline-flex items-center gap-2">
+                                  <Pill className="h-4 w-4 opacity-70" />
+                                  {m.name}
+                                </span>
+                              </div>
+
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-80">
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarDays className="h-3.5 w-3.5" />
+                                  Início: <strong>{formatPt(m.startAt)}</strong>
+                                </span>
+                                {m.endAt && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    Fim: <strong>{formatPt(m.endAt)}</strong>
+                                  </span>
+                                )}
+                                {m.dosage && (
+                                  <span className="inline-flex items-center gap-1">
+                                    • Dose: <strong>{m.dosage}</strong>
+                                  </span>
+                                )}
+                                {m.frequency && (
+                                  <span className="inline-flex items-center gap-1">
+                                    • Frequência: <strong>{m.frequency}</strong>
+                                  </span>
+                                )}
+                                {m.clinic && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    {m.clinic}
+                                  </span>
+                                )}
+                              </div>
+
+                              {m.notes && (
+                                <div className="mt-2 text-xs opacity-80">
+                                  • {m.notes}
+                                </div>
+                              )}
+                            </div>
+
+                            {canEdit && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openMedEdit(m)}
+                                  className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white p-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                  title="Editar"
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeMedication(m)}
+                                  className="inline-flex items-center justify-center rounded-md border border-red-300 bg-white p-2 text-xs text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/20"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </Accordion>
+
+
                 {/* Seções ainda sem funcionalidade deixadas comentadas */}
                 {/*
                 <StaticItem icon={<Pill className="h-4 w-4 opacity-70" />} title="Tratamentos antiparasitários" showPlus={canEdit} />
@@ -1488,6 +2099,255 @@ export default function PetDetail() {
         </div>
       )}
 
+
+
+      {/* Modal: vermifugação */}
+      {dewModalOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2">
+                <Bug className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">
+                  {dewEditId ? "Editar vermifugação" : "Registrar vermifugação"}
+                </h3>
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  setDewModalOpen(false);
+                  setDewEditId(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <Bug className="h-4 w-4" />
+                  Vermífugo *
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.name}
+                  onChange={(e) => setDewForm((s) => ({ ...s, name: e.target.value }))}
+                  placeholder="Ex.: Drontal, Endogard"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Aplicada em *
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.date}
+                  onChange={(e) => setDewForm((s) => ({ ...s, date: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Próxima dose
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.nextDoseDate}
+                  onChange={(e) =>
+                    setDewForm((s) => ({ ...s, nextDoseDate: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <MapPin className="h-4 w-4" />
+                  Clínica
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.clinic}
+                  onChange={(e) => setDewForm((s) => ({ ...s, clinic: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <NotebookText className="h-4 w-4" />
+                  Observações
+                </label>
+                <textarea
+                  rows={4}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.notes}
+                  onChange={(e) => setDewForm((s) => ({ ...s, notes: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
+                onClick={() => {
+                  setDewModalOpen(false);
+                  setDewEditId(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                onClick={submitDeworming}
+              >
+                {dewEditId ? "Salvar alterações" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: medicamentos */}
+      {medModalOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2">
+                <Pill className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">
+                  {medEditId ? "Editar medicamento" : "Registrar medicamento"}
+                </h3>
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  setMedModalOpen(false);
+                  setMedEditId(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <Pill className="h-4 w-4" />
+                  Medicamento *
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.name}
+                  onChange={(e) => setMedForm((s) => ({ ...s, name: e.target.value }))}
+                  placeholder="Ex.: Antibiótico, Anti-inflamatório"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Início *
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.startAt}
+                  onChange={(e) => setMedForm((s) => ({ ...s, startAt: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Fim
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.endAt}
+                  onChange={(e) => setMedForm((s) => ({ ...s, endAt: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  • Dose
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.dosage}
+                  onChange={(e) => setMedForm((s) => ({ ...s, dosage: e.target.value }))}
+                  placeholder="Ex.: 1 comprimido, 5ml"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  • Frequência
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.frequency}
+                  onChange={(e) => setMedForm((s) => ({ ...s, frequency: e.target.value }))}
+                  placeholder="Ex.: 12/12h, 1x ao dia"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <MapPin className="h-4 w-4" />
+                  Clínica
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.clinic}
+                  onChange={(e) => setMedForm((s) => ({ ...s, clinic: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <NotebookText className="h-4 w-4" />
+                  Observações
+                </label>
+                <textarea
+                  rows={4}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.notes}
+                  onChange={(e) => setMedForm((s) => ({ ...s, notes: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
+                onClick={() => {
+                  setMedModalOpen(false);
+                  setMedEditId(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                onClick={submitMedication}
+              >
+                {medEditId ? "Salvar alterações" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal: adicionar tutor */}
       {tutorModalOpen && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
