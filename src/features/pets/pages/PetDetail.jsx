@@ -361,6 +361,13 @@ function toPtSpecies(sp) {
 export default function PetDetail() {
   const { id: animalId } = useParams();
   const toast = useToast();
+
+  const showComingSoon = () => toast.info("Este item será habilitado em breve");
+  const isNotImplemented = (err) => {
+    const s = err?.response?.status;
+    return s === 404 || s === 405 || s === 501;
+  };
+
   const confirm = useConfirm();
   const askInput = usePrompt();
 
@@ -956,7 +963,8 @@ export default function PetDetail() {
       setVacEditId(null);
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível salvar. Tente novamente.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível salvar. Tente novamente.");
     }
   }
 
@@ -992,7 +1000,8 @@ export default function PetDetail() {
       toast.success("Aplicação marcada para hoje.");
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível atualizar a aplicação.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível atualizar a aplicação.");
     }
   }
 
@@ -1009,8 +1018,10 @@ export default function PetDetail() {
       await deleteVaccines({ animalId, vaccineId: vx.id });
       setVaccines((list) => list.filter((v) => v.id !== vx.id));
       toast.success("Registro removido.");
-    } catch {
-      toast.error("Falha ao remover o registro.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Falha ao remover o registro.");
     }
   }
 
@@ -1138,7 +1149,8 @@ export default function PetDetail() {
       setDewEditId(null);
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível salvar. Tente novamente.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível salvar. Tente novamente.");
     }
   }
 
@@ -1174,7 +1186,8 @@ export default function PetDetail() {
       toast.success("Aplicação marcada para hoje.");
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível atualizar a aplicação.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível atualizar a aplicação.");
     }
   }
 
@@ -1191,8 +1204,10 @@ export default function PetDetail() {
       await deleteDeworming({ animalId, dewormingId: dw.id });
       setDewormings((list) => list.filter((d) => d.id !== dw.id));
       toast.success("Registro removido.");
-    } catch {
-      toast.error("Falha ao remover o registro.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Falha ao remover o registro.");
     }
   }
 
@@ -1326,7 +1341,8 @@ export default function PetDetail() {
       setMedEditId(null);
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível salvar. Tente novamente.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível salvar. Tente novamente.");
     }
   }
 
@@ -1343,8 +1359,10 @@ export default function PetDetail() {
       await deleteMedication({ animalId, medicationId: mx.id });
       setMedications((list) => list.filter((m) => m.id !== mx.id));
       toast.success("Registro removido.");
-    } catch {
-      toast.error("Falha ao remover o registro.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Falha ao remover o registro.");
     }
   }
 

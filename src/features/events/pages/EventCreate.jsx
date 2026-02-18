@@ -7,6 +7,12 @@ import heic2any from "heic2any";
 import { createEvent } from "@/api/events.api.js";
 import { useToast } from "@/components/ui/ToastProvider";
 
+const isNotImplemented = (err) => {
+  const s = err?.response?.status;
+  return s === 404 || s === 405 || s === 501;
+};
+
+
 const isHeic = (file) =>
   file &&
   (/\.(heic|heif)$/i.test(file.name || "") || /image\/hei(c|f)/i.test(file.type || ""));
@@ -127,7 +133,8 @@ export default function EventCreate() {
       navigate("/feed");
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível criar o evento.");
+      if (isNotImplemented(e)) toast.info("Este item será habilitado em breve");
+      else toast.error("Não foi possível criar o evento.");
     } finally {
       setSending(false);
     }
@@ -138,7 +145,7 @@ export default function EventCreate() {
       <div className="mb-4 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/feed")}
           className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         >
           <ArrowLeft className="h-4 w-4" /> Voltar
@@ -224,7 +231,7 @@ export default function EventCreate() {
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={() => navigate(-1)}
+              onClick={() => navigate("/feed")}
               className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
             >
               Cancelar

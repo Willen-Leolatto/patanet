@@ -1,4 +1,6 @@
+############################################################
 # Logs
+############################################################
 logs
 *.log
 npm-debug.log*
@@ -7,19 +9,54 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+############################################################
+# Dependências / build web
+############################################################
+node_modules/
+dist/
+dist-ssr/
+dev-dist/
 *.local
 
-# Eviroments
+############################################################
+# Env / segredos
+############################################################
 .env
+.env.*
+!.env.example
 
-# Editor directories and files
+# Arquivos sensíveis comuns
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+############################################################
+# Keys / Keystores (PUBLICAÇÃO)
+############################################################
+keys/
+*.jks
+*.keystore
+
+# Credenciais do Gradle (evitar vazar senhas)
+**/gradle.properties
+# Se você tiver um gradle.properties SEM segredos e quiser versionar,
+# remova a linha acima e use um gradle.properties.example
+
+############################################################
+# Capacitor / Android (IGNORAR TUDO)
+############################################################
+android/
+
+############################################################
+# Editor / SO
+############################################################
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj

@@ -4,10 +4,17 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, CalendarDays, Clock, MapPin, Link as LinkIcon } from "lucide-react";
 
 import { fetchEventById } from "@/api/events.api.js";
+import { useToast } from "@/components/ui/ToastProvider";
+
+const isNotImplemented = (err) => {
+  const s = err?.response?.status;
+  return s === 404 || s === 405 || s === 501;
+};
 
 export default function EventDetail() {
   const { eventId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
 
   const [loading, setLoading] = useState(true);
   const [event, setEvent] = useState(null);
@@ -22,6 +29,7 @@ export default function EventDetail() {
         if (!cancel) setEvent(ev);
       } catch (e) {
         console.error(e);
+        if (isNotImplemented(e)) toast.info("Este item será habilitado em breve");
         if (!cancel) setEvent(null);
       } finally {
         if (!cancel) setLoading(false);
@@ -53,7 +61,7 @@ export default function EventDetail() {
       <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/feed")}
           className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         >
           <ArrowLeft className="h-4 w-4" /> Voltar
@@ -71,7 +79,7 @@ export default function EventDetail() {
       <div className="mb-4 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/feed")}
           className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         >
           <ArrowLeft className="h-4 w-4" /> Voltar
