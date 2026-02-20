@@ -78,12 +78,13 @@ define(['./workbox-c5f6b949'], (function (workbox) { 'use strict';
    * See https://goo.gl/S9QRab
    */
   workbox.precacheAndRoute([{
-    "url": "/index.html",
-    "revision": "0.lbg66pcp2jg"
+    "url": "/offline.html",
+    "revision": "0.tcaoaoacbn4"
   }], {});
   workbox.cleanupOutdatedCaches();
-  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
-    allowlist: [/^\/$/]
+  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/offline.html"), {
+    allowlist: [/^\/$/],
+    denylist: [/^\/api\//, /\/auth\b/]
   }));
   workbox.registerRoute(({
     request

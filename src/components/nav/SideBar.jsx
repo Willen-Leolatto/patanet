@@ -284,7 +284,7 @@ export default function Sidebar() {
         title={label}
       >
         <Ico className="h-5 w-5" />
-        <span className="flex-1 truncate">{label}</span>
+        <span className="truncate">{label}</span>
       </button>
     );
   };
