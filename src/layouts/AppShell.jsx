@@ -77,6 +77,12 @@ export default function AppShell() {
     [pathname]
   );
 
+  // Rotas públicas (políticas / conformidade) — acessíveis sem login
+  const isPublicPolicyRoute = useMemo(
+    () => /^\/(seguranca-infantil|privacidade|diretrizes|excluir-conta|ajuda|denuncia)(\/|$)/i.test(pathname),
+    [pathname]
+  );
+
   const authenticated = useMemo(() => isValidUser(me), [me]);
 
   // Regras de navegação (somente após probe concluído)
@@ -84,7 +90,7 @@ export default function AppShell() {
     if (probing) return; // não decide enquanto carrega sessão
 
     // Sem sessão e fora das rotas públicas -> vai para /auth
-    if (!authenticated && !isAuthRoute && pathname !== "/auth") {
+    if (!authenticated && !isAuthRoute && !isPublicPolicyRoute && pathname !== "/auth") {
       navigate("/auth", { replace: true, state: { from: pathname } });
       return;
     }
@@ -93,7 +99,7 @@ export default function AppShell() {
     if (authenticated && isAuthRoute && pathname !== "/feed") {
       navigate("/feed", { replace: true });
     }
-  }, [probing, authenticated, isAuthRoute, pathname, navigate]);
+  }, [probing, authenticated, isAuthRoute, isPublicPolicyRoute, pathname, navigate]);
 
   // Ajuste do deslocamento quando a sidebar não deve aparecer
   useEffect(() => {

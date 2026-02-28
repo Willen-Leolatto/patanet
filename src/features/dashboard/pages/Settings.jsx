@@ -134,6 +134,24 @@ export default function Settings() {
 
         <FormCard title="Backup">
           <div className="flex flex-wrap items-center gap-3">
+            <a
+              href="/privacidade"
+              className="rounded-md border px-3 py-1.5 text-sm border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Política de Privacidade
+            </a>
+            <a
+              href="/diretrizes"
+              className="rounded-md border px-3 py-1.5 text-sm border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Diretrizes da Comunidade
+            </a>
+            <a
+              href="/excluir-conta"
+              className="rounded-md border px-3 py-1.5 text-sm border-red-300 text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:text-red-200 dark:hover:bg-red-950/20"
+            >
+              Solicitar exclusão de conta
+            </a>
             <button type="button" onClick={exportar} className="rounded-md border px-3 py-1.5 text-sm border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
               Exportar dados (JSON)
             </button>

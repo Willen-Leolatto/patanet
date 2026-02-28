@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PataNet</string>
+    <string name="title_activity_main">PataNet</string>
+    <string name="package_name">br.app.patanet</string>
+    <string name="custom_url_scheme">br.app.patanet</string>
+</resources>

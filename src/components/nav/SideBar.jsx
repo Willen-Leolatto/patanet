@@ -18,6 +18,7 @@ import {
   X,
   Menu as MenuIcon,
   ShieldAlert,
+  Calendar,
 } from "lucide-react";
 
 import Logo from "@/assets/logo.png"; // coloque sua logo em src/assets/logo.png
@@ -224,7 +225,7 @@ export default function Sidebar() {
           }`}
           title={label}
         >
-          <Ico className="h-5 w-5" />
+          <Ico className="h-4 w-4" />
         </Link>
       );
     }
@@ -284,7 +285,7 @@ export default function Sidebar() {
         title={label}
       >
         <Ico className="h-5 w-5" />
-        <span className="flex-1 truncate">{label}</span>
+        <span>{label}</span>
       </button>
     );
   };
@@ -680,7 +681,9 @@ export default function Sidebar() {
           <nav className={`flex flex-col ${open ? "gap-1" : "gap-2"}`}>
             <NavItem to="/" icon={HomeIcon} label="Página inicial" />
             <NavItem to="/usuarios" icon={Users} label="Explorar" />
-            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de Denúncia" />
+            <NavItem to="/eventos" icon={Calendar} label="Eventos" />
+            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de Denúncias" />
+            <NavItem to="/ajuda" icon={ShieldAlert} label="Ajuda e Políticas" />
           </nav>
 
           <hr className="border-white/10" />

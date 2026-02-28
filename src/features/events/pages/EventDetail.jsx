@@ -40,7 +40,10 @@ export default function EventDetail() {
     };
   }, [eventId]);
 
-  const cover = useMemo(() => event?.image?.url || event?.image || "", [event]);
+  const cover = useMemo(
+    () => event?.imageUrl || event?.image?.url || event?.image || "",
+    [event]
+  );
 
   if (loading) {
     return (

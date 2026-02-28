@@ -26,6 +26,14 @@ const EventsList = lazy(() => import("@/features/events/pages/EventsList"));
 const EventCreate = lazy(() => import("@/features/events/pages/EventCreate"));
 const EventDetail = lazy(() => import("@/features/events/pages/EventDetail"));
 
+// Políticas / conformidade (públicas e in-app)
+const ChildSafety = lazy(() => import("@/features/policy/pages/ChildSafety"));
+const Privacy = lazy(() => import("@/features/policy/pages/Privacy"));
+const ReportChannel = lazy(() => import("@/features/policy/pages/ReportChannel"));
+const CommunityGuidelines = lazy(() => import("@/features/policy/pages/CommunityGuidelines"));
+const AccountDeletion = lazy(() => import("@/features/policy/pages/AccountDeletion"));
+const PolicyHub = lazy(() => import("@/features/policy/pages/PolicyHub"));
+
 function Loader() {
   return (
     <div className="min-h-dvh grid place-items-center text-sm text-zinc-500 dark:text-zinc-400">
@@ -39,8 +47,14 @@ export default function AppRoutes() {
     <BrowserRouter>
       <Suspense fallback={<Loader />}>
         <Routes>
-          {/* Rotas públicas de autenticação */}
+          {/* Rotas públicas */}
           <Route path="/auth" element={<Login />} />
+          <Route path="/seguranca-infantil" element={<ChildSafety />} />
+          <Route path="/privacidade" element={<Privacy />} />
+          <Route path="/denuncia" element={<ReportChannel />} />
+          <Route path="/diretrizes" element={<CommunityGuidelines />} />
+          <Route path="/excluir-conta" element={<AccountDeletion />} />
+          <Route path="/ajuda" element={<PolicyHub />} />
 
           {/* AppShell gerencia layout + proteção internamente */}
           <Route element={<AppShell />}>

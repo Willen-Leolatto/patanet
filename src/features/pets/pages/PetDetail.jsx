@@ -1,8 +1,10 @@
 // src/features/pets/pages/PetDetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import ReportModal from "@/components/ReportModal";
 import {
   Shield,
+  ShieldAlert,
   Images,
   Syringe,
   Pill,
@@ -1393,6 +1395,12 @@ export default function PetDetail() {
     ? "…"
     : `${vaccinesCount} registro(s)`;
 
+  const [report, setReport] = useState({ open: false, category: "PET_ABUSE" });
+
+  const handleReportPet = (category = "PET_ABUSE") => {
+    setReport({ open: true, category });
+  };
+
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       {/* GRID: esquerda / divisor (>=xl) / direita */}
@@ -1400,7 +1408,8 @@ export default function PetDetail() {
         {/* ESQUERDA */}
         <section className="col-span-12 xl:col-span-5 rounded-2xl bg-[var(--content-bg)] text-[var(--content-fg)] shadow-sm ring-1 ring-black/5 dark:ring-white/5 p-5">
           {/* Header do pet */}
-          <div className="flex items-start gap-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
             <img
               src={headerAvatarSrc || undefined}
               alt={pet.name}
@@ -1412,6 +1421,17 @@ export default function PetDetail() {
                 {pet.species} • {pet.breed} • {pet.gender}{" "}
               </p>
             </div>
+            </div>
+
+            {/* Denúncia de pet (bem destacada) */}
+            <button
+              type="button"
+              onClick={() => handleReportPet("PET_ABUSE")}
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200 dark:hover:bg-rose-950/30"
+              title="Denunciar maus-tratos (pet)"
+            >
+              <ShieldAlert className="h-4 w-4" /> Maus-tratos (pet)
+            </button>
           </div>
 
           {/* Sobre */}
@@ -2445,6 +2465,15 @@ export default function PetDetail() {
           </div>
         </div>
       )}
+
+      <ReportModal
+        open={report.open}
+        onClose={() => setReport((r) => ({ ...r, open: false }))}
+        initialType="ANIMAL"
+        initialCategory={report.category}
+        targetId={pet?.id}
+        contextText={`Pet: ${pet?.name || ""}\nID: ${pet?.id || ""}`}
+      />
     </div>
   );
 }

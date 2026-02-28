@@ -7,10 +7,12 @@ import React, {
   useState,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { hasAcceptedUGCPolicies, blockUser, unblockUser, isUserBlocked, getBlockedUserIds } from "@/utils/moderation";
 import {
   CornerUpRight,
   BarChart3,
   MoreHorizontal,
+  ShieldAlert,
   X,
   Pencil,
   Check,
@@ -20,6 +22,7 @@ import {
   Clock,
   MapPin,
 } from "lucide-react";
+import ReportModal from "@/components/ReportModal";
 import FeedComposer from "@/components/FeedComposer";
 import FeedPostActions from "@/components/FeedPostActions";
 import Lightbox from "@/components/Lightbox";
@@ -205,6 +208,8 @@ const mediaUrl = (m) => {
   if (typeof m === "string") return m;
   return m.url || m.path || m.file || "";
 };
+
+// (Denúncias no feed agora são via Reports API)
 
 // Comentário agora respeita a estrutura { author, text, createdAt, updatedAt, replies }
 const normComment = (c) => ({
@@ -588,7 +593,7 @@ function StatsModal({ open, post, onClose }) {
 }
 
 /* ⋯ Menu */
-function DotsMenu({ onEdit, onStats, onDelete }) {
+function DotsMenu({ isMine, authorId, authorName, blocked, onEdit, onStats, onDelete, onReport, onReportPetAbuse, onReportCSAE, onToggleBlock }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -601,25 +606,75 @@ function DotsMenu({ onEdit, onStats, onDelete }) {
         <MoreHorizontal className="h-5 w-5" />
       </button>
       {open && (
-        <div className="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-          <button
-            className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => (setOpen(false), onEdit?.())}
+        <div className="absolute right-0 z-10 mt-1 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          {!isMine && (
+            <>
+              <button
+                className="block w-full px-3 py-2 text-left text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950/30"
+                onClick={() => (setOpen(false), onReport?.())}
+              >
+                Denunciar (geral)
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left text-rose-700 hover:bg-rose-50 dark:text-rose-200 dark:hover:bg-rose-950/30"
+                onClick={() => (setOpen(false), onReportPetAbuse?.())}
+              >
+                Denunciar maus-tratos (pet)
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/30"
+                onClick={() => (setOpen(false), onReportCSAE?.())}
+              >
+                Denunciar CSAE (infantil)
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => (setOpen(false), onToggleBlock?.())}
+              >
+                {blocked ? "Desbloquear usuário" : "Bloquear usuário"}
+              </button>
+              <div className="border-t border-zinc-200 dark:border-zinc-800" />
+            </>
+          )}
+
+          {isMine && (
+            <>
+              <button
+                className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => (setOpen(false), onEdit?.())}
+              >
+                Editar
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => (setOpen(false), onStats?.())}
+              >
+                Estatísticas
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                onClick={() => (setOpen(false), onDelete?.())}
+              >
+                Remover
+              </button>
+              <div className="border-t border-zinc-200 dark:border-zinc-800" />
+            </>
+          )}
+
+          <a
+            className="block w-full px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            href="/ajuda"
           >
-            Editar
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => (setOpen(false), onStats?.())}
+            Ajuda e políticas
+          </a>
+          <a
+            className="block w-full px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            href="https://patanet.app.br/denuncia"
+            target="_blank"
+            rel="noreferrer"
           >
-            Estatísticas
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-            onClick={() => (setOpen(false), onDelete?.())}
-          >
-            Remover
-          </button>
+            Canal de denúncia (web/externo)
+          </a>
         </div>
       )}
     </div>
@@ -633,6 +688,7 @@ export default function Feed() {
 
   // feed + paginação
   const [posts, setPosts] = useState([]);
+  const [blockedTick, setBlockedTick] = useState(0); // força re-render ao bloquear
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -667,6 +723,12 @@ export default function Feed() {
     return () => {
       cancel = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const onBlocked = () => setBlockedTick((v) => v + 1);
+    window.addEventListener("patanet:blocked-updated", onBlocked);
+    return () => window.removeEventListener("patanet:blocked-updated", onBlocked);
   }, []);
 
   // carregar página do feed (mantendo ordem da API, dedupe por id)
@@ -870,6 +932,10 @@ export default function Feed() {
     async (postId, text) => {
       const message = String(text || "").trim();
       if (!message) return;
+      if (!hasAcceptedUGCPolicies()) {
+        window.alert("Para comentar, aceite as Diretrizes da Comunidade em /diretrizes.");
+        return;
+      }
       const created = await addCommentPost({ postId, message });
       let newC = normComment(created);
       // fallback: se a API não devolver o autor, usa o "me"
@@ -901,6 +967,10 @@ export default function Feed() {
     async (postId, parentCommentId, text) => {
       const message = String(text || "").trim();
       if (!message) return;
+      if (!hasAcceptedUGCPolicies()) {
+        window.alert("Para responder, aceite as Diretrizes da Comunidade em /diretrizes.");
+        return;
+      }
       const created = await addCommentPost({
         postId,
         message,
@@ -1025,6 +1095,26 @@ export default function Feed() {
   };
 
   // remover postagem
+
+  const [report, setReport] = useState({
+    open: false,
+    type: "POST",
+    category: "GENERAL",
+    targetId: null,
+    contextText: "",
+  });
+
+  const handleReportPost = (post, category = "GENERAL") => {
+    const author = post?.author || {};
+    setReport({
+      open: true,
+      type: "POST",
+      category,
+      targetId: post?.id || null,
+      contextText: `Post: ${post?.id || ""}\nAutor: ${author?.username || author?.name || author?.email || ""}\n\nPreview:\n${String(post?.text || "").slice(0, 280)}`,
+    });
+  };
+
   const handleDelete = async (post) => {
     if (!me || me.id !== post?.author?.id) return;
     const ok = window.confirm("Remover esta postagem?");
@@ -1071,6 +1161,9 @@ export default function Feed() {
   );
 
   /* -------------------- Render -------------------- */
+  const blockedIds = new Set(getBlockedUserIds());
+  const visiblePosts = posts.filter((p) => !blockedIds.has(String(p?.author?.id || "")));
+
   return (
     <div className="mx-auto w-full max-w-3xl">
       <FeedComposer user={me} />
@@ -1091,7 +1184,7 @@ export default function Feed() {
       </div>
 
       <div className="mt-6 space-y-4">
-        {posts.map((post) => {
+        {visiblePosts.map((post) => {
           const likesArr = normLikes(post.likes);
           const likedByMe = !!likesArr.find((l) => l.id === me?.id);
           const isMine = me && me.id === post?.author?.id;
@@ -1145,13 +1238,30 @@ export default function Feed() {
                   </Link>
                 </div>
 
-                {isMine && (
-                  <DotsMenu
-                    onEdit={() => handleOpenEdit(post)}
-                    onStats={() => handleOpenStats(post)}
-                    onDelete={() => handleDelete(post)}
-                  />
-                )}
+                <DotsMenu
+                  isMine={isMine}
+                  authorId={post.author?.id}
+                  authorName={post.author?.username || post.author?.name}
+                  blocked={isUserBlocked(post.author?.id)}
+                  onEdit={() => handleOpenEdit(post)}
+                  onStats={() => handleOpenStats(post)}
+                  onDelete={() => handleDelete(post)}
+                  onReport={() => handleReportPost(post, "GENERAL")}
+                  onReportPetAbuse={() => handleReportPost(post, "PET_ABUSE")}
+                  onReportCSAE={() => handleReportPost(post, "CSAE")}
+                  onToggleBlock={() => {
+                    const uid = post?.author?.id;
+                    if (!uid) return;
+                    if (isUserBlocked(uid)) {
+                      unblockUser(uid);
+                    } else {
+                      const ok = window.confirm(
+                        "Bloquear este usuário? Você não verá mais posts dele neste dispositivo."
+                      );
+                      if (ok) blockUser(uid);
+                    }
+                  }}
+                />
               </div>
 
               {/* Texto */}
@@ -1168,9 +1278,9 @@ export default function Feed() {
                 >
                   <div className="flex gap-3 p-3">
                     <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-orange-200 dark:bg-zinc-900 dark:ring-orange-900/40">
-                      {post.event?.image || post.event?.image?.url ? (
+                      {post.event?.imageUrl || post.event?.image || post.event?.image?.url ? (
                         <img
-                          src={post.event?.image?.url || post.event?.image}
+                          src={post.event?.imageUrl || post.event?.image?.url || post.event?.image}
                           alt=""
                           className="h-full w-full object-cover"
                           loading="lazy"
@@ -1710,6 +1820,15 @@ function CommentsBlock({
           );
         })}
       </ul>
+
+      <ReportModal
+        open={report.open}
+        onClose={() => setReport((r) => ({ ...r, open: false }))}
+        initialType={report.type}
+        initialCategory={report.category}
+        targetId={report.targetId}
+        contextText={report.contextText}
+      />
     </div>
   );
 }
