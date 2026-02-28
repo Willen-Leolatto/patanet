@@ -3,7 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, CalendarDays, Clock, MapPin, Link as LinkIcon } from "lucide-react";
 
-import { fetchEventById } from "@/api/events.api.js";
+import { fetchEventById, deleteEvent, repostEvent } from "@/api/events.api.js";
+import { getMyProfile } from "@/api/user.api";
 import { useToast } from "@/components/ui/ToastProvider";
 
 const isNotImplemented = (err) => {
@@ -18,12 +19,21 @@ export default function EventDetail() {
 
   const [loading, setLoading] = useState(true);
   const [event, setEvent] = useState(null);
+  const [me, setMe] = useState(null);
 
   useEffect(() => {
     let cancel = false;
     (async () => {
       setLoading(true);
       try {
+        // tenta pegar o usuário logado (para habilitar ações de dono)
+        try {
+          const u = await getMyProfile();
+          if (!cancel) setMe(u || null);
+        } catch {
+          // ok: página pode ser acessada sem sessão
+        }
+
         const resp = await fetchEventById(eventId);
         const ev = resp?.data || resp || null;
         if (!cancel) setEvent(ev);
@@ -79,7 +89,8 @@ export default function EventDetail() {
 
   return (
     <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => navigate("/feed")}
@@ -88,6 +99,74 @@ export default function EventDetail() {
           <ArrowLeft className="h-4 w-4" /> Voltar
         </button>
         <div className="text-base font-semibold">Evento</div>
+        </div>
+
+        {(() => {
+          const ownerId =
+            event?.author?.id ??
+            event?.authorId ??
+            event?.owner?.id ??
+            event?.ownerId ??
+            event?.user?.id ??
+            event?.userId ??
+            null;
+          const isMine = me?.id && ownerId && String(me.id) === String(ownerId);
+          if (!isMine) return null;
+          return (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/eventos/${eventId}/editar`)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                Editar evento
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  // Recria o post vinculado caso tenha sido removido do feed
+                  const ok = window.confirm(
+                    "Repostar este evento no feed?\n\nIsso não cria um evento novo, apenas recria o post vinculado."
+                  );
+                  if (!ok) return;
+                  try {
+                    await repostEvent(eventId);
+                    toast.success("Evento repostado no feed.");
+                  } catch (e) {
+                    console.error(e);
+                    if (isNotImplemented(e)) toast.info("Este item será habilitado em breve");
+                    else toast.error("Não foi possível repostar o evento.");
+                  }
+                }}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                Repostar no feed
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = window.confirm(
+                    "Remover este evento?\n\nIsso também deve remover o item relacionado no feed."
+                  );
+                  if (!ok) return;
+                  try {
+                    await deleteEvent(eventId);
+                    toast.success("Evento removido.");
+                    navigate("/eventos");
+                  } catch (e) {
+                    console.error(e);
+                    if (isNotImplemented(e)) toast.info("Este item será habilitado em breve");
+                    else toast.error("Não foi possível remover o evento.");
+                  }
+                }}
+                className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
+                Remover evento
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       <article className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">

@@ -25,6 +25,7 @@ const UsersList = lazy(() => import("@/features/users/pages/UsersList"));
 const EventsList = lazy(() => import("@/features/events/pages/EventsList"));
 const EventCreate = lazy(() => import("@/features/events/pages/EventCreate"));
 const EventDetail = lazy(() => import("@/features/events/pages/EventDetail"));
+const EventEdit = lazy(() => import("@/features/events/pages/EventEdit"));
 
 // Políticas / conformidade (públicas e in-app)
 const ChildSafety = lazy(() => import("@/features/policy/pages/ChildSafety"));
@@ -49,12 +50,6 @@ export default function AppRoutes() {
         <Routes>
           {/* Rotas públicas */}
           <Route path="/auth" element={<Login />} />
-          <Route path="/seguranca-infantil" element={<ChildSafety />} />
-          <Route path="/privacidade" element={<Privacy />} />
-          <Route path="/denuncia" element={<ReportChannel />} />
-          <Route path="/diretrizes" element={<CommunityGuidelines />} />
-          <Route path="/excluir-conta" element={<AccountDeletion />} />
-          <Route path="/ajuda" element={<PolicyHub />} />
 
           {/* AppShell gerencia layout + proteção internamente */}
           <Route element={<AppShell />}>
@@ -82,6 +77,15 @@ export default function AppRoutes() {
             <Route path="/eventos" element={<EventsList />} />
             <Route path="/eventos/novo" element={<EventCreate />} />
             <Route path="/eventos/:eventId" element={<EventDetail />} />
+            <Route path="/eventos/:eventId/editar" element={<EventEdit />} />
+
+            {/* Ajuda e políticas (acessíveis com ou sem login; com menu quando logado) */}
+            <Route path="/seguranca-infantil" element={<ChildSafety />} />
+            <Route path="/privacidade" element={<Privacy />} />
+            <Route path="/denuncia" element={<ReportChannel />} />
+            <Route path="/diretrizes" element={<CommunityGuidelines />} />
+            <Route path="/excluir-conta" element={<AccountDeletion />} />
+            <Route path="/ajuda" element={<PolicyHub />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/feed" replace />} />

@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { hasAcceptedUGCPolicies, blockUser, unblockUser, isUserBlocked, getBlockedUserIds } from "@/utils/moderation";
+import { hasAcceptedUGCPolicies, acceptUGCPolicies, blockUser, unblockUser, isUserBlocked, getBlockedUserIds } from "@/utils/moderation";
 import {
   CornerUpRight,
   BarChart3,
@@ -661,20 +661,6 @@ function DotsMenu({ isMine, authorId, authorName, blocked, onEdit, onStats, onDe
             </>
           )}
 
-          <a
-            className="block w-full px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            href="/ajuda"
-          >
-            Ajuda e políticas
-          </a>
-          <a
-            className="block w-full px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            href="https://patanet.app.br/denuncia"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Canal de denúncia (web/externo)
-          </a>
         </div>
       )}
     </div>
@@ -875,7 +861,7 @@ export default function Feed() {
       let wasLiked = false;
       setPosts((curr) =>
         curr.map((p) => {
-          if (p.id !== postId) return p;
+          if (String(p.id) !== String(postId)) return p;
           wasLiked = (p.likes || []).some((l) => l.id === me.id);
           const likes = wasLiked
             ? p.likes.filter((l) => l.id !== me.id)
@@ -904,7 +890,7 @@ export default function Feed() {
         // Rollback exato (reverte o otimista)
         setPosts((curr) =>
           curr.map((p) => {
-            if (p.id !== postId) return p;
+            if (String(p.id) !== String(postId)) return p;
             const likes = wasLiked
               ? [
                   ...p.likes,
@@ -927,103 +913,197 @@ export default function Feed() {
     [me?.id, me?.image, me?.avatar, me?.username, me?.name, me?.email]
   );
 
-  // comentar novo
+  // comentar novo (otimista: aparece imediatamente)
   const handleAddComment = useCallback(
     async (postId, text) => {
       const message = String(text || "").trim();
       if (!message) return;
+
       if (!hasAcceptedUGCPolicies()) {
-        window.alert("Para comentar, aceite as Diretrizes da Comunidade em /diretrizes.");
-        return;
+        const ok = window.confirm(
+          "Para comentar, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nDeseja aceitar agora?"
+        );
+        if (!ok) return;
+        acceptUGCPolicies();
       }
-      const created = await addCommentPost({ postId, message });
-      let newC = normComment(created);
-      // fallback: se a API não devolver o autor, usa o "me"
-      if (!newC.author?.id && me) {
-        newC = {
-          ...newC,
-          author: {
-            id: me.id,
-            username: me.username,
-            name: me.name,
-            email: (me.email || "").toLowerCase(),
-            avatar: me.image || me.avatar || "",
-          },
-        };
-      }
+
+      const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const optimistic = {
+        id: tempId,
+        text: message,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        author: {
+          id: me?.id,
+          username: me?.username,
+          name: me?.name,
+          email: (me?.email || "").toLowerCase(),
+          avatar: me?.image || me?.avatar || "",
+        },
+        replies: [],
+      };
+
+      // 1) insere na hora
       setPosts((curr) =>
         curr.map((p) =>
-          p.id === postId
-            ? { ...p, comments: [newC, ...(p.comments || [])] }
+          String(p.id) === String(postId)
+            ? { ...p, comments: [optimistic, ...(p.comments || [])] }
             : p
         )
       );
+
+      try {
+        // 2) confirma no backend e substitui o temporário
+        const created = await addCommentPost({ postId, message });
+        let newC = normComment(created);
+        if (!newC.author?.id && me) {
+          newC = {
+            ...newC,
+            author: {
+              id: me.id,
+              username: me.username,
+              name: me.name,
+              email: (me.email || "").toLowerCase(),
+              avatar: me.image || me.avatar || "",
+            },
+          };
+        }
+
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const next = (p.comments || []).map((c) => (c.id === tempId ? newC : c));
+            return { ...p, comments: next };
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        // remove o otimista se falhar
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            return { ...p, comments: (p.comments || []).filter((c) => c.id !== tempId) };
+          })
+        );
+        window.alert("Não foi possível enviar o comentário. Tente novamente.");
+      }
     },
     [me]
   );
 
-  // responder
+  // responder (otimista)
   const handleReplyComment = useCallback(
     async (postId, parentCommentId, text) => {
       const message = String(text || "").trim();
       if (!message) return;
+
       if (!hasAcceptedUGCPolicies()) {
-        window.alert("Para responder, aceite as Diretrizes da Comunidade em /diretrizes.");
-        return;
+        const ok = window.confirm(
+          "Para responder, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nDeseja aceitar agora?"
+        );
+        if (!ok) return;
+        acceptUGCPolicies();
       }
-      const created = await addCommentPost({
-        postId,
-        message,
-        parentId: parentCommentId,
-      });
-      let reply = normComment(created);
-      if (!reply.author?.id && me) {
-        reply = {
-          ...reply,
-          author: {
-            id: me.id,
-            username: me.username,
-            name: me.name,
-            email: (me.email || "").toLowerCase(),
-            avatar: me.image || me.avatar || "",
-          },
-        };
-      }
+
+      const tempId = `tmp-reply-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const optimistic = {
+        id: tempId,
+        text: message,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        author: {
+          id: me?.id,
+          username: me?.username,
+          name: me?.name,
+          email: (me?.email || "").toLowerCase(),
+          avatar: me?.image || me?.avatar || "",
+        },
+        replies: [],
+      };
+
+      // 1) insere na hora
       setPosts((curr) =>
         curr.map((p) => {
-          if (p.id !== postId) return p;
+          if (String(p.id) !== String(postId)) return p;
           const comments = (p.comments || []).map((c) =>
             c.id === parentCommentId
-              ? { ...c, replies: [...(c.replies || []), reply] }
+              ? { ...c, replies: [...(c.replies || []), optimistic] }
               : c
           );
           return { ...p, comments };
         })
       );
+
+      try {
+        const created = await addCommentPost({ postId, message, parentId: parentCommentId });
+        let reply = normComment(created);
+        if (!reply.author?.id && me) {
+          reply = {
+            ...reply,
+            author: {
+              id: me.id,
+              username: me.username,
+              name: me.name,
+              email: (me.email || "").toLowerCase(),
+              avatar: me.image || me.avatar || "",
+            },
+          };
+        }
+
+        // 2) substitui o temporário
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const comments = (p.comments || []).map((c) => {
+              if (c.id !== parentCommentId) return c;
+              const replies = (c.replies || []).map((r) => (r.id === tempId ? reply : r));
+              return { ...c, replies };
+            });
+            return { ...p, comments };
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        // remove otimista
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const comments = (p.comments || []).map((c) => {
+              if (c.id !== parentCommentId) return c;
+              const replies = (c.replies || []).filter((r) => r.id !== tempId);
+              return { ...c, replies };
+            });
+            return { ...p, comments };
+          })
+        );
+        window.alert("Não foi possível enviar a resposta. Tente novamente.");
+      }
     },
     [me]
   );
 
-  // editar comentário / resposta
+  // editar comentário / resposta (otimista)
   const handleEditComment = useCallback(
     async (postId, commentId, newText, isReply = false) => {
       const message = String(newText || "").trim();
       if (!message) return;
-      const updated = await updateCommentPost({ postId, commentId, message });
-      const up = normComment(updated);
 
+      // 1) atualiza na hora e guarda snapshot pra reverter
+      let snapshot = null;
       setPosts((curr) =>
         curr.map((p) => {
-          if (p.id !== postId) return p;
+          if (String(p.id) !== String(postId)) return p;
           const comments = (p.comments || []).map((c) => {
-            if (!isReply && c.id === commentId)
-              return { ...c, text: up.text, updatedAt: Date.now() };
+            if (!isReply && c.id === commentId) {
+              snapshot = c.text;
+              return { ...c, text: message, updatedAt: Date.now() };
+            }
             if (isReply && Array.isArray(c.replies)) {
-              const replies = c.replies.map((r) =>
-                r.id === commentId
-                  ? { ...r, text: up.text, updatedAt: Date.now() }
-                  : r
-              );
+              const replies = c.replies.map((r) => {
+                if (r.id !== commentId) return r;
+                snapshot = r.text;
+                return { ...r, text: message, updatedAt: Date.now() };
+              });
               return { ...c, replies };
             }
             return c;
@@ -1031,6 +1111,54 @@ export default function Feed() {
           return { ...p, comments };
         })
       );
+
+      try {
+        const updated = await updateCommentPost({ postId, commentId, message });
+        const up = normComment(updated);
+        const finalText = up.text || message;
+
+        // 2) garante o texto definitivo (caso backend normalize)
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const comments = (p.comments || []).map((c) => {
+              if (!isReply && c.id === commentId)
+                return { ...c, text: finalText, updatedAt: Date.now() };
+              if (isReply && Array.isArray(c.replies)) {
+                const replies = c.replies.map((r) =>
+                  r.id === commentId ? { ...r, text: finalText, updatedAt: Date.now() } : r
+                );
+                return { ...c, replies };
+              }
+              return c;
+            });
+            return { ...p, comments };
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        // reverte
+        if (snapshot !== null) {
+          setPosts((curr) =>
+            curr.map((p) => {
+              if (String(p.id) !== String(postId)) return p;
+              const comments = (p.comments || []).map((c) => {
+                if (!isReply && c.id === commentId)
+                  return { ...c, text: snapshot, updatedAt: Date.now() };
+                if (isReply && Array.isArray(c.replies)) {
+                  const replies = c.replies.map((r) =>
+                    r.id === commentId ? { ...r, text: snapshot, updatedAt: Date.now() } : r
+                  );
+                  return { ...c, replies };
+                }
+                return c;
+              });
+              return { ...p, comments };
+            })
+          );
+        }
+        window.alert("Não foi possível salvar a edição. Tente novamente.");
+      }
     },
     []
   );
@@ -1456,6 +1584,16 @@ export default function Feed() {
         post={stats.post}
         onClose={() => setStats({ open: false, post: null })}
       />
+
+      <ReportModal
+        open={report.open}
+        onClose={() => setReport((r) => ({ ...r, open: false }))}
+        initialType={report.type}
+        initialCategory={report.category}
+        targetId={report.targetId}
+        contextText={report.contextText}
+      />
+
     </div>
   );
 }
@@ -1820,15 +1958,6 @@ function CommentsBlock({
           );
         })}
       </ul>
-
-      <ReportModal
-        open={report.open}
-        onClose={() => setReport((r) => ({ ...r, open: false }))}
-        initialType={report.type}
-        initialCategory={report.category}
-        targetId={report.targetId}
-        contextText={report.contextText}
-      />
     </div>
   );
 }

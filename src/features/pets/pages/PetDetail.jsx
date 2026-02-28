@@ -447,6 +447,12 @@ export default function PetDetail() {
     notes: "",
   });
 
+  // Denúncia de pet (hooks precisam estar no topo do componente)
+  const [report, setReport] = useState({ open: false, category: "PET_ABUSE" });
+  const handleReportPet = (category = "PET_ABUSE") => {
+    setReport({ open: true, category });
+  };
+
   /* -------------------------- carregamentos iniciais ----------------------- */
   useEffect(() => {
     let cancel = false;
@@ -1395,12 +1401,6 @@ export default function PetDetail() {
     ? "…"
     : `${vaccinesCount} registro(s)`;
 
-  const [report, setReport] = useState({ open: false, category: "PET_ABUSE" });
-
-  const handleReportPet = (category = "PET_ABUSE") => {
-    setReport({ open: true, category });
-  };
-
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       {/* GRID: esquerda / divisor (>=xl) / direita */}
@@ -1505,8 +1505,13 @@ export default function PetDetail() {
                       title="Ver perfil"
                     >
                       <img
-                        src={o.image || undefined}
-                        alt=""
+                        src={
+                          o.image ||
+                          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            o?.name || o?.username || "User",
+                          )}`
+                        }
+                        alt={o?.name || o?.username || "Tutor"}
                         className="h-9 w-9 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700"
                       />
                       <div className="min-w-0">
@@ -2426,8 +2431,13 @@ export default function PetDetail() {
                     <li key={u.id} className="flex items-center justify-between gap-3 p-3">
                       <div className="flex min-w-0 items-center gap-3">
                         <img
-                          src={(u?.image?.url || u?.image) || undefined}
-                          alt=""
+                          src={
+                            (u?.image?.url || u?.image) ||
+                            `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                              u?.name || u?.username || "User",
+                            )}`
+                          }
+                          alt={u?.name || u?.username || "Tutor"}
                           className="h-10 w-10 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700"
                         />
                         <div className="min-w-0">

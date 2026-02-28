@@ -1,10 +1,10 @@
 // src/features/events/pages/EventCreate.jsx
-import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { CalendarDays, Clock, MapPin, Image as ImageIcon, ArrowLeft } from "lucide-react";
 import heic2any from "heic2any";
 
-import { createEvent } from "@/api/events.api.js";
+import { createEvent, fetchEventById, updateEvent } from "@/api/events.api.js";
 import { useToast } from "@/components/ui/ToastProvider";
 
 const isNotImplemented = (err) => {
@@ -12,10 +12,9 @@ const isNotImplemented = (err) => {
   return s === 404 || s === 405 || s === 501;
 };
 
-
 const isHeic = (file) =>
   file &&
-  (/\.(heic|heif)$/i.test(file.name || "") || /image\/hei(c|f)/i.test(file.type || ""));
+  (/\.(heic|heif)$/i.test(file.name || "") || /image\/(hei(c|f))/i.test(file.type || ""));
 
 async function ensureJpeg(file) {
   if (!(file instanceof File)) return file;
@@ -30,7 +29,10 @@ async function ensureJpeg(file) {
   }
 }
 
-async function compressImage(file, { maxW = 1920, maxH = 1920, targetMaxBytes = 900 * 1024 } = {}) {
+async function compressImage(
+  file,
+  { maxW = 1920, maxH = 1920, targetMaxBytes = 900 * 1024 } = {}
+) {
   if (!(file instanceof File)) return file;
   const base = await ensureJpeg(file);
 
@@ -42,7 +44,9 @@ async function compressImage(file, { maxW = 1920, maxH = 1920, targetMaxBytes = 
     bitmap = await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        createImageBitmap(img).then(resolve).catch(() => resolve(img));
+        createImageBitmap(img)
+          .then(resolve)
+          .catch(() => resolve(img));
         URL.revokeObjectURL(url);
       };
       img.onerror = reject;
@@ -85,10 +89,15 @@ async function compressImage(file, { maxW = 1920, maxH = 1920, targetMaxBytes = 
 }
 
 export default function EventCreate() {
+  const { eventId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
 
+  const isEdit = Boolean(eventId);
+
   const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [existingCover, setExistingCover] = useState("");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -97,7 +106,42 @@ export default function EventCreate() {
   const [locationText, setLocationText] = useState("");
   const [image, setImage] = useState(null);
 
-  const previewUrl = useMemo(() => (image ? URL.createObjectURL(image) : ""), [image]);
+  // ao editar: mostra a capa atual até o usuário escolher outra
+  const previewUrl = useMemo(() => {
+    if (image) return URL.createObjectURL(image);
+    return existingCover || "";
+  }, [image, existingCover]);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    let cancel = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const resp = await fetchEventById(eventId);
+        const ev = resp?.data || resp || null;
+        if (cancel || !ev) return;
+
+        setTitle(ev?.title || "");
+        setDescription(ev?.description || "");
+        // backend pode enviar ISO completo
+        setDate(ev?.date ? String(ev.date).slice(0, 10) : "");
+        setTime(ev?.time || "");
+        setLocationText(ev?.locationText || "");
+        setExistingCover(ev?.imageUrl || ev?.image?.url || ev?.image || "");
+      } catch (e) {
+        console.error(e);
+        if (isNotImplemented(e)) toast.info("Este item será habilitado em breve");
+        else toast.error("Não foi possível carregar o evento para edição.");
+        navigate("/feed");
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [eventId, isEdit]);
 
   async function onPickImage(ev) {
     const f = ev.target.files?.[0];
@@ -118,26 +162,58 @@ export default function EventCreate() {
     setSending(true);
     try {
       const img = image ? await compressImage(image) : null;
-      await createEvent({
-        title: cleanTitle,
-        description: cleanDesc,
-        date,
-        time,
-        locationText: String(locationText || "").trim() || null,
-        latitude: null,
-        longitude: null,
-        image: img,
-      });
 
-      toast.success("Evento criado! Ele deve aparecer no feed.");
-      navigate("/feed");
+      if (!isEdit) {
+        await createEvent({
+          title: cleanTitle,
+          description: cleanDesc,
+          date,
+          time,
+          locationText: String(locationText || "").trim() || null,
+          latitude: null,
+          longitude: null,
+          image: img,
+        });
+
+        toast.success("Evento criado! Ele deve aparecer no feed.");
+        navigate("/feed");
+      } else {
+        await updateEvent(eventId, {
+          title: cleanTitle,
+          description: cleanDesc,
+          date,
+          time,
+          locationText: String(locationText || "").trim() || null,
+          latitude: null,
+          longitude: null,
+          // se o usuário não escolher nova imagem, não envia nada
+          image: img,
+        });
+
+        toast.success("Evento atualizado!");
+        navigate(`/eventos/${eventId}`);
+      }
     } catch (e) {
       console.error(e);
       if (isNotImplemented(e)) toast.info("Este item será habilitado em breve");
-      else toast.error("Não foi possível criar o evento.");
+      else toast.error(isEdit ? "Não foi possível atualizar o evento." : "Não foi possível criar o evento.");
     } finally {
       setSending(false);
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
+        <div className="h-6 w-40 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+        <div className="mt-4 h-56 animate-pulse rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
+        <div className="mt-4 space-y-2">
+          <div className="h-4 w-full animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-4 w-5/6 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-4 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -145,14 +221,16 @@ export default function EventCreate() {
       <div className="mb-4 flex items-center gap-3">
         <button
           type="button"
-          onClick={() => navigate("/feed")}
+          onClick={() => navigate(isEdit ? `/eventos/${eventId}` : "/feed")}
           className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         >
           <ArrowLeft className="h-4 w-4" /> Voltar
         </button>
         <div>
-          <div className="text-base font-semibold">Criar evento</div>
-          <div className="text-xs text-zinc-500">O backend deve criar um post vinculado automaticamente.</div>
+          <div className="text-base font-semibold">{isEdit ? "Editar evento" : "Criar evento"}</div>
+          {!isEdit && (
+            <div className="text-xs text-zinc-500">O backend deve criar um post vinculado automaticamente.</div>
+          )}
         </div>
       </div>
 
@@ -184,7 +262,9 @@ export default function EventCreate() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1">
-              <span className="text-sm font-medium inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" /> Data *</span>
+              <span className="text-sm font-medium inline-flex items-center gap-2">
+                <CalendarDays className="h-4 w-4" /> Data *
+              </span>
               <input
                 type="date"
                 value={date}
@@ -194,7 +274,9 @@ export default function EventCreate() {
             </label>
 
             <label className="grid gap-1">
-              <span className="text-sm font-medium inline-flex items-center gap-2"><Clock className="h-4 w-4" /> Hora *</span>
+              <span className="text-sm font-medium inline-flex items-center gap-2">
+                <Clock className="h-4 w-4" /> Hora *
+              </span>
               <input
                 type="time"
                 value={time}
@@ -205,7 +287,9 @@ export default function EventCreate() {
           </div>
 
           <label className="grid gap-1">
-            <span className="text-sm font-medium inline-flex items-center gap-2"><MapPin className="h-4 w-4" /> Local (opcional)</span>
+            <span className="text-sm font-medium inline-flex items-center gap-2">
+              <MapPin className="h-4 w-4" /> Local (opcional)
+            </span>
             <input
               value={locationText}
               onChange={(e) => setLocationText(e.target.value)}
@@ -215,23 +299,29 @@ export default function EventCreate() {
           </label>
 
           <div className="grid gap-2">
-            <div className="text-sm font-medium inline-flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Imagem (opcional)</div>
+            <div className="text-sm font-medium inline-flex items-center gap-2">
+              <ImageIcon className="h-4 w-4" /> Imagem (opcional)
+            </div>
 
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800">
               <ImageIcon className="h-5 w-5" />
-              <span>Selecionar imagem</span>
+              <span>{isEdit ? "Trocar imagem" : "Selecionar imagem"}</span>
               <input type="file" accept="image/*" className="hidden" onChange={onPickImage} />
             </label>
 
             {previewUrl && (
-              <img src={previewUrl} alt="Pré-visualização" className="max-h-72 w-full rounded-xl object-cover" />
+              <img
+                src={previewUrl}
+                alt="Pré-visualização"
+                className="max-h-72 w-full rounded-xl object-cover"
+              />
             )}
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
               type="button"
-              onClick={() => navigate("/feed")}
+              onClick={() => navigate(isEdit ? `/eventos/${eventId}` : "/feed")}
               className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
             >
               Cancelar
@@ -241,7 +331,7 @@ export default function EventCreate() {
               disabled={sending}
               className="rounded-lg bg-[#f77904] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
-              {sending ? "Enviando…" : "Criar evento"}
+              {sending ? "Enviando…" : isEdit ? "Salvar alterações" : "Criar evento"}
             </button>
           </div>
         </div>

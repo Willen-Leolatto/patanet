@@ -112,3 +112,13 @@ export async function cancelEventAttendance(eventId) {
   const response = await http.delete(`/events/${eventId}/attend`);
   return response.data;
 }
+
+/**
+ * Repostar evento (cria novamente o post vinculado sem criar evento novo)
+ * POST /events/:id/repost
+ */
+export async function repostEvent(eventId) {
+  if (!eventId) return null;
+  const response = await http.post(`/events/${eventId}/repost`);
+  return response.data;
+}

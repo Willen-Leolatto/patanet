@@ -49,7 +49,7 @@ export default function PolicyHub() {
           className="flex items-center justify-between rounded-xl border border-zinc-200 px-4 py-3 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
         >
           <span className="inline-flex items-center gap-2 text-sm font-semibold">
-            <ShieldAlert className="h-4 w-4" /> Segurança Infantil (CSAE)
+            <ShieldAlert className="h-4 w-4" /> Segurança infantil (CSAE)
           </span>
           <span className="text-xs opacity-70">Ler</span>
         </Link>
@@ -64,7 +64,7 @@ export default function PolicyHub() {
           <span className="text-xs opacity-70">Abrir</span>
         </Link>
 
-        {/* <a
+        <a
           href="https://patanet.app.br/denuncia"
           target="_blank"
           rel="noreferrer"
@@ -75,7 +75,7 @@ export default function PolicyHub() {
             <ExternalLink className="h-4 w-4" /> Canal de denúncia (pets)
           </span>
           <span className="text-xs opacity-70">Site</span>
-        </a> */}
+        </a>
 
         <p className="pt-2 text-xs text-zinc-500">
           Última atualização: 24/02/2026
