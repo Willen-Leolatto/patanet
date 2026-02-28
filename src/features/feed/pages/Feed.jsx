@@ -7,16 +7,22 @@ import React, {
   useState,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { hasAcceptedUGCPolicies, acceptUGCPolicies, blockUser, unblockUser, isUserBlocked, getBlockedUserIds } from "@/utils/moderation";
 import {
   CornerUpRight,
   BarChart3,
   MoreHorizontal,
+  ShieldAlert,
   X,
   Pencil,
   Check,
   Image as ImageIcon,
   PawPrint,
+  CalendarDays,
+  Clock,
+  MapPin,
 } from "lucide-react";
+import ReportModal from "@/components/ReportModal";
 import FeedComposer from "@/components/FeedComposer";
 import FeedPostActions from "@/components/FeedPostActions";
 import Lightbox from "@/components/Lightbox";
@@ -203,6 +209,8 @@ const mediaUrl = (m) => {
   return m.url || m.path || m.file || "";
 };
 
+// (Denúncias no feed agora são via Reports API)
+
 // Comentário agora respeita a estrutura { author, text, createdAt, updatedAt, replies }
 const normComment = (c) => ({
   id: c?.id ?? String(Math.random()),
@@ -239,6 +247,22 @@ const normPost = (p) => {
   const imgsFromImages = Array.isArray(p?.images)
     ? p.images.filter(Boolean)
     : [];
+
+  const eventObj = p?.event || p?.evento || null;
+  const eventId =
+    p?.eventId ??
+    p?.eventoId ??
+    eventObj?.id ??
+    eventObj?._id ??
+    null;
+
+  const isEvent =
+    !!eventObj ||
+    !!eventId ||
+    String(p?.type || "").toUpperCase() === "EVENT" ||
+    p?.isEvent === true ||
+    p?.hasEvent === true;
+
   return {
     id: p?.id ?? String(Math.random()),
     text: p?.text ?? p?.subtitle ?? "",
@@ -255,6 +279,11 @@ const normPost = (p) => {
     petTags: Array.isArray(p?.pets)
       ? p.pets.map(normPetTag).filter(Boolean)
       : [],
+
+    // Eventos (quando o backend vincular evento ↔ post)
+    isEvent,
+    eventId,
+    event: eventObj,
   };
 };
 
@@ -564,7 +593,7 @@ function StatsModal({ open, post, onClose }) {
 }
 
 /* ⋯ Menu */
-function DotsMenu({ onEdit, onStats, onDelete }) {
+function DotsMenu({ isMine, authorId, authorName, blocked, onEdit, onStats, onDelete, onReport, onReportPetAbuse, onReportCSAE, onToggleBlock }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -577,25 +606,61 @@ function DotsMenu({ onEdit, onStats, onDelete }) {
         <MoreHorizontal className="h-5 w-5" />
       </button>
       {open && (
-        <div className="absolute right-0 z-10 mt-1 w-40 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-          <button
-            className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => (setOpen(false), onEdit?.())}
-          >
-            Editar
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            onClick={() => (setOpen(false), onStats?.())}
-          >
-            Estatísticas
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-            onClick={() => (setOpen(false), onDelete?.())}
-          >
-            Remover
-          </button>
+        <div className="absolute right-0 z-10 mt-1 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          {!isMine && (
+            <>
+              <button
+                className="block w-full px-3 py-2 text-left text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-950/30"
+                onClick={() => (setOpen(false), onReport?.())}
+              >
+                Denunciar (geral)
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left text-rose-700 hover:bg-rose-50 dark:text-rose-200 dark:hover:bg-rose-950/30"
+                onClick={() => (setOpen(false), onReportPetAbuse?.())}
+              >
+                Denunciar maus-tratos (pet)
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950/30"
+                onClick={() => (setOpen(false), onReportCSAE?.())}
+              >
+                Denunciar CSAE (infantil)
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => (setOpen(false), onToggleBlock?.())}
+              >
+                {blocked ? "Desbloquear usuário" : "Bloquear usuário"}
+              </button>
+              <div className="border-t border-zinc-200 dark:border-zinc-800" />
+            </>
+          )}
+
+          {isMine && (
+            <>
+              <button
+                className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => (setOpen(false), onEdit?.())}
+              >
+                Editar
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => (setOpen(false), onStats?.())}
+              >
+                Estatísticas
+              </button>
+              <button
+                className="block w-full px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                onClick={() => (setOpen(false), onDelete?.())}
+              >
+                Remover
+              </button>
+              <div className="border-t border-zinc-200 dark:border-zinc-800" />
+            </>
+          )}
+
         </div>
       )}
     </div>
@@ -609,6 +674,7 @@ export default function Feed() {
 
   // feed + paginação
   const [posts, setPosts] = useState([]);
+  const [blockedTick, setBlockedTick] = useState(0); // força re-render ao bloquear
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -643,6 +709,12 @@ export default function Feed() {
     return () => {
       cancel = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const onBlocked = () => setBlockedTick((v) => v + 1);
+    window.addEventListener("patanet:blocked-updated", onBlocked);
+    return () => window.removeEventListener("patanet:blocked-updated", onBlocked);
   }, []);
 
   // carregar página do feed (mantendo ordem da API, dedupe por id)
@@ -789,7 +861,7 @@ export default function Feed() {
       let wasLiked = false;
       setPosts((curr) =>
         curr.map((p) => {
-          if (p.id !== postId) return p;
+          if (String(p.id) !== String(postId)) return p;
           wasLiked = (p.likes || []).some((l) => l.id === me.id);
           const likes = wasLiked
             ? p.likes.filter((l) => l.id !== me.id)
@@ -818,7 +890,7 @@ export default function Feed() {
         // Rollback exato (reverte o otimista)
         setPosts((curr) =>
           curr.map((p) => {
-            if (p.id !== postId) return p;
+            if (String(p.id) !== String(postId)) return p;
             const likes = wasLiked
               ? [
                   ...p.likes,
@@ -841,95 +913,197 @@ export default function Feed() {
     [me?.id, me?.image, me?.avatar, me?.username, me?.name, me?.email]
   );
 
-  // comentar novo
+  // comentar novo (otimista: aparece imediatamente)
   const handleAddComment = useCallback(
     async (postId, text) => {
       const message = String(text || "").trim();
       if (!message) return;
-      const created = await addCommentPost({ postId, message });
-      let newC = normComment(created);
-      // fallback: se a API não devolver o autor, usa o "me"
-      if (!newC.author?.id && me) {
-        newC = {
-          ...newC,
-          author: {
-            id: me.id,
-            username: me.username,
-            name: me.name,
-            email: (me.email || "").toLowerCase(),
-            avatar: me.image || me.avatar || "",
-          },
-        };
+
+      if (!hasAcceptedUGCPolicies()) {
+        const ok = window.confirm(
+          "Para comentar, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nDeseja aceitar agora?"
+        );
+        if (!ok) return;
+        acceptUGCPolicies();
       }
+
+      const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const optimistic = {
+        id: tempId,
+        text: message,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        author: {
+          id: me?.id,
+          username: me?.username,
+          name: me?.name,
+          email: (me?.email || "").toLowerCase(),
+          avatar: me?.image || me?.avatar || "",
+        },
+        replies: [],
+      };
+
+      // 1) insere na hora
       setPosts((curr) =>
         curr.map((p) =>
-          p.id === postId
-            ? { ...p, comments: [newC, ...(p.comments || [])] }
+          String(p.id) === String(postId)
+            ? { ...p, comments: [optimistic, ...(p.comments || [])] }
             : p
         )
       );
+
+      try {
+        // 2) confirma no backend e substitui o temporário
+        const created = await addCommentPost({ postId, message });
+        let newC = normComment(created);
+        if (!newC.author?.id && me) {
+          newC = {
+            ...newC,
+            author: {
+              id: me.id,
+              username: me.username,
+              name: me.name,
+              email: (me.email || "").toLowerCase(),
+              avatar: me.image || me.avatar || "",
+            },
+          };
+        }
+
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const next = (p.comments || []).map((c) => (c.id === tempId ? newC : c));
+            return { ...p, comments: next };
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        // remove o otimista se falhar
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            return { ...p, comments: (p.comments || []).filter((c) => c.id !== tempId) };
+          })
+        );
+        window.alert("Não foi possível enviar o comentário. Tente novamente.");
+      }
     },
     [me]
   );
 
-  // responder
+  // responder (otimista)
   const handleReplyComment = useCallback(
     async (postId, parentCommentId, text) => {
       const message = String(text || "").trim();
       if (!message) return;
-      const created = await addCommentPost({
-        postId,
-        message,
-        parentId: parentCommentId,
-      });
-      let reply = normComment(created);
-      if (!reply.author?.id && me) {
-        reply = {
-          ...reply,
-          author: {
-            id: me.id,
-            username: me.username,
-            name: me.name,
-            email: (me.email || "").toLowerCase(),
-            avatar: me.image || me.avatar || "",
-          },
-        };
+
+      if (!hasAcceptedUGCPolicies()) {
+        const ok = window.confirm(
+          "Para responder, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nDeseja aceitar agora?"
+        );
+        if (!ok) return;
+        acceptUGCPolicies();
       }
+
+      const tempId = `tmp-reply-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const optimistic = {
+        id: tempId,
+        text: message,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        author: {
+          id: me?.id,
+          username: me?.username,
+          name: me?.name,
+          email: (me?.email || "").toLowerCase(),
+          avatar: me?.image || me?.avatar || "",
+        },
+        replies: [],
+      };
+
+      // 1) insere na hora
       setPosts((curr) =>
         curr.map((p) => {
-          if (p.id !== postId) return p;
+          if (String(p.id) !== String(postId)) return p;
           const comments = (p.comments || []).map((c) =>
             c.id === parentCommentId
-              ? { ...c, replies: [...(c.replies || []), reply] }
+              ? { ...c, replies: [...(c.replies || []), optimistic] }
               : c
           );
           return { ...p, comments };
         })
       );
+
+      try {
+        const created = await addCommentPost({ postId, message, parentId: parentCommentId });
+        let reply = normComment(created);
+        if (!reply.author?.id && me) {
+          reply = {
+            ...reply,
+            author: {
+              id: me.id,
+              username: me.username,
+              name: me.name,
+              email: (me.email || "").toLowerCase(),
+              avatar: me.image || me.avatar || "",
+            },
+          };
+        }
+
+        // 2) substitui o temporário
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const comments = (p.comments || []).map((c) => {
+              if (c.id !== parentCommentId) return c;
+              const replies = (c.replies || []).map((r) => (r.id === tempId ? reply : r));
+              return { ...c, replies };
+            });
+            return { ...p, comments };
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        // remove otimista
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const comments = (p.comments || []).map((c) => {
+              if (c.id !== parentCommentId) return c;
+              const replies = (c.replies || []).filter((r) => r.id !== tempId);
+              return { ...c, replies };
+            });
+            return { ...p, comments };
+          })
+        );
+        window.alert("Não foi possível enviar a resposta. Tente novamente.");
+      }
     },
     [me]
   );
 
-  // editar comentário / resposta
+  // editar comentário / resposta (otimista)
   const handleEditComment = useCallback(
     async (postId, commentId, newText, isReply = false) => {
       const message = String(newText || "").trim();
       if (!message) return;
-      const updated = await updateCommentPost({ postId, commentId, message });
-      const up = normComment(updated);
 
+      // 1) atualiza na hora e guarda snapshot pra reverter
+      let snapshot = null;
       setPosts((curr) =>
         curr.map((p) => {
-          if (p.id !== postId) return p;
+          if (String(p.id) !== String(postId)) return p;
           const comments = (p.comments || []).map((c) => {
-            if (!isReply && c.id === commentId)
-              return { ...c, text: up.text, updatedAt: Date.now() };
+            if (!isReply && c.id === commentId) {
+              snapshot = c.text;
+              return { ...c, text: message, updatedAt: Date.now() };
+            }
             if (isReply && Array.isArray(c.replies)) {
-              const replies = c.replies.map((r) =>
-                r.id === commentId
-                  ? { ...r, text: up.text, updatedAt: Date.now() }
-                  : r
-              );
+              const replies = c.replies.map((r) => {
+                if (r.id !== commentId) return r;
+                snapshot = r.text;
+                return { ...r, text: message, updatedAt: Date.now() };
+              });
               return { ...c, replies };
             }
             return c;
@@ -937,6 +1111,54 @@ export default function Feed() {
           return { ...p, comments };
         })
       );
+
+      try {
+        const updated = await updateCommentPost({ postId, commentId, message });
+        const up = normComment(updated);
+        const finalText = up.text || message;
+
+        // 2) garante o texto definitivo (caso backend normalize)
+        setPosts((curr) =>
+          curr.map((p) => {
+            if (String(p.id) !== String(postId)) return p;
+            const comments = (p.comments || []).map((c) => {
+              if (!isReply && c.id === commentId)
+                return { ...c, text: finalText, updatedAt: Date.now() };
+              if (isReply && Array.isArray(c.replies)) {
+                const replies = c.replies.map((r) =>
+                  r.id === commentId ? { ...r, text: finalText, updatedAt: Date.now() } : r
+                );
+                return { ...c, replies };
+              }
+              return c;
+            });
+            return { ...p, comments };
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        // reverte
+        if (snapshot !== null) {
+          setPosts((curr) =>
+            curr.map((p) => {
+              if (String(p.id) !== String(postId)) return p;
+              const comments = (p.comments || []).map((c) => {
+                if (!isReply && c.id === commentId)
+                  return { ...c, text: snapshot, updatedAt: Date.now() };
+                if (isReply && Array.isArray(c.replies)) {
+                  const replies = c.replies.map((r) =>
+                    r.id === commentId ? { ...r, text: snapshot, updatedAt: Date.now() } : r
+                  );
+                  return { ...c, replies };
+                }
+                return c;
+              });
+              return { ...p, comments };
+            })
+          );
+        }
+        window.alert("Não foi possível salvar a edição. Tente novamente.");
+      }
     },
     []
   );
@@ -1001,6 +1223,26 @@ export default function Feed() {
   };
 
   // remover postagem
+
+  const [report, setReport] = useState({
+    open: false,
+    type: "POST",
+    category: "GENERAL",
+    targetId: null,
+    contextText: "",
+  });
+
+  const handleReportPost = (post, category = "GENERAL") => {
+    const author = post?.author || {};
+    setReport({
+      open: true,
+      type: "POST",
+      category,
+      targetId: post?.id || null,
+      contextText: `Post: ${post?.id || ""}\nAutor: ${author?.username || author?.name || author?.email || ""}\n\nPreview:\n${String(post?.text || "").slice(0, 280)}`,
+    });
+  };
+
   const handleDelete = async (post) => {
     if (!me || me.id !== post?.author?.id) return;
     const ok = window.confirm("Remover esta postagem?");
@@ -1047,12 +1289,30 @@ export default function Feed() {
   );
 
   /* -------------------- Render -------------------- */
+  const blockedIds = new Set(getBlockedUserIds());
+  const visiblePosts = posts.filter((p) => !blockedIds.has(String(p?.author?.id || "")));
+
   return (
     <div className="mx-auto w-full max-w-3xl">
       <FeedComposer user={me} />
 
+      <div className="mt-3 flex justify-end gap-2">
+        <Link
+          to="/eventos"
+          className="inline-flex items-center rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+        >
+          Eventos
+        </Link>
+        <Link
+          to="/eventos/novo"
+          className="inline-flex items-center rounded-lg bg-[#f77904] px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+        >
+          Criar evento
+        </Link>
+      </div>
+
       <div className="mt-6 space-y-4">
-        {posts.map((post) => {
+        {visiblePosts.map((post) => {
           const likesArr = normLikes(post.likes);
           const likedByMe = !!likesArr.find((l) => l.id === me?.id);
           const isMine = me && me.id === post?.author?.id;
@@ -1106,18 +1366,91 @@ export default function Feed() {
                   </Link>
                 </div>
 
-                {isMine && (
-                  <DotsMenu
-                    onEdit={() => handleOpenEdit(post)}
-                    onStats={() => handleOpenStats(post)}
-                    onDelete={() => handleDelete(post)}
-                  />
-                )}
+                <DotsMenu
+                  isMine={isMine}
+                  authorId={post.author?.id}
+                  authorName={post.author?.username || post.author?.name}
+                  blocked={isUserBlocked(post.author?.id)}
+                  onEdit={() => handleOpenEdit(post)}
+                  onStats={() => handleOpenStats(post)}
+                  onDelete={() => handleDelete(post)}
+                  onReport={() => handleReportPost(post, "GENERAL")}
+                  onReportPetAbuse={() => handleReportPost(post, "PET_ABUSE")}
+                  onReportCSAE={() => handleReportPost(post, "CSAE")}
+                  onToggleBlock={() => {
+                    const uid = post?.author?.id;
+                    if (!uid) return;
+                    if (isUserBlocked(uid)) {
+                      unblockUser(uid);
+                    } else {
+                      const ok = window.confirm(
+                        "Bloquear este usuário? Você não verá mais posts dele neste dispositivo."
+                      );
+                      if (ok) blockUser(uid);
+                    }
+                  }}
+                />
               </div>
 
               {/* Texto */}
               {post.text && (
                 <p className="mb-3 whitespace-pre-wrap text-sm">{post.text}</p>
+              )}
+
+              {/* Evento vinculado */}
+              {post.isEvent && (post.eventId || post.event?.id) && (
+                <Link
+                  to={`/eventos/${post.event?.id || post.eventId}`}
+                  className="mb-3 block overflow-hidden rounded-xl border border-orange-200 bg-orange-50/50 hover:bg-orange-50 dark:border-orange-900/50 dark:bg-orange-950/20"
+                  title="Ver detalhes do evento"
+                >
+                  <div className="flex gap-3 p-3">
+                    <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-orange-200 dark:bg-zinc-900 dark:ring-orange-900/40">
+                      {post.event?.imageUrl || post.event?.image || post.event?.image?.url ? (
+                        <img
+                          src={post.event?.imageUrl || post.event?.image?.url || post.event?.image}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <CalendarDays className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 inline-flex items-center gap-2">
+                        <span className="rounded-full bg-orange-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          Evento
+                        </span>
+                        <span className="truncate text-sm font-semibold">
+                          {post.event?.title || post.event?.name || "Ver evento"}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+                        {(post.event?.date || post.event?.day) && (
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {new Date(post.event?.date || post.event?.day).toLocaleDateString("pt-BR")}
+                          </span>
+                        )}
+                        {post.event?.time && (
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 opacity-70" />
+                            {post.event.time}
+                          </span>
+                        )}
+                        {post.event?.locationText && (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5 opacity-70" />
+                            <span className="max-w-[260px] truncate">{post.event.locationText}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
               )}
 
               {/* Pets marcados */}
@@ -1251,6 +1584,16 @@ export default function Feed() {
         post={stats.post}
         onClose={() => setStats({ open: false, post: null })}
       />
+
+      <ReportModal
+        open={report.open}
+        onClose={() => setReport((r) => ({ ...r, open: false }))}
+        initialType={report.type}
+        initialCategory={report.category}
+        targetId={report.targetId}
+        contextText={report.contextText}
+      />
+
     </div>
   );
 }

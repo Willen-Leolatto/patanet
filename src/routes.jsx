@@ -18,8 +18,22 @@ const PetEdit = lazy(() => import("@/features/pets/pages/PetEdit"));
 
 // Usuários
 const UserProfile = lazy(() => import("@/features/users/pages/UserProfile"));
-const UserEdit = lazy(() => import("@/features/users/pages/UserEdit")); // ⬅️ NOVO
-const UsersList = lazy(() => import("@/features/users/pages/UsersList")); // ⬅️ NOVO
+const UserEdit = lazy(() => import("@/features/users/pages/UserEdit"));
+const UsersList = lazy(() => import("@/features/users/pages/UsersList"));
+
+// Eventos
+const EventsList = lazy(() => import("@/features/events/pages/EventsList"));
+const EventCreate = lazy(() => import("@/features/events/pages/EventCreate"));
+const EventDetail = lazy(() => import("@/features/events/pages/EventDetail"));
+const EventEdit = lazy(() => import("@/features/events/pages/EventEdit"));
+
+// Políticas / conformidade (públicas e in-app)
+const ChildSafety = lazy(() => import("@/features/policy/pages/ChildSafety"));
+const Privacy = lazy(() => import("@/features/policy/pages/Privacy"));
+const ReportChannel = lazy(() => import("@/features/policy/pages/ReportChannel"));
+const CommunityGuidelines = lazy(() => import("@/features/policy/pages/CommunityGuidelines"));
+const AccountDeletion = lazy(() => import("@/features/policy/pages/AccountDeletion"));
+const PolicyHub = lazy(() => import("@/features/policy/pages/PolicyHub"));
 
 function Loader() {
   return (
@@ -34,7 +48,7 @@ export default function AppRoutes() {
     <BrowserRouter>
       <Suspense fallback={<Loader />}>
         <Routes>
-          {/* Rotas públicas de autenticação */}
+          {/* Rotas públicas */}
           <Route path="/auth" element={<Login />} />
 
           {/* AppShell gerencia layout + proteção internamente */}
@@ -53,12 +67,25 @@ export default function AppRoutes() {
 
             {/* Perfil do usuário (próprio) */}
             <Route path="/perfil" element={<UserProfile />} />
-            {/* ⬇️ NOVA ROTA: editar perfil */}
             <Route path="/perfil/editar" element={<UserEdit />} />
 
-            {/* Perfil de outro usuário (caso exista esse fluxo) */}
+            {/* Perfil de outro usuário */}
             <Route path="/usuario/:userId" element={<UserProfile />} />
             <Route path="/usuarios" element={<UsersList />} />
+
+            {/* Eventos */}
+            <Route path="/eventos" element={<EventsList />} />
+            <Route path="/eventos/novo" element={<EventCreate />} />
+            <Route path="/eventos/:eventId" element={<EventDetail />} />
+            <Route path="/eventos/:eventId/editar" element={<EventEdit />} />
+
+            {/* Ajuda e políticas (acessíveis com ou sem login; com menu quando logado) */}
+            <Route path="/seguranca-infantil" element={<ChildSafety />} />
+            <Route path="/privacidade" element={<Privacy />} />
+            <Route path="/denuncia" element={<ReportChannel />} />
+            <Route path="/diretrizes" element={<CommunityGuidelines />} />
+            <Route path="/excluir-conta" element={<AccountDeletion />} />
+            <Route path="/ajuda" element={<PolicyHub />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/feed" replace />} />

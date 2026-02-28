@@ -42,7 +42,7 @@ function UserCard({ user }) {
     user?.displayName || user?.name || (user?.email ?? "").split("@")[0];
 
   // placeholder enquanto a API não envia a contagem
-  const petsCount = user?.petsCount ?? 0; // manter estático (0) por ora
+  const petsCount = user?.animalsCount ?? 0; // manter estático (0) por ora
 
   return (
     <Link
@@ -223,7 +223,7 @@ export default function UsersList() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por nome de usuário…"
+              placeholder="Buscar por nome ou @username…"
               className="w-full rounded-lg border border-zinc-300 bg-white pl-8 pr-3 pt-[9px] pb-[9px] text-sm outline-none placeholder:text-zinc-400 focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
             />
           </div>

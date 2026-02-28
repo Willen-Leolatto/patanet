@@ -1,11 +1,14 @@
 // src/features/pets/pages/PetDetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import ReportModal from "@/components/ReportModal";
 import {
   Shield,
+  ShieldAlert,
   Images,
   Syringe,
-  // Pill,
+  Pill,
+  Bug,
   // Stethoscope,
   // Bandage,
   Plus,
@@ -17,6 +20,10 @@ import {
   MapPin,
   NotebookText,
   X,
+  UserPlus,
+  UserMinus,
+  Search,
+  Users,
 } from "lucide-react";
 import Lightbox from "@/components/Lightbox";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -24,8 +31,9 @@ import { useConfirm, usePrompt } from "@/components/ui/ConfirmProvider";
 import heic2any from "heic2any";
 
 // APIs
-import { getMyProfile } from "@/api/user.api.js";
+import { getMyProfile, fetchUsersProfile, getUserProfile } from "@/api/user.api.js";
 import { fetchAnimalsById } from "@/api/animal.api.js";
+import { addOwner, removeOwner } from "@/api/owner.api.js";
 import {
   fetchAnimalMedias,
   uploadAnimalMedias,
@@ -37,6 +45,18 @@ import {
   deleteVaccines,
   updateVaccine,
 } from "@/api/vaccines.api.js";
+import {
+  addDeworming,
+  fetchDewormings,
+  deleteDeworming,
+  updateDeworming,
+} from "@/api/deworming.api.js";
+import {
+  addMedication,
+  fetchMedications,
+  deleteMedication,
+  updateMedication,
+} from "@/api/medications.api.js";
 
 /* ------------------------------------------------------------- */
 const DUE_SOON_DAYS = 7;
@@ -343,6 +363,13 @@ function toPtSpecies(sp) {
 export default function PetDetail() {
   const { id: animalId } = useParams();
   const toast = useToast();
+
+  const showComingSoon = () => toast.info("Este item será habilitado em breve");
+  const isNotImplemented = (err) => {
+    const s = err?.response?.status;
+    return s === 404 || s === 405 || s === 501;
+  };
+
   const confirm = useConfirm();
   const askInput = usePrompt();
 
@@ -351,6 +378,8 @@ export default function PetDetail() {
 
   const [tab, setTab] = useState("health"); // 'health' | 'gallery'
   const [vaccinesOpen, setVaccinesOpen] = useState(true);
+  const [dewormingsOpen, setDewormingsOpen] = useState(true);
+  const [medicationsOpen, setMedicationsOpen] = useState(true);
 
   // Lightbox
   const [lbOpen, setLbOpen] = useState(false);
@@ -364,9 +393,24 @@ export default function PetDetail() {
   const [vaccines, setVaccines] = useState([]);
   const [loadingVaccines, setLoadingVaccines] = useState(false);
 
+  // Vermifugação (do servidor)
+  const [dewormings, setDewormings] = useState([]);
+  const [loadingDewormings, setLoadingDewormings] = useState(false);
+
+  // Medicamentos (do servidor)
+  const [medications, setMedications] = useState([]);
+  const [loadingMedications, setLoadingMedications] = useState(false);
+
   // Header (avatar/capa)
   const [avatarUrl, setAvatarUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
+
+  // Tutores (owners)
+  const [owners, setOwners] = useState([]); // [{id, username, name, image}]
+  const [tutorModalOpen, setTutorModalOpen] = useState(false);
+  const [tutorQuery, setTutorQuery] = useState("");
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorResults, setTutorResults] = useState([]);
 
   // Modal de Vacina (create/edit)
   const [vacModalOpen, setVacModalOpen] = useState(false);
@@ -378,6 +422,36 @@ export default function PetDetail() {
     clinic: "",
     notes: "",
   });
+
+  // Modal de Vermifugação (create/edit)
+  const [dewModalOpen, setDewModalOpen] = useState(false);
+  const [dewEditId, setDewEditId] = useState(null);
+  const [dewForm, setDewForm] = useState({
+    name: "",
+    date: "",
+    nextDoseDate: "",
+    clinic: "",
+    notes: "",
+  });
+
+  // Modal de Medicamentos (create/edit)
+  const [medModalOpen, setMedModalOpen] = useState(false);
+  const [medEditId, setMedEditId] = useState(null);
+  const [medForm, setMedForm] = useState({
+    name: "",
+    startAt: "",
+    endAt: "",
+    dosage: "",
+    frequency: "",
+    clinic: "",
+    notes: "",
+  });
+
+  // Denúncia de pet (hooks precisam estar no topo do componente)
+  const [report, setReport] = useState({ open: false, category: "PET_ABUSE" });
+  const handleReportPet = (category = "PET_ABUSE") => {
+    setReport({ open: true, category });
+  };
 
   /* -------------------------- carregamentos iniciais ----------------------- */
   useEffect(() => {
@@ -405,6 +479,17 @@ export default function PetDetail() {
         // <- NOVO: coleta segura dos owners conforme a estrutura nova
         const ownersFromArray = Array.isArray(a?.owners)
           ? a.owners.map((o) => o?.id).filter(Boolean)
+          : [];
+
+        const ownerObjsFromArray = Array.isArray(a?.owners)
+          ? a.owners
+              .map((o) => ({
+                id: o?.id,
+                username: o?.username || "",
+                name: o?.name || o?.displayName || "",
+                image: o?.image?.url || o?.image || o?.avatar || "",
+              }))
+              .filter((o) => !!o.id)
           : [];
 
         const primaryOwnerId =
@@ -437,8 +522,16 @@ export default function PetDetail() {
           image: a?.image?.url || a.image || a?.breed?.image || "",
           imageCover: a?.imageCover?.url || a.imageCover || "",
           ownerId: primaryOwnerId,
-          ownerIds: ownersFromArray,
+          ownerIds: ownersFromArray.length ? ownersFromArray : primaryOwnerId ? [primaryOwnerId] : [],
         });
+
+        setOwners(
+          ownerObjsFromArray.length
+            ? ownerObjsFromArray
+            : primaryOwnerId
+            ? [{ id: primaryOwnerId }]
+            : []
+        );
         // Header usa o mesmo fallback para não ficar sem foto
         setAvatarUrl(a?.image?.url || a.image || a?.breed?.image || "");
         PetDetail;
@@ -463,6 +556,149 @@ export default function PetDetail() {
     return myId === primary || many.includes(myId);
   }, [me?.id, pet?.ownerId, pet?.ownerIds]);
 
+
+
+  // Completa dados dos tutores quando o backend só envia IDs
+  useEffect(() => {
+    let cancel = false;
+
+    (async () => {
+      const ids = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
+      if (!ids.length) {
+        setOwners([]);
+        return;
+      }
+
+      const known = new Map();
+      for (const o of owners || []) {
+        if (o?.id) known.set(String(o.id), o);
+      }
+
+      const resolved = [];
+      for (const id of ids) {
+        const have = known.get(String(id));
+        if (have && (have.username || have.name || have.image)) {
+          resolved.push(have);
+          continue;
+        }
+        try {
+          const prof = await getUserProfile({ id });
+          const u = prof?.data || prof || {};
+          resolved.push({
+            id: u?.id || id,
+            username: u?.username || "",
+            name: u?.name || u?.displayName || "",
+            image: u?.imageCover?.url || u?.image?.url || u?.image || "",
+          });
+        } catch {
+          resolved.push({ id });
+        }
+      }
+
+      if (!cancel) setOwners(resolved);
+    })();
+
+    return () => {
+      cancel = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(pet?.ownerIds || [])]);
+
+  const openTutorModal = () => {
+    if (!canEdit) {
+      toast.error("Apenas um tutor pode gerenciar tutores.");
+      return;
+    }
+    setTutorQuery("");
+    setTutorResults([]);
+    setTutorModalOpen(true);
+  };
+
+  const searchTutors = async (q) => {
+    const query = String(q || "").trim();
+    setTutorQuery(query);
+    if (!query) {
+      setTutorResults([]);
+      return;
+    }
+
+    setTutorLoading(true);
+    try {
+      const resp = await fetchUsersProfile({ query, page: 1, perPage: 10 });
+      const list = Array.isArray(resp?.data) ? resp.data : Array.isArray(resp) ? resp : [];
+
+      const existing = new Set((pet?.ownerIds || []).map(String));
+      setTutorResults(list.filter((u) => !existing.has(String(u?.id))));
+    } catch (e) {
+      console.error(e);
+      setTutorResults([]);
+    } finally {
+      setTutorLoading(false);
+    }
+  };
+
+  const addTutorToPet = async (user) => {
+    const ownerId = user?.id;
+    if (!ownerId) return;
+    try {
+      await addOwner({ ownerId, animalId });
+      toast.success("Tutor vinculado ao pet.");
+      setPet((p) => {
+        const ids = new Set([...(p?.ownerIds || []).map(String), String(ownerId)]);
+        return { ...p, ownerIds: Array.from(ids) };
+      });
+      setOwners((curr) => {
+        const ids = new Set(curr.map((o) => String(o?.id)));
+        if (ids.has(String(ownerId))) return curr;
+        return [
+          ...curr,
+          {
+            id: user.id,
+            username: user.username || "",
+            name: user.name || user.displayName || "",
+            image: user.image?.url || user.image || "",
+          },
+        ];
+      });
+      setTutorModalOpen(false);
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao vincular tutor.");
+    }
+  };
+
+  const removeTutorFromPet = async (ownerId) => {
+    const id = ownerId ? String(ownerId) : null;
+    if (!id) return;
+
+    // não deixa remover o último tutor
+    const current = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
+    if (current.length <= 1) {
+      toast.error("O pet precisa ter pelo menos 1 tutor.");
+      return;
+    }
+
+    const ok = await confirm({
+      title: "Remover tutor?",
+      description: "O perfil deixará de estar vinculado a este pet.",
+      confirmText: "Remover",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    try {
+      await removeOwner({ ownerId: id, animalId });
+      toast.success("Tutor removido.");
+      setPet((p) => ({
+        ...p,
+        ownerIds: (p?.ownerIds || []).map(String).filter((x) => x !== id),
+      }));
+      setOwners((curr) => curr.filter((o) => String(o?.id) != id));
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao remover tutor.");
+    }
+  };
   /* -------------------------- galeria: listar/upload/delete ---------------- */
   const refetchGallery = useRef(null);
 
@@ -735,7 +971,8 @@ export default function PetDetail() {
       setVacEditId(null);
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível salvar. Tente novamente.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível salvar. Tente novamente.");
     }
   }
 
@@ -771,7 +1008,8 @@ export default function PetDetail() {
       toast.success("Aplicação marcada para hoje.");
     } catch (e) {
       console.error(e);
-      toast.error("Não foi possível atualizar a aplicação.");
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível atualizar a aplicação.");
     }
   }
 
@@ -788,8 +1026,351 @@ export default function PetDetail() {
       await deleteVaccines({ animalId, vaccineId: vx.id });
       setVaccines((list) => list.filter((v) => v.id !== vx.id));
       toast.success("Registro removido.");
-    } catch {
-      toast.error("Falha ao remover o registro.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Falha ao remover o registro.");
+    }
+  }
+
+
+
+  /* ------------------------------ vermifugação ------------------------------ */
+  const refetchDewormings = useRef(null);
+
+  useEffect(() => {
+    let cancel = false;
+    async function loadDewormings() {
+      if (!animalId) return;
+      setLoadingDewormings(true);
+      try {
+        const resp = await fetchDewormings({ animalId, page: 1, perPage: 200 });
+        const arr =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) {
+          setDewormings(
+            arr
+              .map((d) => ({
+                id: d.id || d._id,
+                name: d.name || d.dewormer || d.vermifugo || "",
+                date: d.appliedAt || d.date || "",
+                nextDoseDate: d.nextDose || d.nextDoseDate || "",
+                clinic: d.clinic || "",
+                notes: d.observations || d.notes || "",
+              }))
+              .filter((d) => !!d.id || !!d.name)
+          );
+        }
+      } catch {
+        if (!cancel) setDewormings([]);
+      } finally {
+        if (!cancel) setLoadingDewormings(false);
+      }
+    }
+
+    refetchDewormings.current = loadDewormings;
+    loadDewormings();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  const dewormingsCount = dewormings.length;
+
+  const openDewCreate = () => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+    setDewEditId(null);
+    setDewForm({ name: "", date: "", nextDoseDate: "", clinic: "", notes: "" });
+    setDewModalOpen(true);
+  };
+
+  const openDewEdit = (dw) => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+
+    const toDateInput = (val) => {
+      if (!val) return "";
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      } catch {
+        return "";
+      }
+    };
+
+    setDewEditId(dw.id);
+    setDewForm({
+      name: dw.name || "",
+      date: toDateInput(dw.date) || "",
+      nextDoseDate: toDateInput(dw.nextDoseDate) || "",
+      clinic: dw.clinic || "",
+      notes: dw.notes || "",
+    });
+    setDewModalOpen(true);
+  };
+
+  async function submitDeworming() {
+    if (!canEdit) return;
+
+    const name = String(dewForm.name || "").trim();
+    const appliedAt = String(dewForm.date || "");
+    const nextDose = dewForm.nextDoseDate || undefined;
+    const clinic = String(dewForm.clinic || "").trim();
+    const observations = String(dewForm.notes || "").trim();
+
+    if (!name || !appliedAt) {
+      toast.error("Informe ao menos o vermífugo e a data.");
+      return;
+    }
+
+    try {
+      if (dewEditId) {
+        await updateDeworming({
+          animalId,
+          dewormingId: dewEditId,
+          name,
+          observations,
+          clinic,
+          appliedAt,
+          nextDose,
+        });
+        toast.success("Vermifugação atualizada.");
+      } else {
+        await addDeworming({ animalId, name, observations, clinic, appliedAt, nextDose });
+        toast.success("Vermifugação registrada.");
+      }
+
+      await refetchDewormings.current?.();
+      setDewModalOpen(false);
+      setDewEditId(null);
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível salvar. Tente novamente.");
+    }
+  }
+
+  async function markDewAsToday(dw) {
+    if (!canEdit) return;
+
+    const ok = await confirm({
+      title: "Marcar como aplicada hoje?",
+      description:
+        "A data de aplicação será atualizada para hoje. A próxima dose (se houver) permanece.",
+      confirmText: "Marcar",
+      tone: "confirm",
+    });
+    if (!ok) return;
+
+    try {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+        today.getDate()
+      ).padStart(2, "0")}`;
+
+      await updateDeworming({
+        animalId,
+        dewormingId: dw.id,
+        name: dw.name,
+        observations: dw.notes || "",
+        clinic: dw.clinic || "",
+        appliedAt: iso,
+        nextDose: dw.nextDoseDate || undefined,
+      });
+
+      await refetchDewormings.current?.();
+      toast.success("Aplicação marcada para hoje.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível atualizar a aplicação.");
+    }
+  }
+
+  async function removeDeworming(dw) {
+    if (!canEdit) return;
+    const ok = await confirm({
+      title: "Excluir registro?",
+      description: "Esta ação não pode ser desfeita.",
+      confirmText: "Excluir",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteDeworming({ animalId, dewormingId: dw.id });
+      setDewormings((list) => list.filter((d) => d.id !== dw.id));
+      toast.success("Registro removido.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Falha ao remover o registro.");
+    }
+  }
+
+  /* ------------------------------ medicamentos ------------------------------ */
+  const refetchMedications = useRef(null);
+
+  useEffect(() => {
+    let cancel = false;
+    async function loadMedications() {
+      if (!animalId) return;
+      setLoadingMedications(true);
+      try {
+        const resp = await fetchMedications({ animalId, page: 1, perPage: 200 });
+        const arr =
+          (resp && Array.isArray(resp.data) && resp.data) ||
+          (Array.isArray(resp) && resp) ||
+          (resp && Array.isArray(resp.items) && resp.items) ||
+          [];
+        if (!cancel) {
+          setMedications(
+            arr
+              .map((m) => ({
+                id: m.id || m._id,
+                name: m.name || m.medication || m.medicamento || "",
+                startAt: m.startAt || m.startDate || m.appliedAt || m.date || "",
+                endAt: m.endAt || m.endDate || "",
+                dosage: m.dosage || "",
+                frequency: m.frequency || m.interval || "",
+                clinic: m.clinic || "",
+                notes: m.observations || m.notes || "",
+              }))
+              .filter((m) => !!m.id || !!m.name)
+          );
+        }
+      } catch {
+        if (!cancel) setMedications([]);
+      } finally {
+        if (!cancel) setLoadingMedications(false);
+      }
+    }
+
+    refetchMedications.current = loadMedications;
+    loadMedications();
+    return () => {
+      cancel = true;
+    };
+  }, [animalId]);
+
+  const medicationsCount = medications.length;
+
+  const openMedCreate = () => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+    setMedEditId(null);
+    setMedForm({ name: "", startAt: "", endAt: "", dosage: "", frequency: "", clinic: "", notes: "" });
+    setMedModalOpen(true);
+  };
+
+  const openMedEdit = (mx) => {
+    if (!canEdit) {
+      toast.error("Apenas o tutor do pet pode realizar esta ação.");
+      return;
+    }
+
+    const toDateInput = (val) => {
+      if (!val) return "";
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      } catch {
+        return "";
+      }
+    };
+
+    setMedEditId(mx.id);
+    setMedForm({
+      name: mx.name || "",
+      startAt: toDateInput(mx.startAt) || "",
+      endAt: toDateInput(mx.endAt) || "",
+      dosage: mx.dosage || "",
+      frequency: mx.frequency || "",
+      clinic: mx.clinic || "",
+      notes: mx.notes || "",
+    });
+    setMedModalOpen(true);
+  };
+
+  async function submitMedication() {
+    if (!canEdit) return;
+
+    const name = String(medForm.name || "").trim();
+    const startAt = String(medForm.startAt || "");
+    const endAt = medForm.endAt || undefined;
+    const dosage = String(medForm.dosage || "").trim() || undefined;
+    const frequency = String(medForm.frequency || "").trim() || undefined;
+    const clinic = String(medForm.clinic || "").trim() || undefined;
+    const observations = String(medForm.notes || "").trim() || undefined;
+
+    if (!name || !startAt) {
+      toast.error("Informe ao menos o medicamento e a data de início.");
+      return;
+    }
+
+    try {
+      if (medEditId) {
+        await updateMedication({
+          animalId,
+          medicationId: medEditId,
+          name,
+          startAt,
+          endAt,
+          dosage,
+          frequency,
+          clinic,
+          observations,
+        });
+        toast.success("Medicamento atualizado.");
+      } else {
+        await addMedication({ animalId, name, startAt, endAt, dosage, frequency, clinic, observations });
+        toast.success("Medicamento registrado.");
+      }
+
+      await refetchMedications.current?.();
+      setMedModalOpen(false);
+      setMedEditId(null);
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Não foi possível salvar. Tente novamente.");
+    }
+  }
+
+  async function removeMedication(mx) {
+    if (!canEdit) return;
+    const ok = await confirm({
+      title: "Excluir registro?",
+      description: "Esta ação não pode ser desfeita.",
+      confirmText: "Excluir",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteMedication({ animalId, medicationId: mx.id });
+      setMedications((list) => list.filter((m) => m.id !== mx.id));
+      toast.success("Registro removido.");
+    } catch (e) {
+      console.error(e);
+      if (isNotImplemented(e)) showComingSoon();
+      else toast.error("Falha ao remover o registro.");
     }
   }
 
@@ -827,7 +1408,8 @@ export default function PetDetail() {
         {/* ESQUERDA */}
         <section className="col-span-12 xl:col-span-5 rounded-2xl bg-[var(--content-bg)] text-[var(--content-fg)] shadow-sm ring-1 ring-black/5 dark:ring-white/5 p-5">
           {/* Header do pet */}
-          <div className="flex items-start gap-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
             <img
               src={headerAvatarSrc || undefined}
               alt={pet.name}
@@ -839,6 +1421,17 @@ export default function PetDetail() {
                 {pet.species} • {pet.breed} • {pet.gender}{" "}
               </p>
             </div>
+            </div>
+
+            {/* Denúncia de pet (bem destacada) */}
+            <button
+              type="button"
+              onClick={() => handleReportPet("PET_ABUSE")}
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200 dark:hover:bg-rose-950/30"
+              title="Denunciar maus-tratos (pet)"
+            >
+              <ShieldAlert className="h-4 w-4" /> Maus-tratos (pet)
+            </button>
           </div>
 
           {/* Sobre */}
@@ -874,6 +1467,77 @@ export default function PetDetail() {
                 value={pet.adoption ? formatDate(pet.adoption) : "—"}
               />
             </div>
+          </div>
+
+          {/* Tutores */}
+          <div className="mt-6">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium opacity-80 inline-flex items-center gap-2">
+                <Users className="h-4 w-4 opacity-70" /> Tutores
+              </h3>
+
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={openTutorModal}
+                  className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                  title="Adicionar tutor"
+                >
+                  <UserPlus className="h-3.5 w-3.5" /> Adicionar
+                </button>
+              )}
+            </div>
+
+            {owners.length === 0 ? (
+              <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                —
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {owners.map((o) => (
+                  <li
+                    key={o.id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-[var(--chip-bg)] px-3 py-2 ring-1 ring-black/5 dark:ring-white/5"
+                  >
+                    <Link
+                      to={`/usuario/${o.id}`}
+                      className="flex min-w-0 items-center gap-3 hover:opacity-90"
+                      title="Ver perfil"
+                    >
+                      <img
+                        src={
+                          o.image ||
+                          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            o?.name || o?.username || "User",
+                          )}`
+                        }
+                        alt={o?.name || o?.username || "Tutor"}
+                        className="h-9 w-9 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">
+                          {o.username ? `@${o.username}` : o.name || 'usuário'}
+                        </div>
+                        {o.name && (
+                          <div className="truncate text-xs opacity-70">{o.name}</div>
+                        )}
+                      </div>
+                    </Link>
+
+                    {canEdit && owners.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeTutorFromPet(o.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                        title="Remover tutor"
+                      >
+                        <UserMinus className="h-3.5 w-3.5" /> Remover
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
@@ -1023,6 +1687,236 @@ export default function PetDetail() {
                     </ul>
                   )}
                 </Accordion>
+
+                {/* VERMIFUGAÇÃO */}
+                <Accordion
+                  open={dewormingsOpen}
+                  onToggle={() => setDewormingsOpen((v) => !v)}
+                  leftIcon={<Bug className="h-4 w-4 opacity-70" />}
+                  title="Vermifugação"
+                  rightActions={
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs opacity-60">
+                        {loadingDewormings ? "…" : `${dewormingsCount} registro(s)`}
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={openDewCreate}
+                          className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                          title="Adicionar vermifugação"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Adicionar
+                        </button>
+                      )}
+                    </div>
+                  }
+                >
+                  {loadingDewormings ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Carregando vermifugações…
+                    </div>
+                  ) : dewormings.length === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Nenhuma vermifugação registrada para este pet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {dewormings
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            (parseISODateLocal(b.date)?.getTime() || 0) -
+                            (parseISODateLocal(a.date)?.getTime() || 0)
+                        )
+                        .map((d) => (
+                          <li
+                            key={d.id}
+                            className="flex items-start justify-between gap-3 rounded-lg border border-black/10 p-3 text-sm dark:border-white/10"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium inline-flex items-center gap-2">
+                                  <Bug className="h-4 w-4 opacity-70" />
+                                  {d.name}
+                                </span>
+                                {!!d.nextDoseDate && vaccineBadge(d.nextDoseDate)}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-80">
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarDays className="h-3.5 w-3.5" />
+                                  Aplicada em: <strong>{formatPt(d.date)}</strong>
+                                </span>
+                                {d.nextDoseDate && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    Próxima dose: <strong>{formatPt(d.nextDoseDate)}</strong>
+                                  </span>
+                                )}
+                                {d.clinic && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    {d.clinic}
+                                  </span>
+                                )}
+                              </div>
+                              {d.notes && (
+                                <div className="mt-2 text-xs opacity-80">
+                                  • {d.notes}
+                                </div>
+                              )}
+                            </div>
+
+                            {canEdit && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => markDewAsToday(d)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                  title="Marcar como hoje"
+                                >
+                                  Hoje
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDewEdit(d)}
+                                  className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white p-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                  title="Editar"
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeDeworming(d)}
+                                  className="inline-flex items-center justify-center rounded-md border border-red-300 bg-white p-2 text-xs text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/20"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </Accordion>
+
+                {/* MEDICAMENTOS */}
+                <Accordion
+                  open={medicationsOpen}
+                  onToggle={() => setMedicationsOpen((v) => !v)}
+                  leftIcon={<Pill className="h-4 w-4 opacity-70" />}
+                  title="Medicamentos"
+                  rightActions={
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs opacity-60">
+                        {loadingMedications ? "…" : `${medicationsCount} registro(s)`}
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={openMedCreate}
+                          className="inline-flex items-center gap-1 rounded-full bg-[#f77904] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                          title="Adicionar medicamento"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Adicionar
+                        </button>
+                      )}
+                    </div>
+                  }
+                >
+                  {loadingMedications ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Carregando medicamentos…
+                    </div>
+                  ) : medications.length === 0 ? (
+                    <div className="rounded-lg border border-black/10 dark:border-white/10 p-4 text-sm opacity-70">
+                      Nenhum medicamento registrado para este pet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {medications
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            (parseISODateLocal(b.startAt)?.getTime() || 0) -
+                            (parseISODateLocal(a.startAt)?.getTime() || 0)
+                        )
+                        .map((m) => (
+                          <li
+                            key={m.id}
+                            className="flex items-start justify-between gap-3 rounded-lg border border-black/10 p-3 text-sm dark:border-white/10"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium inline-flex items-center gap-2">
+                                  <Pill className="h-4 w-4 opacity-70" />
+                                  {m.name}
+                                </span>
+                              </div>
+
+                              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs opacity-80">
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarDays className="h-3.5 w-3.5" />
+                                  Início: <strong>{formatPt(m.startAt)}</strong>
+                                </span>
+                                {m.endAt && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <CalendarDays className="h-3.5 w-3.5" />
+                                    Fim: <strong>{formatPt(m.endAt)}</strong>
+                                  </span>
+                                )}
+                                {m.dosage && (
+                                  <span className="inline-flex items-center gap-1">
+                                    • Dose: <strong>{m.dosage}</strong>
+                                  </span>
+                                )}
+                                {m.frequency && (
+                                  <span className="inline-flex items-center gap-1">
+                                    • Frequência: <strong>{m.frequency}</strong>
+                                  </span>
+                                )}
+                                {m.clinic && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    {m.clinic}
+                                  </span>
+                                )}
+                              </div>
+
+                              {m.notes && (
+                                <div className="mt-2 text-xs opacity-80">
+                                  • {m.notes}
+                                </div>
+                              )}
+                            </div>
+
+                            {canEdit && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openMedEdit(m)}
+                                  className="inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white p-2 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                                  title="Editar"
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeMedication(m)}
+                                  className="inline-flex items-center justify-center rounded-md border border-red-300 bg-white p-2 text-xs text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:bg-zinc-900 dark:text-red-300 dark:hover:bg-red-950/20"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </Accordion>
+
 
                 {/* Seções ainda sem funcionalidade deixadas comentadas */}
                 {/*
@@ -1247,6 +2141,349 @@ export default function PetDetail() {
           </div>
         </div>
       )}
+
+
+
+      {/* Modal: vermifugação */}
+      {dewModalOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2">
+                <Bug className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">
+                  {dewEditId ? "Editar vermifugação" : "Registrar vermifugação"}
+                </h3>
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  setDewModalOpen(false);
+                  setDewEditId(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <Bug className="h-4 w-4" />
+                  Vermífugo *
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.name}
+                  onChange={(e) => setDewForm((s) => ({ ...s, name: e.target.value }))}
+                  placeholder="Ex.: Drontal, Endogard"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Aplicada em *
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.date}
+                  onChange={(e) => setDewForm((s) => ({ ...s, date: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Próxima dose
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.nextDoseDate}
+                  onChange={(e) =>
+                    setDewForm((s) => ({ ...s, nextDoseDate: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <MapPin className="h-4 w-4" />
+                  Clínica
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.clinic}
+                  onChange={(e) => setDewForm((s) => ({ ...s, clinic: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <NotebookText className="h-4 w-4" />
+                  Observações
+                </label>
+                <textarea
+                  rows={4}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={dewForm.notes}
+                  onChange={(e) => setDewForm((s) => ({ ...s, notes: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
+                onClick={() => {
+                  setDewModalOpen(false);
+                  setDewEditId(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                onClick={submitDeworming}
+              >
+                {dewEditId ? "Salvar alterações" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: medicamentos */}
+      {medModalOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2">
+                <Pill className="h-5 w-5" />
+                <h3 className="text-lg font-semibold">
+                  {medEditId ? "Editar medicamento" : "Registrar medicamento"}
+                </h3>
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  setMedModalOpen(false);
+                  setMedEditId(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <Pill className="h-4 w-4" />
+                  Medicamento *
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.name}
+                  onChange={(e) => setMedForm((s) => ({ ...s, name: e.target.value }))}
+                  placeholder="Ex.: Antibiótico, Anti-inflamatório"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Início *
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.startAt}
+                  onChange={(e) => setMedForm((s) => ({ ...s, startAt: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <CalendarDays className="h-4 w-4" />
+                  Fim
+                </label>
+                <input
+                  type="date"
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.endAt}
+                  onChange={(e) => setMedForm((s) => ({ ...s, endAt: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  • Dose
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.dosage}
+                  onChange={(e) => setMedForm((s) => ({ ...s, dosage: e.target.value }))}
+                  placeholder="Ex.: 1 comprimido, 5ml"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  • Frequência
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.frequency}
+                  onChange={(e) => setMedForm((s) => ({ ...s, frequency: e.target.value }))}
+                  placeholder="Ex.: 12/12h, 1x ao dia"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <MapPin className="h-4 w-4" />
+                  Clínica
+                </label>
+                <input
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.clinic}
+                  onChange={(e) => setMedForm((s) => ({ ...s, clinic: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
+                  <NotebookText className="h-4 w-4" />
+                  Observações
+                </label>
+                <textarea
+                  rows={4}
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  value={medForm.notes}
+                  onChange={(e) => setMedForm((s) => ({ ...s, notes: e.target.value }))}
+                  placeholder="Opcional"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
+                onClick={() => {
+                  setMedModalOpen(false);
+                  setMedEditId(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                onClick={submitMedication}
+              >
+                {medEditId ? "Salvar alterações" : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: adicionar tutor */}
+      {tutorModalOpen && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2 text-sm font-semibold">
+                <UserPlus className="h-4 w-4" /> Selecionar tutor
+              </div>
+              <button
+                className="rounded-md p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => setTutorModalOpen(false)}
+                title="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+              <input
+                value={tutorQuery}
+                onChange={(e) => searchTutors(e.target.value)}
+                placeholder="Buscar por nome ou @username…"
+                className="w-full rounded-lg border border-zinc-300 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </div>
+
+            <div className="mt-3 max-h-[50vh] overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+              {tutorLoading ? (
+                <div className="p-4 text-sm opacity-70">Buscando…</div>
+              ) : tutorQuery && tutorResults.length === 0 ? (
+                <div className="p-4 text-sm opacity-70">Nenhum perfil encontrado.</div>
+              ) : tutorResults.length === 0 ? (
+                <div className="p-4 text-sm opacity-70">Digite para buscar perfis.</div>
+              ) : (
+                <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {tutorResults.map((u) => (
+                    <li key={u.id} className="flex items-center justify-between gap-3 p-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <img
+                          src={
+                            (u?.image?.url || u?.image) ||
+                            `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                              u?.name || u?.username || "User",
+                            )}`
+                          }
+                          alt={u?.name || u?.username || "Tutor"}
+                          className="h-10 w-10 rounded-full object-cover bg-zinc-200 dark:bg-zinc-700"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">
+                            {u?.username ? `@${u.username}` : u?.name || "usuário"}
+                          </div>
+                          {u?.name && (
+                            <div className="truncate text-xs opacity-70">{u.name}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => addTutorToPet(u)}
+                        className="inline-flex items-center gap-1 rounded-lg bg-[#f77904] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+                      >
+                        <Check className="h-3.5 w-3.5" /> Vincular
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTutorModalOpen(false)}
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ReportModal
+        open={report.open}
+        onClose={() => setReport((r) => ({ ...r, open: false }))}
+        initialType="ANIMAL"
+        initialCategory={report.category}
+        targetId={pet?.id}
+        contextText={`Pet: ${pet?.name || ""}\nID: ${pet?.id || ""}`}
+      />
     </div>
   );
 }

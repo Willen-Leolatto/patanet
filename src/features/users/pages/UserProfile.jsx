@@ -1,6 +1,7 @@
 // src/features/users/pages/UserProfile.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
+import ReportModal from "@/components/ReportModal";
 import Lightbox from "@/components/Lightbox";
 import {
   Edit3,
@@ -11,8 +12,11 @@ import {
   UserPlus,
   UserCheck,
   User as UserIcon,
+  ShieldAlert,
   X,
 } from "lucide-react";
+
+import { blockUser, unblockUser, isUserBlocked } from "@/utils/moderation";
 
 import { getMyProfile, getUserProfile } from "@/api/user.api.js";
 import { fetchAnimalsByOwner } from "@/api/owner.api.js";
@@ -76,6 +80,8 @@ function fmtMemberSince(u) {
     return "—";
   }
 }
+
+// (Denúncias no perfil agora são via Reports API)
 
 /* ---------------------------------- página --------------------------------- */
 export default function UserProfile() {
@@ -162,6 +168,21 @@ export default function UserProfile() {
     viewedRealId &&
     String(me.id) === String(viewedRealId)
   );
+
+
+  const [report, setReport] = useState({ open: false, type: "USER", category: "GENERAL", targetId: null, contextText: "" });
+
+  const handleReportUser = (category = "GENERAL") => {
+    const u = viewedUser || {};
+    const id = u?.id || u?._id || null;
+    setReport({
+      open: true,
+      type: "USER",
+      category,
+      targetId: id,
+      contextText: `Usuário: ${u?.username || u?.name || u?.email || ""}\nID: ${id || ""}`,
+    });
+  };
 
   // resolver avatar/capa
   useEffect(() => {
@@ -495,6 +516,12 @@ export default function UserProfile() {
                 {displayName}
               </div>
               <div className="text-xs text-zinc-500">{displayUsername}</div>
+
+            {(isUserBlocked(viewedRealId) || isUserBlocked(viewedUser?.id || viewedUser?._id)) && (
+              <div className="mt-2 rounded-lg border border-zinc-300 bg-zinc-50 p-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                Usuário bloqueado neste dispositivo.
+              </div>
+            )}
             </div>
 
             <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -512,21 +539,64 @@ export default function UserProfile() {
               />
 
               {!isOwn ? (
-                <button
-                  onClick={handleToggleFollow}
-                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${
-                    iFollow
-                      ? "bg-zinc-700 hover:bg-zinc-800"
-                      : "bg-[#f77904] hover:opacity-90"
-                  }`}
-                >
-                  {iFollow ? (
-                    <UserCheck className="h-4 w-4" />
-                  ) : (
-                    <UserPlus className="h-4 w-4" />
-                  )}
-                  {iFollow ? "Seguindo" : "Seguir"}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleToggleFollow}
+                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${
+                      iFollow
+                        ? "bg-zinc-700 hover:bg-zinc-800"
+                        : "bg-[#f77904] hover:opacity-90"
+                    }`}
+                  >
+                    {iFollow ? (
+                      <UserCheck className="h-4 w-4" />
+                    ) : (
+                      <UserPlus className="h-4 w-4" />
+                    )}
+                    {iFollow ? "Seguindo" : "Seguir"}
+                  </button>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleReportUser("GENERAL")}
+                    className="inline-flex items-center gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 hover:bg-orange-100 dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-200 dark:hover:bg-orange-950/30"
+                    title="Denunciar usuário"
+                  >
+                    <ShieldAlert className="h-4 w-4" />
+                    Denunciar (geral)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleReportUser("CSAE")}
+                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-200 dark:hover:bg-red-950/30"
+                    title="Denúncia de segurança infantil (CSAE)"
+                  >
+                    <ShieldAlert className="h-4 w-4" />
+                    CSAE (infantil)
+                  </button>
+
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const uid = viewedUser?.id || viewedUser?._id;
+                      if (!uid) return;
+                      if (isUserBlocked(uid)) {
+                        unblockUser(uid);
+                      } else {
+                        const ok = window.confirm('Bloquear este usuário? Você não verá mais posts/perfil dele neste dispositivo.');
+                        if (ok) blockUser(uid);
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                    title="Bloquear/desbloquear usuário"
+                  >
+                    {isUserBlocked(viewedUser?.id || viewedUser?._id) ? 'Desbloquear' : 'Bloquear'}
+                  </button>
+                </div>
+                </div>
               ) : (
                 <Link
                   to="/perfil/editar"
@@ -766,6 +836,15 @@ export default function UserProfile() {
           ))}
         </div>
       </Modal>
+
+      <ReportModal
+        open={report.open}
+        onClose={() => setReport((r) => ({ ...r, open: false }))}
+        initialType={report.type}
+        initialCategory={report.category}
+        targetId={report.targetId}
+        contextText={report.contextText}
+      />
     </div>
   );
 }

@@ -40,7 +40,9 @@ export default function Sidebar({ open, onClose }) {
     <div
       onClick={onClose}
       className={`md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px] transition-opacity duration-200 ${
-        open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        open
+          ? "opacity-100 pointer-events-auto"
+          : "opacity-0 pointer-events-none"
       }`}
     />
   );
@@ -55,7 +57,9 @@ export default function Sidebar({ open, onClose }) {
           "fixed md:sticky left-0 top-0 md:top-0",
           "h-dvh md:h-screen",
           "transition-all duration-300",
-          open ? "md:w-[280px] w-[280px] translate-x-0" : "md:w-[72px] -translate-x-full md:translate-x-0",
+          open
+            ? "md:w-[280px] w-[280px] translate-x-0"
+            : "md:w-[72px] -translate-x-full md:translate-x-0",
         ].join(" ")}
       >
         {/* Conteúdo interno da barra lateral */}
@@ -64,7 +68,11 @@ export default function Sidebar({ open, onClose }) {
           <div className="px-4 py-4 flex items-center gap-3">
             <Link to="/" className="flex items-center gap-2">
               <div className="h-9 w-9 rounded-lg bg-white/10" />
-              {open && <div className="font-semibold text-[var(--chrome-fg)]">PataNet</div>}
+              {open && (
+                <div className="font-semibold text-[var(--chrome-fg)]">
+                  PataNet
+                </div>
+              )}
             </Link>
           </div>
 
@@ -127,7 +135,15 @@ export default function Sidebar({ open, onClose }) {
               Meus Pets
             </Item>
 
-            <Item to="/dashboard/vacinas" icon={<Calendar size={18} />} open={open}>
+            <Link to="/dashboard/eventos" icon={<Calendar size={18} />} open={open}>
+              Eventos
+            </Link>
+
+            <Item
+              to="/dashboard/vacinas"
+              icon={<Calendar size={18} />}
+              open={open}
+            >
               Carteira de Vacinas
             </Item>
 
@@ -151,7 +167,9 @@ export default function Sidebar({ open, onClose }) {
               {open && (
                 <div className="min-w-0">
                   <div className="text-xs opacity-80">Olá</div>
-                  <div className="truncate font-medium">{user?.name || "Visitante"}</div>
+                  <div className="truncate font-medium">
+                    {user?.name || "Visitante"}
+                  </div>
                 </div>
               )}
 

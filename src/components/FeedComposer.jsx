@@ -1,5 +1,6 @@
 // src/components/FeedComposer.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import { Link } from "react-router-dom";
 import { ImagePlus, PawPrint } from "lucide-react";
 // (mantive a UI/fluxo igual; se quiser, depois trocamos pets para API)
 import { loadPets, mediaGetUrl } from "@/features/pets/services/petsStorage";
@@ -8,6 +9,7 @@ import { getMyProfile } from "@/api/user.api.js";
 import { fetchAnimalsByOwner } from "@/api/owner.api.js";
 import { fetchAnimalsById } from "@/api/animal.api.js";
 import heic2any from "heic2any";
+import { acceptUGCPolicies, hasAcceptedUGCPolicies } from "@/utils/moderation";
 
 
 /* ---------- utils: compressão igual ao registro ---------- */
@@ -137,13 +139,21 @@ export default function FeedComposer({ user }) {
   const [taggedPets, setTaggedPets] = useState([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [needAccept, setNeedAccept] = useState(!hasAcceptedUGCPolicies());
 
   // ids possíveis do usuário
   const [me, setMe] = useState(null);
   const [pets, setPets] = useState([]);
   const [petThumbs, setPetThumbs] = useState({});
 
-  // Carrega pets (mesmo layout/fluxo)
+  
+  useEffect(() => {
+    const onAccepted = () => setNeedAccept(!hasAcceptedUGCPolicies());
+    window.addEventListener("patanet:policies-accepted", onAccepted);
+    return () => window.removeEventListener("patanet:policies-accepted", onAccepted);
+  }, []);
+
+// Carrega pets (mesmo layout/fluxo)
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -270,12 +280,15 @@ export default function FeedComposer({ user }) {
   }
 
   function canPost() {
-    return user && !sending && (text.trim().length > 0 || images.length > 0);
+    return user && !sending && !needAccept && (text.trim().length > 0 || images.length > 0);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!canPost()) return;
+    if (!canPost()) {
+      if (needAccept) setError("Para publicar, aceite as Diretrizes da Comunidade e políticas.");
+      return;
+    }
 
     setSending(true);
     setError("");

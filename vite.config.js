@@ -14,13 +14,19 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       devOptions: { enabled: true, type: "module" },
-      includeAssets: ["favicon.png", "robots.txt", "apple-touch-icon.png"],
+      includeAssets: [
+        "favicon.png",
+        "robots.txt",
+        "offline.html",
+        "apple-icon-180.png",
+        "apple-splash-*.jpg"
+      ],
       manifest: {
         name: "PataNet",
         short_name: "PataNet",
         description: "Rede social e carteira de vacinação de pets.",
-        start_url: "/feed",
-        scope: "/",
+        start_url: "./feed",
+        scope: "./",
         display: "standalone",
         background_color: "#0f172a",
         theme_color: "#0f172a",
@@ -43,8 +49,11 @@ export default defineConfig({
         ],
       },
       workbox: {
-        navigateFallback: "/index.html",
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        // iOS Safari/PWA costuma falhar melhor com um fallback explícito
+        navigateFallback: "/offline.html",
+        // evita que o SW tente responder rotas de API como navegação
+        navigateFallbackDenylist: [/^\/api\//, /\/auth\b/],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webmanifest}"],
         runtimeCaching: [
           {
             urlPattern: ({ request }) => request.destination === "image",
