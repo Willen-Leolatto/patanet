@@ -955,37 +955,40 @@ export default function Feed() {
       try {
         // 2) confirma no backend e substitui o temporário
         const created = await addCommentPost({ postId, message });
-        let newC = normComment(created);
-        if (!newC.author?.id && me) {
-          newC = {
-            ...newC,
-            author: {
-              id: me.id,
-              username: me.username,
-              name: me.name,
-              email: (me.email || "").toLowerCase(),
-              avatar: me.image || me.avatar || "",
-            },
-          };
-        }
 
-        setPosts((curr) =>
-          curr.map((p) => {
-            if (String(p.id) !== String(postId)) return p;
-            const next = (p.comments || []).map((c) => (c.id === tempId ? newC : c));
-            return { ...p, comments: next };
-          })
-        );
+        // O backend pode retornar body vazio (201 sem JSON). Nesse caso, mantemos o otimista.
+        const hasPayload =
+          created &&
+          typeof created === "object" &&
+          (created.id || created._id || created.text || created.message);
+
+        if (hasPayload) {
+          let newC = normComment(created);
+          if (!newC.author?.id && me) {
+            newC = {
+              ...newC,
+              author: {
+                id: me.id,
+                username: me.username,
+                name: me.name,
+                email: (me.email || "").toLowerCase(),
+                avatar: me.image || me.avatar || "",
+              },
+            };
+          }
+
+          setPosts((curr) =>
+            curr.map((p) => {
+              if (String(p.id) !== String(postId)) return p;
+              const next = (p.comments || []).map((c) => (c.id === tempId ? newC : c));
+              return { ...p, comments: next };
+            })
+          );
+        }
       } catch (e) {
         console.error(e);
-        // remove o otimista se falhar
-        setPosts((curr) =>
-          curr.map((p) => {
-            if (String(p.id) !== String(postId)) return p;
-            return { ...p, comments: (p.comments || []).filter((c) => c.id !== tempId) };
-          })
-        );
-        window.alert("Não foi possível enviar o comentário. Tente novamente.");
+        // mantém o comentário otimista visível e avisa que não sincronizou
+        window.alert("Comentário criado localmente, mas não foi possível sincronizar agora. Tente novamente mais tarde.");
       }
     },
     [me]
@@ -1036,47 +1039,45 @@ export default function Feed() {
 
       try {
         const created = await addCommentPost({ postId, message, parentId: parentCommentId });
-        let reply = normComment(created);
-        if (!reply.author?.id && me) {
-          reply = {
-            ...reply,
-            author: {
-              id: me.id,
-              username: me.username,
-              name: me.name,
-              email: (me.email || "").toLowerCase(),
-              avatar: me.image || me.avatar || "",
-            },
-          };
-        }
 
-        // 2) substitui o temporário
-        setPosts((curr) =>
-          curr.map((p) => {
-            if (String(p.id) !== String(postId)) return p;
-            const comments = (p.comments || []).map((c) => {
-              if (c.id !== parentCommentId) return c;
-              const replies = (c.replies || []).map((r) => (r.id === tempId ? reply : r));
-              return { ...c, replies };
-            });
-            return { ...p, comments };
-          })
-        );
+        // O backend pode retornar body vazio (201 sem JSON). Nesse caso, mantemos o otimista.
+        const hasPayload =
+          created &&
+          typeof created === "object" &&
+          (created.id || created._id || created.text || created.message);
+
+        if (hasPayload) {
+          let reply = normComment(created);
+          if (!reply.author?.id && me) {
+            reply = {
+              ...reply,
+              author: {
+                id: me.id,
+                username: me.username,
+                name: me.name,
+                email: (me.email || "").toLowerCase(),
+                avatar: me.image || me.avatar || "",
+              },
+            };
+          }
+
+          // 2) substitui o temporário
+          setPosts((curr) =>
+            curr.map((p) => {
+              if (String(p.id) !== String(postId)) return p;
+              const comments = (p.comments || []).map((c) => {
+                if (c.id !== parentCommentId) return c;
+                const replies = (c.replies || []).map((r) => (r.id === tempId ? reply : r));
+                return { ...c, replies };
+              });
+              return { ...p, comments };
+            })
+          );
+        }
       } catch (e) {
         console.error(e);
-        // remove otimista
-        setPosts((curr) =>
-          curr.map((p) => {
-            if (String(p.id) !== String(postId)) return p;
-            const comments = (p.comments || []).map((c) => {
-              if (c.id !== parentCommentId) return c;
-              const replies = (c.replies || []).filter((r) => r.id !== tempId);
-              return { ...c, replies };
-            });
-            return { ...p, comments };
-          })
-        );
-        window.alert("Não foi possível enviar a resposta. Tente novamente.");
+        // mantém a resposta otimista visível e avisa que não sincronizou
+        window.alert("Resposta criada localmente, mas não foi possível sincronizar agora. Tente novamente mais tarde.");
       }
     },
     [me]
