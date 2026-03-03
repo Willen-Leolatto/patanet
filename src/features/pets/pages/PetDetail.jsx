@@ -33,7 +33,7 @@ import heic2any from "heic2any";
 // APIs
 import { getMyProfile, fetchUsersProfile, getUserProfile } from "@/api/user.api.js";
 import { fetchAnimalsById } from "@/api/animal.api.js";
-import { addOwner, removeOwner } from "@/api/owner.api.js";
+import { addOwner, removeOwner, transferPrimaryOwner, hidePetForMe } from "@/api/owner.api.js";
 import {
   fetchAnimalMedias,
   uploadAnimalMedias,
@@ -522,6 +522,7 @@ export default function PetDetail() {
           image: a?.image?.url || a.image || a?.breed?.image || "",
           imageCover: a?.imageCover?.url || a.imageCover || "",
           ownerId: primaryOwnerId,
+          createdByOwnerId: a?.createdByOwnerId || a?.created_by_owner_id || null,
           ownerIds: ownersFromArray.length ? ownersFromArray : primaryOwnerId ? [primaryOwnerId] : [],
         });
 
@@ -551,10 +552,14 @@ export default function PetDetail() {
   const canEdit = useMemo(() => {
     const myId = me?.id ? String(me.id) : null;
     const primary = pet?.ownerId ? String(pet.ownerId) : null;
-    const many = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
-    if (!myId) return false;
-    return myId === primary || many.includes(myId);
-  }, [me?.id, pet?.ownerId, pet?.ownerIds]);
+    if (!myId || !primary) return false;
+    return myId === primary;
+  }, [me?.id, pet?.ownerId]);
+
+  const myIdStr = me?.id ? String(me.id) : null;
+  const primaryOwnerIdStr = pet?.ownerId ? String(pet.ownerId) : null;
+  const isPrimaryTutor = !!myIdStr && !!primaryOwnerIdStr && myIdStr === primaryOwnerIdStr;
+  const isOriginalCreator = !!myIdStr && String(pet?.createdByOwnerId || '') === myIdStr;
 
 
 
@@ -671,6 +676,13 @@ export default function PetDetail() {
     const id = ownerId ? String(ownerId) : null;
     if (!id) return;
 
+    // não permite remover tutor principal
+    const primary = pet?.ownerId ? String(pet.ownerId) : null;
+    if (primary && id === primary) {
+      toast.error('Não é possível remover o tutor principal.');
+      return;
+    }
+
     // não deixa remover o último tutor
     const current = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
     if (current.length <= 1) {
@@ -699,6 +711,52 @@ export default function PetDetail() {
       toast.error("Falha ao remover tutor.");
     }
   };
+
+  const makePrimaryTutor = async (ownerId) => {
+    const id = ownerId ? String(ownerId) : null;
+    if (!id) return;
+    if (!isPrimaryTutor) {
+      toast.error('Apenas o tutor principal pode transferir a tutoria.');
+      return;
+    }
+    if (String(pet?.ownerId || '') === id) return;
+
+    const ok = await confirm({
+      title: 'Tornar tutor principal?',
+      description: 'Você transferirá a tutoria principal. Depois disso, você não poderá remover o novo tutor principal.',
+      confirmText: 'Transferir',
+      tone: 'danger',
+    });
+    if (!ok) return;
+
+    try {
+      await transferPrimaryOwner({ animalId, ownerId: id });
+      toast.success('Tutoria principal transferida.');
+      setPet((p) => ({ ...p, ownerId: id }));
+    } catch (e) {
+      console.error(e);
+      toast.error('Falha ao transferir tutoria.');
+    }
+  };
+
+  const hideThisPetForMe = async () => {
+    const ok = await confirm({
+      title: 'Remover pet da minha lista?',
+      description: 'Isso é um delete lógico: o pet não some do sistema, apenas deixa de aparecer para você.',
+      confirmText: 'Remover da minha lista',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await hidePetForMe({ animalId });
+      toast.success('Pet removido da sua lista.');
+      navigate('/pets');
+    } catch (e) {
+      console.error(e);
+      toast.error('Não foi possível remover da sua lista.');
+    }
+  };
+
   /* -------------------------- galeria: listar/upload/delete ---------------- */
   const refetchGallery = useRef(null);
 
@@ -1524,19 +1582,43 @@ export default function PetDetail() {
                       </div>
                     </Link>
 
-                    {canEdit && owners.length > 1 && (
-                      <button
+                    {canEdit && owners.length > 1 && String(o.id) !== String(pet?.ownerId) && String(o.id) !== String(me?.id) && (
+                      <div className="flex items-center gap-2">
+                        <button
                         type="button"
                         onClick={() => removeTutorFromPet(o.id)}
                         className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
                         title="Remover tutor"
                       >
                         <UserMinus className="h-3.5 w-3.5" /> Remover
-                      </button>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => makePrimaryTutor(o.id)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                          title="Tornar tutor principal"
+                        >
+                          Principal
+                        </button>
+                      </div>
                     )}
                   </li>
                 ))}
-              </ul>
+              
+
+            {isOriginalCreator && !isPrimaryTutor && (pet?.ownerIds || []).length > 1 && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => removeTutorFromPet(me?.id)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                >
+                  Sair da tutoria
+                </button>
+              </div>
+            )}
+</ul>
             )}
           </div>
         </section>
