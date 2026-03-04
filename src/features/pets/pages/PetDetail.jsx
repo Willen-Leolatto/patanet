@@ -547,19 +547,29 @@ export default function PetDetail() {
       cancel = true;
     };
   }, [animalId]);
-
-  // LÓGICA de tutor: compara o me.id com ownerId e/ou owners[]
-  const canEdit = useMemo(() => {
-    const myId = me?.id ? String(me.id) : null;
-    const primary = pet?.ownerId ? String(pet.ownerId) : null;
-    if (!myId || !primary) return false;
-    return myId === primary;
-  }, [me?.id, pet?.ownerId]);
-
+  // Permissões
+  // - Ações de saúde (vacinas/vermifugação/medicamentos): QUALQUER tutor do pet
+  // - Gestão de tutores: SOMENTE tutor principal (ownerId)
   const myIdStr = me?.id ? String(me.id) : null;
+  const ownerIdsStr = Array.isArray(pet?.ownerIds) ? pet.ownerIds.map(String) : [];
   const primaryOwnerIdStr = pet?.ownerId ? String(pet.ownerId) : null;
-  const isPrimaryTutor = !!myIdStr && !!primaryOwnerIdStr && myIdStr === primaryOwnerIdStr;
+
+  const canEditHealth = useMemo(() => {
+    if (!myIdStr) return false;
+    return ownerIdsStr.includes(myIdStr) || myIdStr === primaryOwnerIdStr;
+  }, [myIdStr, primaryOwnerIdStr, JSON.stringify(pet?.ownerIds || [])]);
+
+  const canManageTutors = useMemo(() => {
+    if (!myIdStr || !primaryOwnerIdStr) return false;
+    return myIdStr === primaryOwnerIdStr;
+  }, [myIdStr, primaryOwnerIdStr]);
+
+  // Compat: código antigo usa canEdit como permissão de edição
+  const canEdit = canEditHealth;
+
+  const isPrimaryTutor = canManageTutors;
   const isOriginalCreator = !!myIdStr && String(pet?.createdByOwnerId || '') === myIdStr;
+
 
 
 
@@ -1534,7 +1544,7 @@ export default function PetDetail() {
                 <Users className="h-4 w-4 opacity-70" /> Tutores
               </h3>
 
-              {canEdit && (
+              {canManageTutors && (
                 <button
                   type="button"
                   onClick={openTutorModal}
@@ -1582,7 +1592,7 @@ export default function PetDetail() {
                       </div>
                     </Link>
 
-                    {canEdit && owners.length > 1 && String(o.id) !== String(pet?.ownerId) && String(o.id) !== String(me?.id) && (
+                    {canManageTutors && owners.length > 1 && String(o.id) !== String(pet?.ownerId) && String(o.id) !== String(me?.id) && (
                       <div className="flex items-center gap-2">
                         <button
                         type="button"
