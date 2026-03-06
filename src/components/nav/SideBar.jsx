@@ -725,7 +725,7 @@ export default function Sidebar() {
             <NavItem to="/" icon={HomeIcon} label="Página inicial" />
             <NavItem to="/usuarios" icon={Users} label="Explorar" />
             <NavItem to="/eventos" icon={Calendar} label="Eventos" />
-            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de denúncia" />
+            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de denúncia (web/externo)" />
             <NavItem to="/ajuda" icon={ShieldAlert} label="Ajuda e Políticas" />
           </nav>
 

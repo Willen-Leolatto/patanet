@@ -423,7 +423,8 @@ export default function PetCreate() {
     if (!String(name).trim()) errors.push("Informe o nome do pet.");
     if (!avatarFile) errors.push("Selecione uma foto de perfil (avatar).");
     // já existiam
-    if (!coverFile) errors.push("Selecione uma imagem de capa.");
+    // Foto de capa NÃO é obrigatória
+    // if (!coverFile) errors.push("Selecione uma imagem de capa.");
     if (!breed?.id) errors.push("Selecione uma raça.");
     if (!String(desc).trim()) errors.push('Preencha o campo "Sobre o pet".');
 
@@ -436,19 +437,23 @@ export default function PetCreate() {
     }
     return true;
   };
+  const [sending, setSending] = useState(false);
+
   // submit
   const onSubmit = async (e) => {
     e.preventDefault();
+    if (sending) return;
 
     // validações no front (capa, raça e sobre)
     if (!validate()) return;
 
     try {
+      setSending(true);
       const payload = {
         name: (name || "").trim() || "Sem nome",
         about: String(desc || ""),
         image: avatarFile || "",
-        imageCover: coverFile || "",
+        imageCover: coverFile || undefined,
         birthDate: toApiDate(birth),
         adoptionDate: toApiDate(adoption),
         weight: String(Number(sliderValueKg) || 0),
@@ -475,6 +480,8 @@ export default function PetCreate() {
           err?.response?.data?.message ||
           "Verifique os campos e tente novamente.",
       });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -828,23 +835,24 @@ export default function PetCreate() {
       <div className="flex items-center justify-end gap-3">
         <button
           type="button"
+          disabled={sending}
           onClick={() => history.back()}
-          className="h-10 px-4 rounded-lg ring-1 ring-black/10 dark:ring-white/10 hover:bg-black/5 dark:hover:bg-white/5"
+          className="h-10 px-4 rounded-lg ring-1 ring-black/10 dark:ring-white/10 hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           Cancelar
         </button>
         <button
           type="submit"
           disabled={
+            sending ||
             !name.trim() ||
             !avatarFile ||
-            !coverFile ||
             !breed?.id ||
             !desc.trim()
           }
           className="h-10 px-5 rounded-lg bg-orange-500 text-white shadow hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Confirmar
+          {sending ? "Salvando…" : "Confirmar"}
         </button>
       </div>
     </form>

@@ -425,6 +425,7 @@ export default function PetDetail() {
 
   // Modal de Vermifugação (create/edit)
   const [dewModalOpen, setDewModalOpen] = useState(false);
+  const [savingDew, setSavingDew] = useState(false);
   const [dewEditId, setDewEditId] = useState(null);
   const [dewForm, setDewForm] = useState({
     name: "",
@@ -436,6 +437,7 @@ export default function PetDetail() {
 
   // Modal de Medicamentos (create/edit)
   const [medModalOpen, setMedModalOpen] = useState(false);
+  const [savingMed, setSavingMed] = useState(false);
   const [medEditId, setMedEditId] = useState(null);
   const [medForm, setMedForm] = useState({
     name: "",
@@ -1041,6 +1043,8 @@ export default function PetDetail() {
       console.error(e);
       if (isNotImplemented(e)) showComingSoon();
       else toast.error("Não foi possível salvar. Tente novamente.");
+    } finally {
+      setSavingDew(false);
     }
   }
 
@@ -1191,6 +1195,7 @@ export default function PetDetail() {
 
   async function submitDeworming() {
     if (!canEdit) return;
+    if (savingDew) return;
 
     const name = String(dewForm.name || "").trim();
     const appliedAt = String(dewForm.date || "");
@@ -1204,6 +1209,7 @@ export default function PetDetail() {
     }
 
     try {
+      setSavingDew(true);
       if (dewEditId) {
         await updateDeworming({
           animalId,
@@ -1227,6 +1233,8 @@ export default function PetDetail() {
       console.error(e);
       if (isNotImplemented(e)) showComingSoon();
       else toast.error("Não foi possível salvar. Tente novamente.");
+    } finally {
+      setSavingDew(false);
     }
   }
 
@@ -1379,6 +1387,7 @@ export default function PetDetail() {
 
   async function submitMedication() {
     if (!canEdit) return;
+    if (savingMed) return;
 
     const name = String(medForm.name || "").trim();
     const startAt = String(medForm.startAt || "");
@@ -1394,6 +1403,7 @@ export default function PetDetail() {
     }
 
     try {
+      setSavingMed(true);
       if (medEditId) {
         await updateMedication({
           animalId,
@@ -1419,6 +1429,8 @@ export default function PetDetail() {
       console.error(e);
       if (isNotImplemented(e)) showComingSoon();
       else toast.error("Não foi possível salvar. Tente novamente.");
+    } finally {
+      setSavingMed(false);
     }
   }
 
@@ -1853,8 +1865,9 @@ export default function PetDetail() {
                                 )}
                               </div>
                               {d.notes && (
-                                <div className="mt-2 text-xs opacity-80">
-                                  • {d.notes}
+                                <div className="mt-1 text-xs opacity-80 inline-flex items-start gap-2">
+                                  <NotebookText className="mt-[2px] h-3.5 w-3.5" />
+                                  <span className="whitespace-pre-wrap">{d.notes}</span>
                                 </div>
                               )}
                             </div>
@@ -1977,8 +1990,9 @@ export default function PetDetail() {
                               </div>
 
                               {m.notes && (
-                                <div className="mt-2 text-xs opacity-80">
-                                  • {m.notes}
+                                <div className="mt-1 text-xs opacity-80 inline-flex items-start gap-2">
+                                  <NotebookText className="mt-[2px] h-3.5 w-3.5" />
+                                  <span className="whitespace-pre-wrap">{m.notes}</span>
                                 </div>
                               )}
                             </div>
@@ -2120,7 +2134,7 @@ export default function PetDetail() {
       {/* MODAL: Create/Edit Vacina */}
       {vacModalOpen && (
         <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-xl dark:bg-zinc-900">
+          <div className="relative w-full max-w-3xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-zinc-900 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Syringe className="h-5 w-5" />
@@ -2139,14 +2153,14 @@ export default function PetDetail() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="min-w-0 md:col-span-2">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <Syringe className="h-4 w-4" />
                   Vacina *
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={vacForm.name}
                   onChange={(e) =>
                     setVacForm((s) => ({ ...s, name: e.target.value }))
@@ -2154,41 +2168,41 @@ export default function PetDetail() {
                   placeholder="Ex.: V8, Antirrábica"
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4" />
                   Aplicada em *
                 </label>
                 <input
                   type="date"
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={vacForm.date}
                   onChange={(e) =>
                     setVacForm((s) => ({ ...s, date: e.target.value }))
                   }
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4" />
                   Próxima dose
                 </label>
                 <input
                   type="date"
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={vacForm.nextDoseDate}
                   onChange={(e) =>
                     setVacForm((s) => ({ ...s, nextDoseDate: e.target.value }))
                   }
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <MapPin className="h-4 w-4" />
                   Clínica
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={vacForm.clinic}
                   onChange={(e) =>
                     setVacForm((s) => ({ ...s, clinic: e.target.value }))
@@ -2196,14 +2210,14 @@ export default function PetDetail() {
                   placeholder="Opcional"
                 />
               </div>
-              <div className="md:col-span-2">
+              <div className="min-w-0 md:col-span-2">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <NotebookText className="h-4 w-4" />
                   Observações
                 </label>
                 <textarea
                   rows={4}
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full min-h-[120px] rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={vacForm.notes}
                   onChange={(e) =>
                     setVacForm((s) => ({ ...s, notes: e.target.value }))
@@ -2213,7 +2227,7 @@ export default function PetDetail() {
               </div>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="sticky bottom-0 -mx-5 mt-5 flex justify-end gap-2 bg-white/95 px-5 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] backdrop-blur dark:bg-zinc-900/95">
               <button
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
                 onClick={() => {
@@ -2239,7 +2253,7 @@ export default function PetDetail() {
       {/* Modal: vermifugação */}
       {dewModalOpen && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+          <div className="relative w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="inline-flex items-center gap-2">
                 <Bug className="h-5 w-5" />
@@ -2258,41 +2272,41 @@ export default function PetDetail() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="min-w-0 md:col-span-2">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <Bug className="h-4 w-4" />
                   Vermífugo *
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={dewForm.name}
                   onChange={(e) => setDewForm((s) => ({ ...s, name: e.target.value }))}
                   placeholder="Ex.: Drontal, Endogard"
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4" />
                   Aplicada em *
                 </label>
                 <input
                   type="date"
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={dewForm.date}
                   onChange={(e) => setDewForm((s) => ({ ...s, date: e.target.value }))}
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4" />
                   Próxima dose
                 </label>
                 <input
                   type="date"
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={dewForm.nextDoseDate}
                   onChange={(e) =>
                     setDewForm((s) => ({ ...s, nextDoseDate: e.target.value }))
@@ -2300,27 +2314,27 @@ export default function PetDetail() {
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <MapPin className="h-4 w-4" />
                   Clínica
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={dewForm.clinic}
                   onChange={(e) => setDewForm((s) => ({ ...s, clinic: e.target.value }))}
                   placeholder="Opcional"
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div className="min-w-0 md:col-span-2">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <NotebookText className="h-4 w-4" />
                   Observações
                 </label>
                 <textarea
                   rows={4}
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full min-h-[120px] rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={dewForm.notes}
                   onChange={(e) => setDewForm((s) => ({ ...s, notes: e.target.value }))}
                   placeholder="Opcional"
@@ -2328,7 +2342,7 @@ export default function PetDetail() {
               </div>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="sticky bottom-0 -mx-4 mt-5 flex justify-end gap-2 bg-white/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] backdrop-blur dark:bg-zinc-900/95">
               <button
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
                 onClick={() => {
@@ -2339,10 +2353,11 @@ export default function PetDetail() {
                 Cancelar
               </button>
               <button
-                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                disabled={savingDew}
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
                 onClick={submitDeworming}
               >
-                {dewEditId ? "Salvar alterações" : "Salvar"}
+                {savingDew ? "Salvando…" : dewEditId ? "Salvar alterações" : "Salvar"}
               </button>
             </div>
           </div>
@@ -2352,7 +2367,7 @@ export default function PetDetail() {
       {/* Modal: medicamentos */}
       {medModalOpen && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-black/55 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10">
+          <div className="relative w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl ring-1 ring-black/10 dark:bg-zinc-900 dark:ring-white/10 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="inline-flex items-center gap-2">
                 <Pill className="h-5 w-5" />
@@ -2371,91 +2386,91 @@ export default function PetDetail() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
+            <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="min-w-0 md:col-span-2">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <Pill className="h-4 w-4" />
                   Medicamento *
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.name}
                   onChange={(e) => setMedForm((s) => ({ ...s, name: e.target.value }))}
                   placeholder="Ex.: Antibiótico, Anti-inflamatório"
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4" />
                   Início *
                 </label>
                 <input
                   type="date"
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.startAt}
                   onChange={(e) => setMedForm((s) => ({ ...s, startAt: e.target.value }))}
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <CalendarDays className="h-4 w-4" />
                   Fim
                 </label>
                 <input
                   type="date"
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.endAt}
                   onChange={(e) => setMedForm((s) => ({ ...s, endAt: e.target.value }))}
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   • Dose
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.dosage}
                   onChange={(e) => setMedForm((s) => ({ ...s, dosage: e.target.value }))}
                   placeholder="Ex.: 1 comprimido, 5ml"
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   • Frequência
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.frequency}
                   onChange={(e) => setMedForm((s) => ({ ...s, frequency: e.target.value }))}
                   placeholder="Ex.: 12/12h, 1x ao dia"
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <MapPin className="h-4 w-4" />
                   Clínica
                 </label>
                 <input
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.clinic}
                   onChange={(e) => setMedForm((s) => ({ ...s, clinic: e.target.value }))}
                   placeholder="Opcional"
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div className="min-w-0 md:col-span-2">
                 <label className="mb-1 inline-flex items-center gap-2 text-sm font-medium">
                   <NotebookText className="h-4 w-4" />
                   Observações
                 </label>
                 <textarea
                   rows={4}
-                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
+                  className="w-full min-h-[120px] rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800"
                   value={medForm.notes}
                   onChange={(e) => setMedForm((s) => ({ ...s, notes: e.target.value }))}
                   placeholder="Opcional"
@@ -2463,7 +2478,7 @@ export default function PetDetail() {
               </div>
             </div>
 
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="sticky bottom-0 -mx-4 mt-5 flex justify-end gap-2 bg-white/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] backdrop-blur dark:bg-zinc-900/95">
               <button
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700"
                 onClick={() => {
@@ -2474,10 +2489,11 @@ export default function PetDetail() {
                 Cancelar
               </button>
               <button
-                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                disabled={savingMed}
+                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
                 onClick={submitMedication}
               >
-                {medEditId ? "Salvar alterações" : "Salvar"}
+                {savingMed ? "Salvando…" : medEditId ? "Salvar alterações" : "Salvar"}
               </button>
             </div>
           </div>
