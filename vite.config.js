@@ -19,13 +19,16 @@ export default defineConfig({
         "robots.txt",
         "offline.html",
         "apple-icon-180.png",
-        "apple-splash-*.jpg"
+        "apple-splash-*.jpg",
       ],
       manifest: {
         name: "PataNet",
         short_name: "PataNet",
         description: "Rede social e carteira de vacinação de pets.",
-        start_url: "./feed",
+
+        // iOS Safari pode dar refresh em rotas internas (ex: /feed) e, se a navegação for abortada,
+        // o Workbox pode cair no fallback. Start URL mais simples ajuda a evitar falsos negativos.
+        start_url: "./",
         scope: "./",
         display: "standalone",
         background_color: "#0f172a",
@@ -49,8 +52,11 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // iOS Safari/PWA costuma falhar melhor com um fallback explícito
-        navigateFallback: "/offline.html",
+        // FIX: no iPhone (Safari/PWA), o pull-to-refresh pode abortar a navegação momentaneamente.
+        // Com navigateFallback=/offline.html isso vira “Você está offline” mesmo com 4G.
+        // Ao usar /index.html, o app abre normalmente e o UI do app é quem decide exibir offline.
+        navigateFallback: "/index.html",
+
         // evita que o SW tente responder rotas de API como navegação
         navigateFallbackDenylist: [/^\/api\//, /\/auth\b/],
         globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webmanifest}"],
@@ -87,5 +93,5 @@ export default defineConfig({
       "@assets": path.resolve(__dirname, "src/assets"),
     },
   },
-  base: './'
+  base: "./",
 });

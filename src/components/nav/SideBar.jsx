@@ -461,6 +461,49 @@ export default function Sidebar() {
                   <Users className="h-4 w-4" />
                   <span>Explorar</span>
                 </Link>
+
+                <Link
+                  to="/eventos"
+                  onClick={closeIfMobile}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    pathname.startsWith("/eventos")
+                      ? "bg-white/15 text-white"
+                      : "text-white/90 hover:bg-white/10"
+                  }`}
+                >
+                  <Calendar className="h-4 w-4" />
+                  <span>Eventos</span>
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    try {
+                      window.open("https://patanet.app.br/denuncia", "_blank", "noopener,noreferrer");
+                    } catch {
+                      window.location.href = "https://patanet.app.br/denuncia";
+                    }
+                    closeIfMobile?.();
+                  }}
+                  className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/10"
+                >
+                  <ShieldAlert className="h-4 w-4" />
+                  <span>Canal de denúncia</span>
+                </button>
+
+                <Link
+                  to="/ajuda"
+                  onClick={closeIfMobile}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    pathname.startsWith("/ajuda")
+                      ? "bg-white/15 text-white"
+                      : "text-white/90 hover:bg-white/10"
+                  }`}
+                >
+                  <ShieldAlert className="h-4 w-4" />
+                  <span>Ajuda e Políticas</span>
+                </Link>
               </nav>
 
               <hr className="border-white/10 my-2" />
@@ -682,7 +725,7 @@ export default function Sidebar() {
             <NavItem to="/" icon={HomeIcon} label="Página inicial" />
             <NavItem to="/usuarios" icon={Users} label="Explorar" />
             <NavItem to="/eventos" icon={Calendar} label="Eventos" />
-            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de denúncia (web/externo)" />
+            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de denúncia" />
             <NavItem to="/ajuda" icon={ShieldAlert} label="Ajuda e Políticas" />
           </nav>
 
