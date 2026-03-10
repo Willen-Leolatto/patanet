@@ -9,6 +9,7 @@ import { App as CapApp } from "@capacitor/app";
 
 // API: probe de sessão
 import { getMyProfile } from "@/api/user.api.js";
+import { http } from "@/api/axios.js";
 
 // ===== Back handlers globais (mantido) =====
 const _backHandlers = new Set();
@@ -53,6 +54,22 @@ export default function AppShell() {
         // Algumas APIs retornam 200 com objeto vazio; tratamos como não autenticado
         const ok = isValidUser(u);
         if (!cancelled) setMe(ok ? u : null);
+
+        // se está logado, checa termos por dispositivo
+        if (ok) {
+          try {
+            const { data } = await http.get("/auth/terms-required");
+            if (data?.termsVersion) {
+              window.localStorage.setItem("patanet:terms-version", data.termsVersion);
+            }
+            if (data?.termsRequired && pathname !== "/termos") {
+              navigate("/termos", { replace: true });
+              return;
+            }
+          } catch {
+            // se falhar, não bloqueia navegação
+          }
+        }
       } catch {
         if (!cancelled) setMe(null);
       } finally {
@@ -79,7 +96,7 @@ export default function AppShell() {
 
   // Rotas públicas (políticas / conformidade) — acessíveis sem login
   const isPublicPolicyRoute = useMemo(
-    () => /^\/(seguranca-infantil|privacidade|diretrizes|excluir-conta|ajuda|denuncia)(\/|$)/i.test(pathname),
+    () => /^\/(seguranca-infantil|privacidade|diretrizes|excluir-conta|ajuda|denuncia|termos)(\/|$)/i.test(pathname),
     [pathname]
   );
 

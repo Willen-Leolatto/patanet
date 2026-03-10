@@ -34,6 +34,10 @@ const ReportChannel = lazy(() => import("@/features/policy/pages/ReportChannel")
 const CommunityGuidelines = lazy(() => import("@/features/policy/pages/CommunityGuidelines"));
 const AccountDeletion = lazy(() => import("@/features/policy/pages/AccountDeletion"));
 const PolicyHub = lazy(() => import("@/features/policy/pages/PolicyHub"));
+const TermsAccept = lazy(() => import("@/features/policy/pages/TermsAccept"));
+
+// Vet (MVP web-first)
+const VetDashboard = lazy(() => import("@/features/vet/pages/VetDashboard"));
 
 function Loader() {
   return (
@@ -79,7 +83,11 @@ export default function AppRoutes() {
             <Route path="/eventos/:eventId" element={<EventDetail />} />
             <Route path="/eventos/:eventId/editar" element={<EventEdit />} />
 
+            {/* Vet */}
+            <Route path="/vet" element={<VetDashboard />} />
+
             {/* Ajuda e políticas (acessíveis com ou sem login; com menu quando logado) */}
+            <Route path="/termos" element={<TermsAccept />} />
             <Route path="/seguranca-infantil" element={<ChildSafety />} />
             <Route path="/privacidade" element={<Privacy />} />
             <Route path="/denuncia" element={<ReportChannel />} />

@@ -187,13 +187,25 @@ export default function Login() {
 
   async function handleLogin({ email, password }) {
     // A API espera "username", então enviamos o e-mail neste campo
-    await signIn({
+    const jwt = await signIn({
       username: String(email || "").trim(),
       password: String(password || ""),
     });
 
+    // guarda versão de termos para a tela /termos
+    if (jwt?.terms_version) {
+      try {
+        window.localStorage.setItem("patanet:terms-version", jwt.terms_version);
+      } catch {}
+    }
+
     // informa o AppShell para revalidar a sessão
     window.dispatchEvent(new CustomEvent("patanet:auth-updated"));
+
+    if (jwt?.terms_required) {
+      navigate("/termos", { replace: true });
+      return;
+    }
 
     navigate("/feed", { replace: true });
   }

@@ -13,4 +13,5 @@ export * from './vaccines.api.js'
 export * from './deworming.api.js'
 export * from './medications.api.js'
 export * from './reports.api.js'
-
+export * from './orgs.api.js'
+export * from './vet.api.js'

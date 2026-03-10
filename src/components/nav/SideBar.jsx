@@ -19,6 +19,7 @@ import {
   Menu as MenuIcon,
   ShieldAlert,
   Calendar,
+  Stethoscope,
 } from "lucide-react";
 
 import Logo from "@/assets/logo.png"; // coloque sua logo em src/assets/logo.png
@@ -725,6 +726,7 @@ export default function Sidebar() {
             <NavItem to="/" icon={HomeIcon} label="Página inicial" />
             <NavItem to="/usuarios" icon={Users} label="Explorar" />
             <NavItem to="/eventos" icon={Calendar} label="Eventos" />
+            <NavItem to="/vet" icon={Stethoscope} label="Área Vet" />
             <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de denúncia" />
             <NavItem to="/ajuda" icon={ShieldAlert} label="Ajuda e Políticas" />
           </nav>

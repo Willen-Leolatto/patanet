@@ -6,6 +6,7 @@ import {
   refresh,
   REFRESH_TOKEN_KEY,
 } from "./auth.api.js";
+import { getDeviceId } from "@/utils/deviceId.js";
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
@@ -18,8 +19,12 @@ http.interceptors.request.use(async (config) => {
   const access_token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
   const refresh_token = window.localStorage.getItem(REFRESH_TOKEN_KEY);
 
+  config.headers = config.headers || {};
+
+  // device id (para aceite de termos por dispositivo)
+  config.headers["x-device-id"] = getDeviceId();
+
   if (access_token) {
-    config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${access_token}`;
     if (refresh_token) {
       config.headers["refresh-token"] = refresh_token;
