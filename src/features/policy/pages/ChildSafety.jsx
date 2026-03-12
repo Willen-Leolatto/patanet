@@ -1,6 +1,6 @@
 // src/features/policy/pages/ChildSafety.jsx
 import React, { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ShieldAlert, ExternalLink, Mail, ArrowLeft } from "lucide-react";
 
 const REPORT_EMAIL = "dev.patanet@gmail.com";
@@ -12,6 +12,7 @@ function mailtoUrl({ subject, body }) {
 }
 
 export default function ChildSafety() {
+  const navigate = useNavigate();
   const body = useMemo(() => {
     const now = new Date().toISOString();
     return [
@@ -37,9 +38,13 @@ export default function ChildSafety() {
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="mb-6">
-        <Link to="/feed" className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
-          <ArrowLeft className="h-4 w-4" /> Voltar ao feed
-        </Link>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+        >
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </button>
         <div className="inline-flex items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800 dark:bg-orange-950/30 dark:text-orange-200">
           <ShieldAlert className="h-4 w-4" />
           Segurança infantil (CSAE)

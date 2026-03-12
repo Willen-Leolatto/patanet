@@ -2,10 +2,15 @@
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
+import VetModeGuard from "@/features/vet/VetModeGuard.jsx";
+
 import AppShell from "@/layouts/AppShell";
 
 // Auth / sessão
 const Login = lazy(() => import("@/features/auth/pages/Login"));
+
+// Public
+const PublicHome = lazy(() => import("@/features/public/pages/PublicHome"));
 
 // Feed
 const Feed = lazy(() => import("@/features/feed/pages/Feed"));
@@ -36,8 +41,13 @@ const AccountDeletion = lazy(() => import("@/features/policy/pages/AccountDeleti
 const PolicyHub = lazy(() => import("@/features/policy/pages/PolicyHub"));
 const TermsAccept = lazy(() => import("@/features/policy/pages/TermsAccept"));
 
-// Vet (MVP web-first)
+// Vet
 const VetDashboard = lazy(() => import("@/features/vet/pages/VetDashboard"));
+const VetAgenda = lazy(() => import("@/features/vet/pages/VetAgenda"));
+const VetConsultas = lazy(() => import("@/features/vet/pages/VetConsultas"));
+const VetProcedimentos = lazy(() => import("@/features/vet/pages/VetProcedimentos"));
+const VetPets = lazy(() => import("@/features/vet/pages/VetPets"));
+const VetPerfil = lazy(() => import("@/features/vet/pages/VetPerfil"));
 
 function Loader() {
   return (
@@ -53,12 +63,13 @@ export default function AppRoutes() {
       <Suspense fallback={<Loader />}>
         <Routes>
           {/* Rotas públicas */}
+          <Route path="/home" element={<PublicHome />} />
           <Route path="/auth" element={<Login />} />
 
           {/* AppShell gerencia layout + proteção internamente */}
           <Route element={<AppShell />}>
-            {/* Home -> feed */}
-            <Route index element={<Navigate to="/feed" replace />} />
+            {/* Home -> /home (capa pública) */}
+            <Route index element={<Navigate to="/home" replace />} />
 
             {/* Feed */}
             <Route path="/feed" element={<Feed />} />
@@ -83,8 +94,55 @@ export default function AppRoutes() {
             <Route path="/eventos/:eventId" element={<EventDetail />} />
             <Route path="/eventos/:eventId/editar" element={<EventEdit />} />
 
-            {/* Vet */}
-            <Route path="/vet" element={<VetDashboard />} />
+            {/* Vet (protegido por role) */}
+            <Route
+              path="/vet"
+              element={
+                <VetModeGuard>
+                  <VetDashboard />
+                </VetModeGuard>
+              }
+            />
+            <Route
+              path="/vet/agenda"
+              element={
+                <VetModeGuard>
+                  <VetAgenda />
+                </VetModeGuard>
+              }
+            />
+            <Route
+              path="/vet/consultas"
+              element={
+                <VetModeGuard>
+                  <VetConsultas />
+                </VetModeGuard>
+              }
+            />
+            <Route
+              path="/vet/procedimentos"
+              element={
+                <VetModeGuard>
+                  <VetProcedimentos />
+                </VetModeGuard>
+              }
+            />
+            <Route
+              path="/vet/pets"
+              element={
+                <VetModeGuard>
+                  <VetPets />
+                </VetModeGuard>
+              }
+            />
+            <Route
+              path="/vet/perfil"
+              element={
+                <VetModeGuard>
+                  <VetPerfil />
+                </VetModeGuard>
+              }
+            />
 
             {/* Ajuda e políticas (acessíveis com ou sem login; com menu quando logado) */}
             <Route path="/termos" element={<TermsAccept />} />

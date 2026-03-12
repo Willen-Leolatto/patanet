@@ -1,4 +1,5 @@
 import { http } from "./axios.js";
+import { getAccessToken } from "@/utils/jwt.js";
 
 export async function createPost({ subtitle, pets, medias }) {
   const formData = new FormData();
@@ -66,8 +67,10 @@ export async function fetchPostsByUserId({ userId, page = 1, perPage = 10 }) {
 }
 
 export async function fetchMyFeed({ page = 1, perPage } = {}) {
+  // Evita ruído 401: sem token, não chama a API.
+  if (!getAccessToken()) return { data: [], pagination: { pages: 1, total: 0 } };
   const params = { page };
-  if (perPage != null) params.perPage = perPage; 
+  if (perPage != null) params.perPage = perPage;
   const response = await http.get(`/posts/feed`, { params });
   return response.data;
 }

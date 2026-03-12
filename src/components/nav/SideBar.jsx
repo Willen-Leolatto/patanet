@@ -27,6 +27,7 @@ import { getMyProfile } from "@/api/user.api.js";
 import { clearTokens } from "@/api/auth.api.js";
 import AvatarCircle from "@/components/AvatarCircle";
 import { fetchAnimalsByOwner } from "@/api/owner.api.js";
+import { useVetMode } from "@/store/vetMode.jsx";
 
 const SIDEBAR_W = 280;
 const COLLAPSED_W = 72; // largura quando retraído (ícones)
@@ -54,6 +55,9 @@ export default function Sidebar() {
   // ==== USER via API ====
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
+  const vetPreferred = useVetMode((s) => s.preferred);
+  const setVetPreferred = useVetMode((s) => s.setPreferred);
 
   useEffect(() => {
     let cancelled = false;
@@ -438,10 +442,10 @@ export default function Sidebar() {
               {/* Navegação principal */}
               <nav className="mb-3 flex flex-col gap-1">
                 <Link
-                  to="/"
+                  to="/feed"
                   onClick={closeIfMobile}
                   className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                    pathname === "/"
+                    pathname.startsWith("/feed")
                       ? "bg-white/15 text-white"
                       : "text-white/90 hover:bg-white/10"
                   }`}
@@ -481,9 +485,9 @@ export default function Sidebar() {
                   onClick={(e) => {
                     e.preventDefault();
                     try {
-                      window.open("https://patanet.app.br/denuncia", "_blank", "noopener,noreferrer");
+                      window.open("/denuncia", "_blank", "noopener,noreferrer");
                     } catch {
-                      window.location.href = "https://patanet.app.br/denuncia";
+                      window.location.href = "/denuncia";
                     }
                     closeIfMobile?.();
                   }}
@@ -723,15 +727,54 @@ export default function Sidebar() {
 
           {/* Navegação principal */}
           <nav className={`flex flex-col ${open ? "gap-1" : "gap-2"}`}>
-            <NavItem to="/" icon={HomeIcon} label="Página inicial" />
+            <NavItem to="/feed" icon={HomeIcon} label="Página inicial" />
             <NavItem to="/usuarios" icon={Users} label="Explorar" />
             <NavItem to="/eventos" icon={Calendar} label="Eventos" />
-            <NavItem to="/vet" icon={Stethoscope} label="Área Vet" />
-            <ExternalItem href="https://patanet.app.br/denuncia" icon={ShieldAlert} label="Canal de denúncia" />
+
+            {(() => {
+              const role = String(user?.role || "").toUpperCase();
+              const canVet = ["VET", "STAFF", "ADMIN"].includes(role);
+              if (!canVet) return null;
+              return (
+                <NavItem
+                  to="/vet"
+                  icon={Stethoscope}
+                  label="Área Vet"
+                />
+              );
+            })()}
+
+            <NavItem to="/denuncia" icon={ShieldAlert} label="Canal de denúncia" />
             <NavItem to="/ajuda" icon={ShieldAlert} label="Ajuda e Políticas" />
           </nav>
 
           <hr className="border-white/10" />
+
+          {(() => {
+            const role = String(user?.role || "").toUpperCase();
+            const canVet = ["VET", "STAFF", "ADMIN"].includes(role);
+            if (!canVet) return null;
+
+            const isVetRoute = pathname.startsWith("/vet");
+            const label = isVetRoute ? "Ir para Feed" : "Ir para Vet";
+            const to = isVetRoute ? "/feed" : "/vet";
+
+            return (
+              <div className="my-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVetPreferred(isVetRoute ? "feed" : "vet");
+                    navigate(to);
+                  }}
+                  className={`w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-[var(--sidebar-fg)] hover:bg-white/10 ${open ? "" : "hidden"}`}
+                  title={label}
+                >
+                  {label}
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Navegação secundária */}
           <nav className={`flex flex-col ${open ? "gap-1" : "gap-2"}`}>

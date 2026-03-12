@@ -29,6 +29,7 @@ import Lightbox from "@/components/Lightbox";
 import heic2any from "heic2any";
 
 import { getMyProfile } from "@/api/user.api.js";
+import { canUseVetMode } from "@/utils/role.js";
 import {
   fetchMyFeed,
   updatePost as apiUpdatePost,
@@ -920,11 +921,10 @@ export default function Feed() {
       if (!message) return;
 
       if (!hasAcceptedUGCPolicies()) {
-        const ok = window.confirm(
-          "Para comentar, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nDeseja aceitar agora?"
+        window.alert(
+          "Para comentar, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nVolte ao topo do Feed e aceite no bloco ‘Antes de publicar’."
         );
-        if (!ok) return;
-        acceptUGCPolicies();
+        return;
       }
 
       const tempId = `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -1001,11 +1001,10 @@ export default function Feed() {
       if (!message) return;
 
       if (!hasAcceptedUGCPolicies()) {
-        const ok = window.confirm(
-          "Para responder, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nDeseja aceitar agora?"
+        window.alert(
+          "Para responder, você precisa aceitar as Diretrizes da Comunidade e políticas do app.\n\nVolte ao topo do Feed e aceite no bloco ‘Antes de publicar’."
         );
-        if (!ok) return;
-        acceptUGCPolicies();
+        return;
       }
 
       const tempId = `tmp-reply-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -1293,8 +1292,46 @@ export default function Feed() {
   const blockedIds = new Set(getBlockedUserIds());
   const visiblePosts = posts.filter((p) => !blockedIds.has(String(p?.author?.id || "")));
 
+  const isVet = useMemo(() => canUseVetMode(me), [me]);
+
   return (
     <div className="mx-auto w-full max-w-3xl">
+      {isVet && (
+        <div className="mb-4 rounded-2xl border border-orange-500/20 bg-orange-50/60 p-4 text-sm text-zinc-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-zinc-100">
+          <div className="font-semibold">Atalhos rápidos (Vet)</div>
+          <div className="mt-1 text-zinc-600 dark:text-zinc-300">
+            Localize tutores, cadastre pets e acesse as áreas principais.
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Link
+              to="/usuarios"
+              className="rounded-xl bg-white px-3 py-2 font-semibold hover:bg-zinc-50 dark:bg-white/5 dark:hover:bg-white/10"
+            >
+              Buscar tutores
+            </Link>
+            <Link
+              to="/pets/novo"
+              className="rounded-xl bg-white px-3 py-2 font-semibold hover:bg-zinc-50 dark:bg-white/5 dark:hover:bg-white/10"
+            >
+              Cadastrar pet
+            </Link>
+            <Link
+              to="/vet"
+              className="rounded-xl bg-white px-3 py-2 font-semibold hover:bg-zinc-50 dark:bg-white/5 dark:hover:bg-white/10"
+            >
+              Dashboard Vet
+            </Link>
+            <Link
+              to="/vet/agenda"
+              className="rounded-xl bg-white px-3 py-2 font-semibold hover:bg-zinc-50 dark:bg-white/5 dark:hover:bg-white/10"
+            >
+              Agenda Vet
+            </Link>
+          </div>
+        </div>
+      )}
+
       <FeedComposer user={me} />
 
       <div className="mt-3 flex justify-end gap-2">
@@ -1311,6 +1348,33 @@ export default function Feed() {
           Criar evento
         </Link>
       </div>
+
+      {visiblePosts.length === 0 && !loading && (
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200">
+            <PawPrint className="h-6 w-6" />
+          </div>
+          <h2 className="mt-3 text-lg font-semibold">Seu feed ainda está vazio</h2>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+            Comece cadastrando um pet ou explorando tutores.
+          </p>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <Link
+              to="/pets/novo"
+              className="rounded-xl bg-[#f77904] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Cadastrar pet
+            </Link>
+            <Link
+              to="/usuarios"
+              className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Encontrar tutores
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 space-y-4">
         {visiblePosts.map((post) => {

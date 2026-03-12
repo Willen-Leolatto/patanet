@@ -1,18 +1,20 @@
 // src/features/policy/pages/CommunityGuidelines.jsx
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ShieldAlert, FileText, Users, ExternalLink, ArrowLeft, PawPrint, MessageCircleWarning } from "lucide-react";
 
 export default function CommunityGuidelines() {
+  const navigate = useNavigate();
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="mb-6">
-        <Link
-          to="/feed"
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
           className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
-          <ArrowLeft className="h-4 w-4" /> Voltar ao feed
-        </Link>
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </button>
         <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
           <Users className="h-4 w-4" /> Diretrizes
         </div>

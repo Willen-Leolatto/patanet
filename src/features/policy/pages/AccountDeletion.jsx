@@ -89,9 +89,13 @@ export default function AccountDeletion() {
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="mb-6">
-        <Link to="/feed" className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800">
-          <ArrowLeft className="h-4 w-4" /> Voltar ao feed
-        </Link>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+        >
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </button>
         <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
           <Trash2 className="h-4 w-4" /> Exclusão de conta
         </div>
@@ -151,9 +155,9 @@ export default function AccountDeletion() {
 
         <h2 className="text-lg font-semibold">Links</h2>
         <div className="flex flex-col gap-2 text-sm">
-          <a className="inline-flex items-center gap-2 text-[#f77904] hover:underline" href="/excluir-conta.html" target="_blank" rel="noreferrer">
+          <Link className="inline-flex items-center gap-2 text-[#f77904] hover:underline" to="/excluir-conta.html">
             Versão HTML (para compartilhamento) <ExternalLink className="h-4 w-4" />
-          </a>
+          </Link>
           <a className="inline-flex items-center gap-2 text-[#f77904] hover:underline" href="/privacidade">
             <FileText className="h-4 w-4" /> Política de Privacidade
           </a>

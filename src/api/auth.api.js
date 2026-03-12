@@ -4,11 +4,10 @@ export const AUTH_KEY = 'patanet_auth_v1'
 export const ACCESS_TOKEN_KEY = `${AUTH_KEY}:access_token`
 export const REFRESH_TOKEN_KEY = `${AUTH_KEY}:refresh_token`
 
-
 export async function signIn({ username, password }) {
   const response = await http.post('/auth/session', {
     username,
-    password
+    password,
   })
   saveTokens(response.data)
   return response.data
@@ -31,6 +30,15 @@ export function saveTokens(payload) {
 }
 
 export function clearTokens() {
+  // Importante: limpar também os headers do axios, senão o app pode continuar
+  // disparando chamadas autenticadas com um token antigo (causando 401 na tela de login).
+  try {
+    delete http.defaults.headers.common['Authorization']
+    delete http.defaults.headers.common['refresh-token']
+  } catch {
+    // noop
+  }
+
   window.localStorage.removeItem(ACCESS_TOKEN_KEY)
   window.localStorage.removeItem(REFRESH_TOKEN_KEY)
 }

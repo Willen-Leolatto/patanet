@@ -1,4 +1,5 @@
 import { http } from "./axios.js";
+import { getAccessToken } from "@/utils/jwt.js";
 
 export async function createUser({ name, image, username, email, password }) {
   const formData = new FormData();
@@ -59,6 +60,8 @@ export async function updateUserPassword({ id, currentPassword, newPassword }) {
 }
 
 export async function getMyProfile() {
+  // Evita ruído 401: sem token, não chama a API.
+  if (!getAccessToken()) return null;
   const response = await http.get("/users/me");
   return response.data;
 }

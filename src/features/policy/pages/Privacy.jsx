@@ -1,20 +1,22 @@
 // src/features/policy/pages/Privacy.jsx
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ExternalLink, Mail, FileText, ArrowLeft } from "lucide-react";
 
 const PRIVACY_EMAIL = "dev.patanet@gmail.com";
 
 export default function Privacy() {
+  const navigate = useNavigate();
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="mb-6">
-        <Link
-          to="/feed"
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
           className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
-          <ArrowLeft className="h-4 w-4" /> Voltar ao feed
-        </Link>
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </button>
         <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
           <FileText className="h-4 w-4" /> Política
         </div>
@@ -84,9 +86,9 @@ export default function Privacy() {
         </p>
 
         <div className="text-sm">
-          <a className="text-[#f77904] hover:underline" href="/privacidade.html" target="_blank" rel="noreferrer">
+          <Link className="text-[#f77904] hover:underline" to="/privacidade.html">
             Versão HTML (para compartilhamento) <ExternalLink className="inline h-4 w-4" />
-          </a>
+          </Link>
         </div>
 
         <p className="mt-2 text-xs text-zinc-500">Última atualização: 24/02/2026</p>

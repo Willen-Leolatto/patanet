@@ -10,6 +10,9 @@ import { App as CapApp } from "@capacitor/app";
 // API: probe de sessão
 import { getMyProfile } from "@/api/user.api.js";
 import { http } from "@/api/axios.js";
+import { useVetMode } from "@/store/vetMode";
+import { canUseVetMode } from "@/utils/role";
+import { getAccessToken } from "@/utils/jwt.js";
 
 // ===== Back handlers globais (mantido) =====
 const _backHandlers = new Set();
@@ -50,26 +53,21 @@ export default function AppShell() {
     async function probe() {
       try {
         setProbing(true);
+
+        // Evita 401/ruído: sem token, nem chama /users/me
+        if (!getAccessToken()) {
+          if (!cancelled) setMe(null);
+          return;
+        }
+
         const u = await getMyProfile(); // /users/me
         // Algumas APIs retornam 200 com objeto vazio; tratamos como não autenticado
         const ok = isValidUser(u);
         if (!cancelled) setMe(ok ? u : null);
 
-        // se está logado, checa termos por dispositivo
-        if (ok) {
-          try {
-            const { data } = await http.get("/auth/terms-required");
-            if (data?.termsVersion) {
-              window.localStorage.setItem("patanet:terms-version", data.termsVersion);
-            }
-            if (data?.termsRequired && pathname !== "/termos") {
-              navigate("/termos", { replace: true });
-              return;
-            }
-          } catch {
-            // se falhar, não bloqueia navegação
-          }
-        }
+        // FIX15: termos não são mais obrigatórios via rota /termos.
+        // Mantemos as páginas em Ajuda e Políticas, sem forçar aceite.
+        // (Se no futuro voltarmos a exigir, reativar aqui.)
       } catch {
         if (!cancelled) setMe(null);
       } finally {
@@ -96,27 +94,36 @@ export default function AppShell() {
 
   // Rotas públicas (políticas / conformidade) — acessíveis sem login
   const isPublicPolicyRoute = useMemo(
-    () => /^\/(seguranca-infantil|privacidade|diretrizes|excluir-conta|ajuda|denuncia|termos)(\/|$)/i.test(pathname),
+    () => /^\/(home|seguranca-infantil|privacidade|diretrizes|excluir-conta|ajuda|denuncia|termos)(\/|$)/i.test(pathname),
     [pathname]
   );
 
   const authenticated = useMemo(() => isValidUser(me), [me]);
+  const vetPreferred = useVetMode((s) => s.preferred);
 
   // Regras de navegação (somente após probe concluído)
   useEffect(() => {
     if (probing) return; // não decide enquanto carrega sessão
 
-    // Sem sessão e fora das rotas públicas -> vai para /auth
-    if (!authenticated && !isAuthRoute && !isPublicPolicyRoute && pathname !== "/auth") {
-      navigate("/auth", { replace: true, state: { from: pathname } });
+    // Sem sessão e fora das rotas públicas -> vai para /home
+    // (No app mobile, /auth continua acessível, mas /home vira a “capa” pública.)
+    if (!authenticated && !isAuthRoute && !isPublicPolicyRoute && pathname !== "/home") {
+      navigate("/home", { replace: true, state: { from: pathname } });
       return;
     }
 
-    // Com sessão e em rota de auth -> manda para /feed
-    if (authenticated && isAuthRoute && pathname !== "/feed") {
-      navigate("/feed", { replace: true });
+    // Com sessão e em rota de auth:
+    // - Não força /feed imediatamente (senão mata o modal do Login)
+    // - Se o usuário abrir /auth estando logado, manda para o destino adequado
+    if (authenticated && isAuthRoute) {
+      const canVet = canUseVetMode(me);
+      if (canVet && vetPreferred === "vet") {
+        navigate("/vet", { replace: true });
+      } else {
+        navigate("/feed", { replace: true });
+      }
     }
-  }, [probing, authenticated, isAuthRoute, isPublicPolicyRoute, pathname, navigate]);
+  }, [probing, authenticated, isAuthRoute, isPublicPolicyRoute, pathname, navigate, me, vetPreferred]);
 
   // Ajuste do deslocamento quando a sidebar não deve aparecer
   useEffect(() => {

@@ -140,6 +140,7 @@ export default function FeedComposer({ user }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [needAccept, setNeedAccept] = useState(!hasAcceptedUGCPolicies());
+  const [ugcConsent, setUgcConsent] = useState(false);
 
   // ids possíveis do usuário
   const [me, setMe] = useState(null);
@@ -329,11 +330,57 @@ export default function FeedComposer({ user }) {
     }
   }
 
+  function acceptNow() {
+    if (!ugcConsent) {
+      setError("Marque a caixa para confirmar que você leu e aceita as diretrizes.");
+      return;
+    }
+    acceptUGCPolicies();
+    setNeedAccept(false);
+    setError("");
+  }
+
   return (
     <form
       onSubmit={handleSubmit}
       className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {needAccept && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+          <div className="font-semibold">Antes de publicar</div>
+          <div className="mt-1">
+            Para criar posts, você precisa aceitar as Diretrizes da Comunidade e as políticas de uso (UGC).
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Link className="underline" to="/diretrizes">Diretrizes</Link>
+            <span className="opacity-60">•</span>
+            <Link className="underline" to="/privacidade">Privacidade</Link>
+            <span className="opacity-60">•</span>
+            <Link className="underline" to="/denuncia">Canal de denúncia</Link>
+          </div>
+          <label className="mt-3 flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={ugcConsent}
+              onChange={(e) => setUgcConsent(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Li e aceito as Diretrizes da Comunidade e entendo que conteúdo proibido (ex.: ódio, violência, sexual, CSAE, assédio, golpes) pode ser removido e a conta pode ser suspensa.
+            </span>
+          </label>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={acceptNow}
+              className="rounded-lg bg-[#f77904] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+            >
+              Aceitar e continuar
+            </button>
+          </div>
+        </div>
+      )}
+
       <textarea
         className="w-full resize-none rounded-lg border border-zinc-300 bg-white/80 p-3 text-sm outline-none focus:border-orange-400 dark:border-zinc-700 dark:bg-zinc-800/60"
         rows={3}
