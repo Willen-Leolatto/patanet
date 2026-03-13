@@ -795,6 +795,52 @@ export default function Login() {
                 </details>
               </div>
 
+              {/* FAQ (segurança e moderação) */}
+              <div className="mt-4">
+                <div className="text-sm font-semibold">Perguntas frequentes</div>
+                <div className="mt-2 space-y-2">
+                  <details className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer font-semibold">
+                      Como denunciar conteúdo ou usuários?
+                    </summary>
+                    <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
+                      Use o menu de opções (três pontos) em um post/comentário/perfil e selecione <b>Denunciar</b>.
+                      Para casos de <b>maus-tratos</b>, use o <b>Canal de denúncia</b> (envio por e-mail com provas).
+                    </div>
+                  </details>
+
+                  <details className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer font-semibold">
+                      O que acontece após uma denúncia?
+                    </summary>
+                    <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
+                      A equipe pode analisar o conteúdo e aplicar medidas como: remover post, limitar alcance, restringir conta ou banir.
+                      Em casos graves (ex.: CSAE), podemos encaminhar às autoridades competentes quando aplicável.
+                    </div>
+                  </details>
+
+                  <details className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer font-semibold">
+                      Quais conteúdos são proibidos?
+                    </summary>
+                    <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
+                      É proibido publicar ou promover: <b>CSAE/CSAM</b>, crueldade/maus-tratos a animais, ódio, assédio, ameaças,
+                      golpes/fraudes e exposição de dados pessoais sensíveis.
+                    </div>
+                  </details>
+
+                  <details className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <summary className="cursor-pointer font-semibold">
+                      Posso bloquear alguém?
+                    </summary>
+                    <div className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
+                      Sim. No perfil do usuário ou no menu do post, use <b>Bloquear</b> para não ver mais conteúdo daquela conta.
+                      Você pode desfazer depois, se quiser.
+                    </div>
+                  </details>
+                </div>
+              </div>
+
               {/* 3 botões */}
               <div className="mt-4 grid gap-2 sm:grid-cols-3">
                 <Link
