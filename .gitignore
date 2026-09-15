@@ -1,0 +1,20 @@
+# Backups & dumps locais
+backups/
+*.backup
+*.sql
+*.rar
+*.zip
+*.tar.gz
+
+# Scripts de prompt temporários
+prompt*.txt
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log
+
+# Node & Python
+node_modules/
+.venv/
+__pycache__/
