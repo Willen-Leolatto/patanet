@@ -1,0 +1,12 @@
+[submodule "api"]
+	path = api
+	url = https://github.com/Patanet-PetEasy/api.git
+	branch = dev
+[submodule "app"]
+	path = app
+	url = https://github.com/Patanet-PetEasy/app.git
+	branch = dev
+[submodule "vision"]
+	path = vision
+	url = https://github.com/Willen-Leolatto/patanet-vision.git
+	branch = master
