@@ -1,0 +1,21 @@
+# Dependências completas de produção (usadas pelo Dockerfile).
+# Instale o torch CPU-only separadamente via:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+python-multipart>=0.0.12
+opencv-python-headless>=4.10,<5.0
+numpy>=1.26,<2.0
+
+# Modelos de visão/embeddings
+ultralytics>=8.3,<9.0
+open-clip-torch>=2.24,<3.0
+pillow>=10.4,<11.0
+
+# Índice biométrico
+faiss-cpu>=1.8,<2.0
+
+# Laudo via VLM
+google-genai>=0.3,<1.0

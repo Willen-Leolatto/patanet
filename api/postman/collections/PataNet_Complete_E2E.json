@@ -1,0 +1,4490 @@
+{
+  "info": {
+    "_postman_id": "c8a291f0-4df2-4f30-bfae-2895f8507026",
+    "name": "PataNet Complete E2E",
+    "description": "Coleção completa de testes E2E do ecossistema PataNet cobrindo 100% das rotas e contratos da API NestJS, organizada rigorosamente nas 14 baterias funcionais.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "description": "Rotas de autenticação, sessão JWT e login social.",
+      "item": [
+        {
+          "name": "POST /auth/session - Login (Obter Token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200 or 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set(\"accessToken\", jsonData.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"tutor.principal@patanet.app.br\",\n  \"password\": \"{{testPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "session"
+              ]
+            },
+            "description": "Autentica o usuário e define automaticamente a variável accessToken no ambiente."
+          }
+        },
+        {
+          "name": "POST /auth/refresh - Atualizar Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.access_token) {",
+                  "        pm.environment.set(\"accessToken\", jsonData.access_token);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Atualiza o token de acesso utilizando o token atual autenticado."
+          }
+        },
+        {
+          "name": "POST /auth/google - Login Social Google",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"simulated-google-oauth-token\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "google"
+              ]
+            },
+            "description": "Autentica ou cadastra usuário via token Google OAuth2."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Users",
+      "description": "Gestão de perfil de usuário, termos de uso LGPD, senha e dados de conta.",
+      "item": [
+        {
+          "name": "GET /users/me - Obter Perfil Atual",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    var user = pm.response.json();",
+                  "    if (user && user.id) {",
+                  "        pm.environment.set(\"defaultUserId\", user.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "Retorna o perfil completo do usuário autenticado e armazena seu ID."
+          }
+        },
+        {
+          "name": "PATCH /users - Atualizar Perfil Atual",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Mariana Santos\",\n  \"about\": \"Tutora apaixonada por pets e bem-estar animal.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "description": "Atualiza nome, foto e dados biográficos do perfil."
+          }
+        },
+        {
+          "name": "GET /users/me/terms - Consultar Aceite de Termos (LGPD)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/terms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "terms"
+              ]
+            },
+            "description": "Verifica se o usuário aceitou os Termos de Uso e Política de Privacidade."
+          }
+        },
+        {
+          "name": "POST /users/me/terms/accept - Aceitar Termos de Uso",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/terms/accept",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "terms",
+                "accept"
+              ]
+            },
+            "description": "Registra o aceite do usuário aos Termos de Uso versão atual."
+          }
+        },
+        {
+          "name": "GET /users/terms - Consultar Termos Gerais",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/terms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "terms"
+              ]
+            },
+            "description": "Endpoint alternativo/legado de consulta de termos."
+          }
+        },
+        {
+          "name": "POST /users/terms/accept - Aceitar Termos (Compatibilidade)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/terms/accept",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "terms",
+                "accept"
+              ]
+            },
+            "description": "Endpoint alternativo para aceite de termos de uso."
+          }
+        },
+        {
+          "name": "GET /users/:id - Buscar Usuário por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{defaultUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{defaultUserId}}"
+              ]
+            },
+            "description": "Retorna os dados públicos de um usuário pelo ID."
+          }
+        },
+        {
+          "name": "GET /users - Listar Usuários (Paginação)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista usuários cadastrados na plataforma com paginação."
+          }
+        },
+        {
+          "name": "POST /users - Cadastrar Novo Usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Novo Tutor Postman\",\n  \"username\": \"novo.tutor.postman\",\n  \"email\": \"novo.tutor.postman@patanet.app.br\",\n  \"password\": \"{{testPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "description": "Registra uma nova conta de tutor no sistema."
+          }
+        },
+        {
+          "name": "PATCH /users/password - Alterar Senha",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"oldPassword\": \"{{testPassword}}\",\n  \"newPassword\": \"{{testPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "password"
+              ]
+            },
+            "description": "Altera a senha do usuário autenticado."
+          }
+        },
+        {
+          "name": "PATCH /users/:id/role - Alterar Papel do Usuário (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"TUTOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{defaultUserId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{defaultUserId}}",
+                "role"
+              ]
+            },
+            "description": "Permite ao administrador alterar a role de um usuário."
+          }
+        },
+        {
+          "name": "POST /users/me/google - Vincular Conta Google",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"google-oauth-token-to-link\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "google"
+              ]
+            },
+            "description": "Vincula a conta Google ao perfil autenticado."
+          }
+        },
+        {
+          "name": "DELETE /users/me/google - Desvincular Conta Google",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "google"
+              ]
+            },
+            "description": "Desvincula o login social Google da conta."
+          }
+        },
+        {
+          "name": "POST /delete-account - Solicitar Exclusão de Conta (LGPD)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Solicitação de exclusão para testes de conformidade LGPD\",\n  \"password\": \"{{testPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/delete-account",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "delete-account"
+              ]
+            },
+            "description": "Inicia o fluxo de exclusão de conta e anonimização de dados pessoais."
+          }
+        },
+        {
+          "name": "DELETE /users/:id - Deletar Usuário por ID (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/{{defaultUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{defaultUserId}}"
+              ]
+            },
+            "description": "Permite a exclusão de um usuário específico pelo Admin."
+          }
+        },
+        {
+          "name": "DELETE /users - Deletar Usuário Atual",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            },
+            "description": "Exclui a conta do usuário logado."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Catalog",
+      "description": "Catálogo taxonômico oficial de espécies e raças de animais.",
+      "item": [
+        {
+          "name": "GET /animals/species - Listar Espécies Oficiais",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    var species = pm.response.json();",
+                  "    if (Array.isArray(species) && species.length > 0) {",
+                  "        pm.environment.set(\"defaultSpecieId\", species[0].id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/animals/species",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "species"
+              ]
+            },
+            "description": "Retorna a lista oficial de espécies registradas (ex: Cão, Gato)."
+          }
+        },
+        {
+          "name": "GET /animals/breeds - Listar Todas as Raças",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    var breeds = pm.response.json();",
+                  "    if (Array.isArray(breeds) && breeds.length > 0) {",
+                  "        pm.environment.set(\"defaultBreedId\", breeds[0].id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/animals/breeds",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "breeds"
+              ]
+            },
+            "description": "Retorna a lista completa de raças oficiais do catálogo."
+          }
+        },
+        {
+          "name": "GET /animals/breeds?specieId=... - Filtrar Raças por Espécie",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/animals/breeds?specieId={{defaultSpecieId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "breeds"
+              ],
+              "query": [
+                {
+                  "key": "specieId",
+                  "value": "{{defaultSpecieId}}"
+                }
+              ]
+            },
+            "description": "Retorna raças filtradas pelo identificador da espécie."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Pets",
+      "description": "Cadastro, edição, visibilidade e mídias de pets.",
+      "item": [
+        {
+          "name": "POST /animals - Cadastrar Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var pet = pm.response.json();",
+                  "    if (pet && pet.id) {",
+                  "        pm.environment.set(\"defaultPetId\", pet.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pipoca\",\n  \"about\": \"Cãozinho muito alegre, dócil e companheiro.\",\n  \"weight\": 12.5,\n  \"size\": \"MEDIUM\",\n  \"gender\": \"MALE\",\n  \"breedId\": \"{{defaultBreedId}}\",\n  \"isForAdoption\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals"
+              ]
+            },
+            "description": "Cadastra um novo animal associado ao tutor logado."
+          }
+        },
+        {
+          "name": "GET /animals/:id - Obter Detalhes do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Retorna informações completas do animal especificado."
+          }
+        },
+        {
+          "name": "PATCH /animals/:id - Atualizar Dados do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Pipoca Santos\",\n  \"weight\": 13,\n  \"about\": \"Cãozinho alegre, dócil e com peso atualizado.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Atualiza informações cadastrais e biométricas do pet."
+          }
+        },
+        {
+          "name": "POST /animals/:animalId/hide - Ocultar Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/hide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "hide"
+              ]
+            },
+            "description": "Oculta o pet da visualização pública no ecossistema."
+          }
+        },
+        {
+          "name": "POST /animals/:animalId/unhide - Reexibir Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/unhide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "unhide"
+              ]
+            },
+            "description": "Restaura a visibilidade pública do pet."
+          }
+        },
+        {
+          "name": "POST /animals/medias/:animalId - Upload de Mídia do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Arquivo de imagem do pet (JPEG/PNG)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/medias/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "medias",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Envia foto do pet para o armazenamento MinIO S3."
+          }
+        },
+        {
+          "name": "GET /animals/medias/:animalId - Listar Mídias do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/medias/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "medias",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Lista todas as fotos e mídias vinculadas ao pet."
+          }
+        },
+        {
+          "name": "DELETE /animals/:animalId/medias/:mediaId - Remover Mídia do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/medias/{{defaultMediaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "medias",
+                "{{defaultMediaId}}"
+              ]
+            },
+            "description": "Exclui uma mídia previamente enviada do pet."
+          }
+        },
+        {
+          "name": "DELETE /animals/:id - Deletar Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Remove o cadastro do animal e seus dados associados."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Owners",
+      "description": "Gestão de tutoria compartilhada, co-tutores e transferência de custódia.",
+      "item": [
+        {
+          "name": "GET /animals/owners/:id - Listar Pets do Tutor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/owners/{{defaultUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "owners",
+                "{{defaultUserId}}"
+              ]
+            },
+            "description": "Lista todos os pets sob a tutoria primária ou secundária do usuário."
+          }
+        },
+        {
+          "name": "POST /animals/:animalId/owners/:ownerId - Adicionar Co-Tutor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/owners/{{cotutorUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "owners",
+                "{{cotutorUserId}}"
+              ]
+            },
+            "description": "Concede acesso e permissão de co-tutoria a outro usuário."
+          }
+        },
+        {
+          "name": "PATCH /animals/:animalId/owners/:ownerId/primary - Transferir Tutoria Primária",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/owners/{{cotutorUserId}}/primary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "owners",
+                "{{cotutorUserId}}",
+                "primary"
+              ]
+            },
+            "description": "Transfere o papel de tutor primário/titular para o co-tutor."
+          }
+        },
+        {
+          "name": "DELETE /animals/:animalId/owners/:ownerId - Remover Co-Tutor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/owners/{{cotutorUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "owners",
+                "{{cotutorUserId}}"
+              ]
+            },
+            "description": "Revoga o acesso de co-tutoria de um usuário ao animal."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Health",
+      "description": "Prontuário sanitário digital: vacinas, vermífugos e medicações.",
+      "item": [
+        {
+          "name": "POST /animals/vaccines/:animalId - Registrar Vacina",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var data = pm.response.json();",
+                  "    if (data && data.id) {",
+                  "        pm.environment.set(\"defaultVaccineId\", data.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Antirrábica\",\n  \"applicationDate\": \"2026-01-15T00:00:00.000Z\",\n  \"nextApplicationDate\": \"2027-01-15T00:00:00.000Z\",\n  \"laboratory\": \"Zoetis\",\n  \"batch\": \"BR-987654\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/vaccines/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "vaccines",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Registra uma nova dose de vacina na caderneta de saúde do pet."
+          }
+        },
+        {
+          "name": "GET /animals/vaccines/:animalId - Listar Vacinas do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/vaccines/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "vaccines",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Retorna a lista de todas as vacinas aplicadas no animal."
+          }
+        },
+        {
+          "name": "PATCH /animals/:animalId/vaccines/:vaccineId - Atualizar Vacina",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"laboratory\": \"Zoetis Brasil\",\n  \"batch\": \"BR-987654-REV\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/vaccines/{{defaultVaccineId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "vaccines",
+                "{{defaultVaccineId}}"
+              ]
+            },
+            "description": "Atualiza lote ou laboratório de registro vacinal."
+          }
+        },
+        {
+          "name": "DELETE /animals/:animalId/vaccines/:vaccineId - Remover Vacina",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/vaccines/{{defaultVaccineId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "vaccines",
+                "{{defaultVaccineId}}"
+              ]
+            },
+            "description": "Exclui um registro de vacina cadastrado por engano."
+          }
+        },
+        {
+          "name": "POST /animals/dewormings/:animalId - Registrar Vermífugo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var data = pm.response.json();",
+                  "    if (data && data.id) {",
+                  "        pm.environment.set(\"defaultDewormingId\", data.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Drontal Plus\",\n  \"applicationDate\": \"2026-02-10T00:00:00.000Z\",\n  \"nextApplicationDate\": \"2026-05-10T00:00:00.000Z\",\n  \"dose\": \"1 comprimido para 10kg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/dewormings/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "dewormings",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Adiciona registro de vermifugação ao prontuário."
+          }
+        },
+        {
+          "name": "GET /animals/dewormings/:animalId - Listar Vermífugos do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/dewormings/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "dewormings",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Retorna o histórico de vermifugação do pet."
+          }
+        },
+        {
+          "name": "PATCH /animals/:animalId/dewormings/:dewormingId - Atualizar Vermífugo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dose\": \"1.5 comprimidos\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/dewormings/{{defaultDewormingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "dewormings",
+                "{{defaultDewormingId}}"
+              ]
+            },
+            "description": "Atualiza dosagem ou notas de vermífugo."
+          }
+        },
+        {
+          "name": "DELETE /animals/:animalId/dewormings/:dewormingId - Remover Vermífugo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/dewormings/{{defaultDewormingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "dewormings",
+                "{{defaultDewormingId}}"
+              ]
+            },
+            "description": "Exclui o registro de vermifugação especificado."
+          }
+        },
+        {
+          "name": "POST /animals/medications/:animalId - Registrar Medicação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var data = pm.response.json();",
+                  "    if (data && data.id) {",
+                  "        pm.environment.set(\"defaultMedicationId\", data.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Apoquel 16mg\",\n  \"dosage\": \"16mg\",\n  \"frequency\": \"1 comprimido a cada 12 horas\",\n  \"startDate\": \"2026-03-01T00:00:00.000Z\",\n  \"endDate\": \"2026-03-15T00:00:00.000Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/medications/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "medications",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Registra novo tratamento medicamentoso do pet."
+          }
+        },
+        {
+          "name": "GET /animals/medications/:animalId - Listar Medicações do Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/medications/{{defaultPetId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "medications",
+                "{{defaultPetId}}"
+              ]
+            },
+            "description": "Lista tratamentos e medicações ativas ou passadas do pet."
+          }
+        },
+        {
+          "name": "PATCH /animals/:animalId/medications/:medicationId - Atualizar Medicação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dosage\": \"8mg (dose reduzida)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/medications/{{defaultMedicationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "medications",
+                "{{defaultMedicationId}}"
+              ]
+            },
+            "description": "Atualiza dosagem e posologia do medicamento."
+          }
+        },
+        {
+          "name": "DELETE /animals/:animalId/medications/:medicationId - Remover Medicação",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/medications/{{defaultMedicationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "medications",
+                "{{defaultMedicationId}}"
+              ]
+            },
+            "description": "Exclui o registro medicamentoso especificado."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Posts & Feed",
+      "description": "Rede social pet: postagens no feed, curtidas, comentários e filtros de bloqueio.",
+      "item": [
+        {
+          "name": "POST /posts - Criar Postagem",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var post = pm.response.json();",
+                  "    if (post && post.id) {",
+                  "        pm.environment.set(\"defaultPostId\", post.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Dia de parque incrível com o Rex! 🐾🌳\",\n  \"animalId\": \"{{defaultPetId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts"
+              ]
+            },
+            "description": "Publica um novo post no feed social do ecossistema."
+          }
+        },
+        {
+          "name": "GET /posts/feed - Obter Feed Social",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/feed?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Retorna a linha do tempo social filtrando usuários bloqueados."
+          }
+        },
+        {
+          "name": "GET /posts/me - Listar Minhas Postagens",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/me?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Retorna a lista de postagens criadas pelo usuário autenticado."
+          }
+        },
+        {
+          "name": "GET /posts/user/:id - Listar Postagens de Outro Usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/user/{{defaultUserId}}?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "user",
+                "{{defaultUserId}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista postagens públicas de um usuário específico."
+          }
+        },
+        {
+          "name": "GET /posts/:id - Obter Detalhes do Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{defaultPostId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{defaultPostId}}"
+              ]
+            },
+            "description": "Retorna detalhes do post com comentários e curtidas."
+          }
+        },
+        {
+          "name": "PATCH /posts/:postId - Atualizar Postagem",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Dia de parque incrível com o Rex! Atualizado com novas fotos! 🐾✨\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{defaultPostId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{defaultPostId}}"
+              ]
+            },
+            "description": "Edita a legenda de uma postagem do usuário."
+          }
+        },
+        {
+          "name": "POST /posts/like/:id - Curtir Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/like/{{defaultPostId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "like",
+                "{{defaultPostId}}"
+              ]
+            },
+            "description": "Adiciona curtida ao post especificado."
+          }
+        },
+        {
+          "name": "DELETE /posts/like/:id - Descurtir Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/like/{{defaultPostId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "like",
+                "{{defaultPostId}}"
+              ]
+            },
+            "description": "Remove a curtida do post especificado."
+          }
+        },
+        {
+          "name": "POST /posts/comment/:id - Adicionar Comentário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var comment = pm.response.json();",
+                  "    if (comment && comment.id) {",
+                  "        pm.environment.set(\"defaultCommentId\", comment.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Que pet mais lindo! Parabéns pelo cuidado! ❤️\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/posts/comment/{{defaultPostId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "comment",
+                "{{defaultPostId}}"
+              ]
+            },
+            "description": "Cria um comentário na postagem especificada."
+          }
+        },
+        {
+          "name": "PATCH /posts/:postId/comment/:commentId - Atualizar Comentário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Que pet mais lindo! Parabéns pelo cuidado! (Editado) ❤️🐕\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{defaultPostId}}/comment/{{defaultCommentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{defaultPostId}}",
+                "comment",
+                "{{defaultCommentId}}"
+              ]
+            },
+            "description": "Edita um comentário de autoria do usuário logado."
+          }
+        },
+        {
+          "name": "DELETE /posts/:postId/comment/:commentId - Deletar Comentário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{defaultPostId}}/comment/{{defaultCommentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{defaultPostId}}",
+                "comment",
+                "{{defaultCommentId}}"
+              ]
+            },
+            "description": "Exclui um comentário especificado da postagem."
+          }
+        },
+        {
+          "name": "DELETE /posts/:id - Deletar Postagem",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/posts/{{defaultPostId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "posts",
+                "{{defaultPostId}}"
+              ]
+            },
+            "description": "Remove a postagem e seus comentários do feed."
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Connections",
+      "description": "Grafo de conexões sociais: seguir, deixar de seguir, seguidores e resumo de vínculos.",
+      "item": [
+        {
+          "name": "POST /connections/:id - Seguir Usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/connections/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connections",
+                "{{targetUserId}}"
+              ]
+            },
+            "description": "Segue o usuário especificado pelo identificador."
+          }
+        },
+        {
+          "name": "DELETE /connections/:id - Deixar de Seguir Usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/connections/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connections",
+                "{{targetUserId}}"
+              ]
+            },
+            "description": "Deixa de seguir o usuário especificado."
+          }
+        },
+        {
+          "name": "GET /connections/summary/:id - Resumo de Conexões",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/connections/summary/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connections",
+                "summary",
+                "{{targetUserId}}"
+              ]
+            },
+            "description": "Retorna contagem de seguidores, seguindo e status mútuo de conexão."
+          }
+        },
+        {
+          "name": "GET /connections/followers/:id - Listar Seguidores",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/connections/followers/{{targetUserId}}?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connections",
+                "followers",
+                "{{targetUserId}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Retorna a lista paginada de seguidores do usuário."
+          }
+        },
+        {
+          "name": "GET /connections/following/:id - Listar Seguindo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/connections/following/{{targetUserId}}?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "connections",
+                "following",
+                "{{targetUserId}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Retorna a lista paginada de perfis que o usuário segue."
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Moderation",
+      "description": "Ferramentas de segurança comunitária: bloqueio entre usuários e denúncias de moderação.",
+      "item": [
+        {
+          "name": "POST /blocks/:id - Bloquear Usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blocks/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blocks",
+                "{{targetUserId}}"
+              ]
+            },
+            "description": "Bloqueia o usuário especificado, ocultando interações no feed."
+          }
+        },
+        {
+          "name": "GET /blocks - Listar Usuários Bloqueados",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blocks?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blocks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista todos os usuários bloqueados pelo perfil autenticado."
+          }
+        },
+        {
+          "name": "DELETE /blocks/:id - Desbloquear Usuário",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/blocks/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "blocks",
+                "{{targetUserId}}"
+              ]
+            },
+            "description": "Remove o bloqueio aplicado ao usuário especificado."
+          }
+        },
+        {
+          "name": "POST /reports - Criar Denúncia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var report = pm.response.json();",
+                  "    if (report && report.id) {",
+                  "        pm.environment.set(\"defaultReportId\", report.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Comportamento suspeito ou violação dos Termos de Uso\",\n  \"reportedUserId\": \"{{targetUserId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports"
+              ]
+            },
+            "description": "Registra uma denúncia contra um usuário ou conteúdo inapropriado."
+          }
+        },
+        {
+          "name": "GET /reports/mine - Listar Minhas Denúncias",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/mine?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "mine"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista o histórico de denúncias abertas pelo usuário logado."
+          }
+        },
+        {
+          "name": "PATCH /reports/:id/status - Atualizar Status da Denúncia (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"RESOLVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{defaultReportId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{defaultReportId}}",
+                "status"
+              ]
+            },
+            "description": "Permite ao Administrador deferir, analisar ou resolver uma denúncia."
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Events",
+      "description": "Gestão de feiras, encontros comunitários e adoção presencial em eventos.",
+      "item": [
+        {
+          "name": "POST /events - Criar Evento Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var ev = pm.response.json();",
+                  "    if (ev && ev.id) {",
+                  "        pm.environment.set(\"defaultEventId\", ev.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Feira Comunitária de Adoção e Cuidados Pet\",\n  \"description\": \"Encontro com palestras veterinárias e oportunidade de adotar um melhor amigo.\",\n  \"eventDate\": \"2026-11-20T10:00:00.000Z\",\n  \"addressLine\": \"Praça das Flores, 123\",\n  \"addressCity\": \"São Paulo\",\n  \"addressState\": \"SP\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "description": "Cadastra um novo evento público no calendário da comunidade."
+          }
+        },
+        {
+          "name": "GET /events - Listar Eventos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista eventos futuros disponíveis na plataforma."
+          }
+        },
+        {
+          "name": "GET /events/:id - Obter Detalhes do Evento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}"
+              ]
+            },
+            "description": "Retorna informações detalhadas do evento especificado."
+          }
+        },
+        {
+          "name": "PUT /events/:id - Atualizar Evento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Feira Comunitária de Adoção Pet (Edição Especial)\",\n  \"description\": \"Horário expandido e estande de doação de ração!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}"
+              ]
+            },
+            "description": "Atualiza o título, descrição ou dados de localização do evento."
+          }
+        },
+        {
+          "name": "POST /events/:id/repost - Repostar Evento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/repost",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "repost"
+              ]
+            },
+            "description": "Compartilha o evento no feed pessoal do usuário."
+          }
+        },
+        {
+          "name": "GET /events/:id/attendees - Listar Participantes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/attendees",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "attendees"
+              ]
+            },
+            "description": "Retorna a lista de pessoas confirmadas no evento."
+          }
+        },
+        {
+          "name": "GET /events/:id/attend - Verificar Minha Presença",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/attend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "attend"
+              ]
+            },
+            "description": "Verifica se o usuário logado confirmou presença no evento."
+          }
+        },
+        {
+          "name": "POST /events/:id/attend - Confirmar Presença",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/attend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "attend"
+              ]
+            },
+            "description": "Confirma a participação no evento especificado."
+          }
+        },
+        {
+          "name": "DELETE /events/:id/attend - Cancelar Presença",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/attend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "attend"
+              ]
+            },
+            "description": "Cancela a participação previamente confirmada no evento."
+          }
+        },
+        {
+          "name": "POST /events/:id/adoptable-animals - Inscrever Animal para Adoção no Evento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"animalId\": \"{{defaultPetId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/adoptable-animals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "adoptable-animals"
+              ]
+            },
+            "description": "Inscreve um pet disponível para ser adotado presencialmente no evento."
+          }
+        },
+        {
+          "name": "POST /events/:id/adoptable-animals/:animalId/transfer - Transferir Tutoria no Evento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newOwnerId\": \"{{adopterUserId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}/adoptable-animals/{{defaultPetId}}/transfer",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}",
+                "adoptable-animals",
+                "{{defaultPetId}}",
+                "transfer"
+              ]
+            },
+            "description": "Conclui a formalização de adoção com transferência de custódia presencial."
+          }
+        },
+        {
+          "name": "DELETE /events/:id - Deletar Evento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201, 204\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 204]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{defaultEventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{defaultEventId}}"
+              ]
+            },
+            "description": "Remove o evento da plataforma."
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Adoptions",
+      "description": "Fluxo completo de Adoção Responsável: catálogo de adotáveis, candidaturas e aprovação.",
+      "item": [
+        {
+          "name": "GET /animals/adoptable - Vitrine de Animais para Adoção",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/animals/adoptable?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "adoptable"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista os pets cadastrados que estão marcados como disponíveis para adoção."
+          }
+        },
+        {
+          "name": "POST /animals/:id/adopt - Manifestar Interesse de Adoção",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/adopt",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "adopt"
+              ]
+            },
+            "description": "Demonstra interesse rápido de adoção de um pet disponível."
+          }
+        },
+        {
+          "name": "POST /animals/:id/adoption-requests - Submeter Solicitação Formal de Adoção",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var reqData = pm.response.json();",
+                  "    if (reqData && reqData.id) {",
+                  "        pm.environment.set(\"defaultAdoptionRequestId\", reqData.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Possuo casa própria com quintal cercado, tempo para passeios diários e muito amor.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/adoption-requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "adoption-requests"
+              ]
+            },
+            "description": "Submete uma proposta formal de adoção responsável com justificativa e condições."
+          }
+        },
+        {
+          "name": "PATCH /adoption-requests/:id/approve - Aprovar Solicitação de Adoção",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/adoption-requests/{{defaultAdoptionRequestId}}/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "adoption-requests",
+                "{{defaultAdoptionRequestId}}",
+                "approve"
+              ]
+            },
+            "description": "O atual tutor ou ONG aprova a candidatura e formaliza a custódia."
+          }
+        },
+        {
+          "name": "PATCH /adoption-requests/:id/reject - Rejeitar Solicitação de Adoção",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rejectionReason\": \"Perfil não compatível com o temperamento ou necessidades de espaço do pet.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/adoption-requests/{{defaultAdoptionRequestId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "adoption-requests",
+                "{{defaultAdoptionRequestId}}",
+                "reject"
+              ]
+            },
+            "description": "Recusa formalmente a solicitação de adoção fornecendo o motivo."
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Vet",
+      "description": "Módulo Clínico Veterinário: validação de CRMV, autorização clínica e prontuário médico.",
+      "item": [
+        {
+          "name": "POST /vet/apply - Solicitar Homologação de CRMV",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var vet = pm.response.json();",
+                  "    if (vet && vet.id) {",
+                  "        pm.environment.set(\"defaultVetProfileId\", vet.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"crmv\": \"12345/SP\",\n  \"crmvState\": \"SP\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vet/apply",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "vet",
+                "apply"
+              ]
+            },
+            "description": "Veterinário envia credenciais profissionais para auditoria pelo Admin."
+          }
+        },
+        {
+          "name": "PATCH /admin/vet/:id/status - Aprovar/Rejeitar CRMV (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/vet/{{defaultVetProfileId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "vet",
+                "{{defaultVetProfileId}}",
+                "status"
+              ]
+            },
+            "description": "Administrador valida o CRMV do veterinário conferindo o status oficial."
+          }
+        },
+        {
+          "name": "POST /animals/:id/authorize-vet - Autorizar Acesso Clínico ao Pet",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"veterinarianUserId\": \"{{vetUserId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/authorize-vet",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "authorize-vet"
+              ]
+            },
+            "description": "Tutor concede permissão para o veterinário emitir laudos e visualizar prontuário."
+          }
+        },
+        {
+          "name": "POST /animals/:id/medical-records - Criar Prontuário Médico Digital",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Consulta Clínica de Rotina e Profilaxia\",\n  \"description\": \"Animal em excelente estado nutricional, frequência cardíaca normal e pelagem íntegra.\",\n  \"diagnosis\": \"Paciente saudável e sem queixas\",\n  \"prescription\": \"Manter vacinação anual e vermifugação a cada 3 meses\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/animals/{{defaultPetId}}/medical-records",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "animals",
+                "{{defaultPetId}}",
+                "medical-records"
+              ]
+            },
+            "description": "Veterinário homologado registra anotação clínica oficial assinada pelo CRMV."
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Petshops",
+      "description": "Credenciamento de Petshops Parceiras PJ e auditoria administrativa.",
+      "item": [
+        {
+          "name": "POST /petshops/apply - Solicitar Credenciamento de Petshop PJ",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var petshop = pm.response.json();",
+                  "    if (petshop && petshop.id) {",
+                  "        pm.environment.set(\"defaultPetshopProfileId\", petshop.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cnpj\": \"12.345.678/0001-90\",\n  \"businessName\": \"Pet Center Amigo Fiel\",\n  \"responsavelTecnicoNome\": \"Dr. Carlos Eduardo Vet\",\n  \"addressLine\": \"Av. Paulista, 1000\",\n  \"addressCity\": \"São Paulo\",\n  \"addressState\": \"SP\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/petshops/apply",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "petshops",
+                "apply"
+              ]
+            },
+            "description": "Empresa envia CNPJ e dados cadastrais para se tornar parceira oficial."
+          }
+        },
+        {
+          "name": "PATCH /admin/petshops/:id/status - Aprovar/Rejeitar Petshop PJ (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"APPROVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/petshops/{{defaultPetshopProfileId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "petshops",
+                "{{defaultPetshopProfileId}}",
+                "status"
+              ]
+            },
+            "description": "Administrador analisa a documentação e aprova a petshop na plataforma."
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Support",
+      "description": "Central de Ajuda: tickets de suporte, mensagens e atendimento ao tutor.",
+      "item": [
+        {
+          "name": "POST /support - Abrir Ticket de Suporte",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var ticket = pm.response.json();",
+                  "    if (ticket && ticket.id) {",
+                  "        pm.environment.set(\"defaultTicketId\", ticket.id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Dúvida sobre registro de carteira de vacinas\",\n  \"description\": \"Gostaria de saber como vincular a assinatura do meu veterinário nas doses anteriores.\",\n  \"category\": \"HEALTH\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/support",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support"
+              ]
+            },
+            "description": "Abre um chamado para atendimento pela equipe de suporte da PataNet."
+          }
+        },
+        {
+          "name": "GET /support/mine - Listar Meus Tickets",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/mine?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "mine"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Retorna a lista de chamados de suporte abertos pelo usuário."
+          }
+        },
+        {
+          "name": "GET /support/all - Listar Todos os Tickets (Admin/Suporte)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/support/all?page=1&perPage=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "perPage",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Visão administrativa de todos os chamados abertos no sistema."
+          }
+        },
+        {
+          "name": "POST /support/:id/messages - Enviar Mensagem no Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Consegui localizar o CRMV do profissional, segue em anexo para conferência.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/support/{{defaultTicketId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "{{defaultTicketId}}",
+                "messages"
+              ]
+            },
+            "description": "Adiciona uma mensagem de interação na conversa do ticket."
+          }
+        },
+        {
+          "name": "PATCH /support/:id/status - Atualizar Status do Ticket (Suporte/Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200, 201\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"RESOLVED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/support/{{defaultTicketId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "support",
+                "{{defaultTicketId}}",
+                "status"
+              ]
+            },
+            "description": "Atualiza o status de atendimento do ticket (IN_PROGRESS, RESOLVED, CLOSED)."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001",
+      "type": "string"
+    }
+  ]
+}

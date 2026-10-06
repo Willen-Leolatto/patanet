@@ -1,0 +1,145 @@
+{
+  "id": "e44d32e9-74d3-466d-b8d4-539665bc7291",
+  "name": "PataNet Local Dev",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "testPassword",
+      "value": "Patanet@Dev2026!",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultPetId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "targetUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "cotutorUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "adopterUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "vetUserId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultSpecieId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultBreedId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultMediaId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultVaccineId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultDewormingId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultMedicationId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultPostId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultCommentId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultReportId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultEventId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultAdoptionRequestId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultVetProfileId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultPetshopProfileId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "defaultTicketId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment"
+}

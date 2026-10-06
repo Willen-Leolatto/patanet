@@ -1,0 +1,81 @@
+# Orquestração do monorepo PataNet: banco, storage de objetos, API e o
+# microsserviço de visão computacional (patanet-vision).
+#
+# Uso:
+#   docker-compose up -d postgres minio   # infra mínima p/ rodar api/app localmente
+#   docker-compose up -d --build          # sobe tudo containerizado
+#
+# Migrações do Prisma NÃO rodam automaticamente no start do container `api`
+# (a imagem de produção não inclui o Prisma CLI, apenas o client). Rode a
+# partir do host, apontando para o Postgres exposto em localhost:5434:
+#   cd api && pnpm prisma:migrate:deploy
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: docker
+      POSTGRES_DB: patanet_dev
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./api
+    env_file:
+      - ./api/.env
+    environment:
+      # Sobrescreve para os hostnames internos do compose (o .env do repo
+      # aponta para localhost, usado quando a API roda fora do Docker).
+      APP_PORT: "3001"
+      DATABASE_URL: "postgresql://postgres:docker@postgres:5432/patanet_dev?schema=public"
+      AWS_ENDPOINT: "http://minio:9000"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  vision:
+    build:
+      context: ./vision
+    env_file:
+      - ./vision/.env
+    environment:
+      VISION_FAISS_INDEX_PATH: "/data/faiss/head_embeddings.index"
+      VISION_FAISS_ID_MAP_PATH: "/data/faiss/head_embeddings.ids.json"
+    ports:
+      - "8000:8000"
+    volumes:
+      - vision_faiss_data:/data/faiss
+
+volumes:
+  postgres_dev_data:
+  minio_data:
+  vision_faiss_data:

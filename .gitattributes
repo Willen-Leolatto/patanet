@@ -1,0 +1,5 @@
+# Arquivos exclusivos do ambiente de desenvolvimento (dev)
+# Ignorados em builds, archives e releases de produção (main / prod)
+dev-docs/** export-ignore
+backups/** export-ignore
+prompt*.txt export-ignore

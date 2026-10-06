@@ -1,0 +1,16 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+  "testEnvironment": "node",
+  "testTimeout": 30000,
+  "maxWorkers": 1,
+  "setupFiles": ["<rootDir>/e2e/setup.ts"],
+  "moduleNameMapper": {
+    "^@shared/(.*)$": "<rootDir>/../src/shared/$1",
+    "^@modules/(.*)$": "<rootDir>/../src/modules/$1",
+    "^@core/(.*)$": "<rootDir>/../src/shared/domain/$1",
+    "^src/(.*)$": "<rootDir>/../src/$1"
+  }
+}
