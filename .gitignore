@@ -1,10 +1,11 @@
-# Backups & dumps locais
+# Backups, dumps e bundles
 backups/
 *.backup
 *.sql
 *.rar
 *.zip
 *.tar.gz
+*.bundle
 
 # Scripts de prompt temporários
 prompt*.txt
@@ -13,8 +14,57 @@ prompt*.txt
 .DS_Store
 Thumbs.db
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Node & Python
+# Node / Frontend / Backend
 node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+.nyc_output/
+coverage/
+**/coverage/
+
+# Python / IA (Vision)
 .venv/
+**/.venv/
+venv/
+**/venv/
 __pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+data/faiss/*.index
+data/faiss/*.json
+
+# Variáveis de ambiente sensíveis (manter apenas exemplos)
+.env
+*.env
+*.env.local
+*.env.development
+*.env.test
+*.env.production
+api/.env
+api/.env.test
+app/.env
+vision/.env
+!*.env.example
+
+# IDEs e Editores
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/extensions.json
+
+# Mobile / Android secrets
+android/keystore.properties

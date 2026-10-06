@@ -1,0 +1,866 @@
+{
+  "summary": {
+    "total": 73,
+    "passed": 73,
+    "failed": 0,
+    "avgDuration": 61,
+    "date": "2026-09-17T00:44:40.822Z"
+  },
+  "results": [
+    {
+      "battery": "B1: Auth",
+      "name": "Login válido com credenciais corretas",
+      "method": "POST",
+      "path": "/auth/session",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 209,
+      "responseSnippet": "{\"access_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLXR1dG9yLXByaW5jaXBhbCIsImlhdCI6MTc4OTYwNTg3NiwiZXhwIjoxNzg5NjA5NDc2fQ.t5V3QiwZd"
+    },
+    {
+      "battery": "B1: Auth",
+      "name": "Renovação de sessão com refresh token",
+      "method": "POST",
+      "path": "/auth/refresh",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 10,
+      "responseSnippet": "{\"access_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLXR1dG9yLXByaW5jaXBhbCIsImlhdCI6MTc4OTYwNTg3NiwiZXhwIjoxNzg5NjA5NDc2fQ.t5V3QiwZd"
+    },
+    {
+      "battery": "B1: Auth",
+      "name": "Login rejeitado com senha incorreta",
+      "method": "POST",
+      "path": "/auth/session",
+      "expectedStatus": 401,
+      "actualStatus": 401,
+      "passed": true,
+      "durationMs": 194,
+      "responseSnippet": "{\"message\":\"Invalid credentials\",\"error\":\"Unauthorized\",\"statusCode\":401}"
+    },
+    {
+      "battery": "B1: Auth",
+      "name": "Tentativa de acesso não autenticado a rota protegida",
+      "method": "GET",
+      "path": "/users/me",
+      "expectedStatus": 401,
+      "actualStatus": 401,
+      "passed": true,
+      "durationMs": 4,
+      "responseSnippet": "{\"message\":\"Unauthorized\",\"statusCode\":401}"
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Perfil do usuário logado",
+      "method": "GET",
+      "path": "/users/me",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 28,
+      "responseSnippet": "{\"id\":\"user-tutor-principal\",\"name\":\"Mariana Santos\",\"displayName\":\"Mari Santos\",\"about\":\"Tutora apaixonada por cães e gatos em São Paulo.\",\"image\":nu"
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Perfil público por ID",
+      "method": "GET",
+      "path": "/users/user-tutor-principal",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 20,
+      "responseSnippet": "{\"id\":\"user-tutor-principal\",\"name\":\"Mariana Santos\",\"displayName\":\"Mari Santos\",\"about\":\"Tutora apaixonada por cães e gatos em São Paulo.\",\"image\":nu"
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Listagem paginada com filtro de busca",
+      "method": "GET",
+      "path": "/users?query=Mariana",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 68,
+      "responseSnippet": "{\"data\":[{\"id\":\"user-tutor-principal\",\"name\":\"Mariana Santos\",\"displayName\":\"Mari Santos\",\"about\":\"Tutora apaixonada por cães e gatos em São Paulo.\",\""
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Atualização de perfil (bio/about)",
+      "method": "PATCH",
+      "path": "/users",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 64,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Consulta de termos de uso vigentes",
+      "method": "GET",
+      "path": "/users/me/terms",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 14,
+      "responseSnippet": "{\"currentVersion\":\"1.0\",\"acceptedVersion\":\"1.0\",\"requiresAcceptance\":false,\"termsUrl\":\"https://patanet.app.br/terms\"}"
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Aceite formal dos termos v1.0",
+      "method": "POST",
+      "path": "/users/me/terms/accept",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 58,
+      "responseSnippet": "{\"id\":\"user-tutor-principal\",\"name\":\"Mariana Santos\",\"displayName\":\"Mari Santos\",\"about\":\"Tutora apaixonada por cães e gatos em São Paulo.\",\"image\":nu"
+    },
+    {
+      "battery": "B2: Users",
+      "name": "Bloqueio de guard LGPD para usuário sem termos",
+      "method": "GET",
+      "path": "/animals/owners/user-tutor-principal",
+      "expectedStatus": 403,
+      "actualStatus": 403,
+      "passed": true,
+      "durationMs": 9,
+      "responseSnippet": "{\"message\":\"Termos de uso desatualizados\",\"error\":\"Forbidden\",\"statusCode\":403}"
+    },
+    {
+      "battery": "B3: Catalog",
+      "name": "Listagem de espécies oficiais",
+      "method": "GET",
+      "path": "/animals/species",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 24,
+      "responseSnippet": "{\"data\":[{\"id\":\"17bd10c9-db03-4ce6-8938-a51c806a8c9e\",\"name\":\"Cachorro\",\"image\":\"https://s3.amazonaws.com/patanet/dog.webp\",\"createdAt\":\"2026-09-16T21"
+    },
+    {
+      "battery": "B3: Catalog",
+      "name": "Listagem completa de raças oficiais",
+      "method": "GET",
+      "path": "/animals/breeds",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 26,
+      "responseSnippet": "{\"data\":[{\"id\":\"3d53522b-95f7-4782-80fb-cdf7279e1863\",\"name\":\"Abissínio\",\"about\":\"Muito ativo e curioso.\",\"appearance\":\"Pelagem “ticked”; corpo atléti"
+    },
+    {
+      "battery": "B3: Catalog",
+      "name": "Filtro de raças por espécie (Cachorro)",
+      "method": "GET",
+      "path": "/animals/breeds?specieId=17bd10c9-db03-4ce6-8938-a51c806a8c9e",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 22,
+      "responseSnippet": "{\"data\":[{\"id\":\"1048f9cc-c099-432d-bc6c-a5c6a4742d9b\",\"name\":\"Beagle\",\"about\":\"Farejador brincalhão, ótimo com crianças.\",\"appearance\":\"Orelhas longas"
+    },
+    {
+      "battery": "B4: Pets",
+      "name": "Cadastro de pet de teste",
+      "method": "POST",
+      "path": "/animals",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 148,
+      "responseSnippet": "{\"id\":\"c6db2fa7-48a4-4252-97a8-b1b2cba7f429\",\"name\":\"Pet Teste Runner 1789605877084\",\"about\":null,\"image\":null,\"imageCover\":null,\"weight\":15.5,\"size\":"
+    },
+    {
+      "battery": "B4: Pets",
+      "name": "Consulta de pet cadastrado por ID",
+      "method": "GET",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 36,
+      "responseSnippet": "{\"id\":\"c6db2fa7-48a4-4252-97a8-b1b2cba7f429\",\"name\":\"Pet Teste Runner 1789605877084\",\"about\":null,\"image\":null,\"imageCover\":null,\"weight\":15.5,\"size\":"
+    },
+    {
+      "battery": "B4: Pets",
+      "name": "Atualização de peso e dados do pet",
+      "method": "PATCH",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 45,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B4: Pets",
+      "name": "Ocultação temporária de pet",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/hide",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 76,
+      "responseSnippet": "{\"ok\":true}"
+    },
+    {
+      "battery": "B4: Pets",
+      "name": "Desocultação de pet",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/unhide",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 78,
+      "responseSnippet": "{\"ok\":true}"
+    },
+    {
+      "battery": "B4: Pets",
+      "name": "Listagem de mídias do pet",
+      "method": "GET",
+      "path": "/animals/medias/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 22,
+      "responseSnippet": "{\"data\":[],\"paginatio\":{\"page\":1,\"perPage\":10,\"pages\":0,\"total\":0}}"
+    },
+    {
+      "battery": "B5: Owners",
+      "name": "Listagem de pets por proprietário",
+      "method": "GET",
+      "path": "/animals/owners/user-tutor-principal",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 132,
+      "responseSnippet": "{\"data\":[{\"id\":\"478106ee-d7fc-458b-b9c4-c56595f6a0a1\",\"name\":\"Bob\",\"about\":\"Cãozinho alegre\",\"image\":null,\"imageCover\":null,\"weight\":12.5,\"size\":\"MEDI"
+    },
+    {
+      "battery": "B5: Owners",
+      "name": "Adicionar co-tutor ao pet",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/owners/user-cotutor",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 170,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B5: Owners",
+      "name": "Remover co-tutor do pet",
+      "method": "DELETE",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/owners/user-cotutor",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 148,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Registrar vacina com dados clínicos de veterinário",
+      "method": "POST",
+      "path": "/animals/vaccines/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 74,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Listar vacinas do pet",
+      "method": "GET",
+      "path": "/animals/vaccines/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 20,
+      "responseSnippet": "{\"data\":[{\"id\":\"7561c8d5-0a7f-449d-8c4d-95f2c3a6dc46\",\"name\":\"Múltipla V10\",\"observations\":\"\",\"clinic\":\"Clínica Veterinária Central\",\"appliedAt\":\"2026"
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Registrar vermífugo",
+      "method": "POST",
+      "path": "/animals/dewormings/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 53,
+      "responseSnippet": "{\"id\":\"6b63ed12-5c9a-486c-9305-ab3f80c67af7\",\"name\":\"Drontal Plus\",\"observations\":null,\"clinic\":\"Clínica Veterinária Central\",\"appliedAt\":\"2026-02-01T"
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Listar vermífugos do pet",
+      "method": "GET",
+      "path": "/animals/dewormings/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 20,
+      "responseSnippet": "[{\"id\":\"6b63ed12-5c9a-486c-9305-ab3f80c67af7\",\"name\":\"Drontal Plus\",\"observations\":null,\"clinic\":\"Clínica Veterinária Central\",\"appliedAt\":\"2026-02-01"
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Excluir vermífugo",
+      "method": "DELETE",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/dewormings/6b63ed12-5c9a-486c-9305-ab3f80c67af7",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 52,
+      "responseSnippet": "{\"ok\":true}"
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Registrar medicamento",
+      "method": "POST",
+      "path": "/animals/medications/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 75,
+      "responseSnippet": "{\"id\":\"18d847f4-4084-4ebc-a194-092340bdccd3\",\"name\":\"Apoquel 16mg\",\"startAt\":\"2026-03-01T00:00:00.000Z\",\"endAt\":null,\"dosage\":null,\"frequency\":null,\"c"
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Listar medicamentos do pet",
+      "method": "GET",
+      "path": "/animals/medications/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 24,
+      "responseSnippet": "[{\"id\":\"18d847f4-4084-4ebc-a194-092340bdccd3\",\"name\":\"Apoquel 16mg\",\"startAt\":\"2026-03-01T00:00:00.000Z\",\"endAt\":null,\"dosage\":null,\"frequency\":null,\""
+    },
+    {
+      "battery": "B6: Health",
+      "name": "Excluir medicamento",
+      "method": "DELETE",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/medications/18d847f4-4084-4ebc-a194-092340bdccd3",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 46,
+      "responseSnippet": "{\"ok\":true}"
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Criar nova postagem no feed",
+      "method": "POST",
+      "path": "/posts",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 76,
+      "responseSnippet": "{\"id\":\"e51cfd84-4c42-4049-bc55-7ffcf0cfd830\",\"subtitle\":\"Dia de parque com meus pets! 🐕🌳 #PataNet\",\"medias\":[],\"pets\":[],\"likes\":[],\"comments\":[],\"a"
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Obter feed de postagens",
+      "method": "GET",
+      "path": "/posts/feed",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 80,
+      "responseSnippet": "{\"data\":[{\"id\":\"e51cfd84-4c42-4049-bc55-7ffcf0cfd830\",\"subtitle\":\"Dia de parque com meus pets! 🐕🌳 #PataNet\",\"medias\":[],\"pets\":[{\"id\":\"c6db2fa7-48a4"
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Minhas postagens",
+      "method": "GET",
+      "path": "/posts/me",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 59,
+      "responseSnippet": "{\"data\":[{\"id\":\"e51cfd84-4c42-4049-bc55-7ffcf0cfd830\",\"subtitle\":\"Dia de parque com meus pets! 🐕🌳 #PataNet\",\"medias\":[],\"pets\":[{\"id\":\"c6db2fa7-48a4"
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Curtir postagem",
+      "method": "POST",
+      "path": "/posts/like/e51cfd84-4c42-4049-bc55-7ffcf0cfd830",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 85,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Descurtir postagem",
+      "method": "DELETE",
+      "path": "/posts/like/e51cfd84-4c42-4049-bc55-7ffcf0cfd830",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 85,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Adicionar comentário no post",
+      "method": "POST",
+      "path": "/posts/comment/e51cfd84-4c42-4049-bc55-7ffcf0cfd830",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 73,
+      "responseSnippet": "{\"id\":\"9b3afc53-71da-42ee-9fba-b856b94bfc1f\",\"message\":\"Que lindo! Aproveitem o dia!\",\"userId\":\"user-cotutor\",\"postId\":\"e51cfd84-4c42-4049-bc55-7ffcf0"
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Remover comentário",
+      "method": "DELETE",
+      "path": "/posts/e51cfd84-4c42-4049-bc55-7ffcf0cfd830/comment/9b3afc53-71da-42ee-9fba-b856b94bfc1f",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 78,
+      "responseSnippet": "{\"ok\":true}"
+    },
+    {
+      "battery": "B7: Posts",
+      "name": "Excluir postagem",
+      "method": "DELETE",
+      "path": "/posts/e51cfd84-4c42-4049-bc55-7ffcf0cfd830",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 76,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B8: Connections",
+      "name": "Seguir perfil do co-tutor",
+      "method": "POST",
+      "path": "/connections/user-cotutor",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 75,
+      "responseSnippet": "{\"success\":true}"
+    },
+    {
+      "battery": "B8: Connections",
+      "name": "Resumo de conexões com iFollow=true",
+      "method": "GET",
+      "path": "/connections/summary/user-cotutor",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 21,
+      "responseSnippet": "{\"followers\":2,\"followersCount\":2,\"following\":0,\"followingCount\":0,\"followeds\":0,\"followedsCount\":0,\"iFollow\":true,\"amIFollowing\":true}"
+    },
+    {
+      "battery": "B8: Connections",
+      "name": "Listar seguidores",
+      "method": "GET",
+      "path": "/connections/followers/user-cotutor",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 25,
+      "responseSnippet": "{\"data\":[{\"id\":\"user-tutor-principal\",\"name\":\"Mariana Santos\",\"displayName\":\"Mari Santos\",\"about\":\"Tutora apaixonada por cães e gatos em São Paulo.\",\""
+    },
+    {
+      "battery": "B8: Connections",
+      "name": "Listar usuários seguidos",
+      "method": "GET",
+      "path": "/connections/followeds/user-tutor-principal",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 23,
+      "responseSnippet": "{\"data\":[{\"id\":\"user-cotutor\",\"name\":\"Lucas Co-Tutor\",\"displayName\":\"Lucas\",\"about\":null,\"image\":null,\"imageCover\":null,\"username\":\"lucas.cotutor\",\"em"
+    },
+    {
+      "battery": "B8: Connections",
+      "name": "Deixar de seguir",
+      "method": "DELETE",
+      "path": "/connections/user-cotutor",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 25,
+      "responseSnippet": "{\"success\":true}"
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Bloquear usuário",
+      "method": "POST",
+      "path": "/blocks/user-bloqueado",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 78,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Listar usuários bloqueados",
+      "method": "GET",
+      "path": "/blocks",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 21,
+      "responseSnippet": "{\"data\":[{\"id\":\"59437c51-ebd9-49c9-8cc1-591eb32cc5bd\",\"blockerId\":\"user-bloqueador\",\"blockedId\":\"user-bloqueado\",\"createdAt\":\"2026-09-17T00:44:39.103Z"
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Desbloquear usuário",
+      "method": "DELETE",
+      "path": "/blocks/user-bloqueado",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 57,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Enviar denúncia de conteúdo",
+      "method": "POST",
+      "path": "/reports",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 79,
+      "responseSnippet": "{\"id\":\"da6e0210-3566-4a1c-8f41-ef49b21462d7\",\"reporterId\":\"user-tutor-principal\",\"type\":\"USER\",\"category\":\"GENERAL\",\"targetId\":\"user-bloqueado\",\"messa"
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Minhas denúncias",
+      "method": "GET",
+      "path": "/reports/mine",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 16,
+      "responseSnippet": "{\"data\":[{\"id\":\"da6e0210-3566-4a1c-8f41-ef49b21462d7\",\"reporterId\":\"user-tutor-principal\",\"type\":\"USER\",\"category\":\"GENERAL\",\"targetId\":\"user-bloquead"
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Minhas denúncias (alias /reports/me do frontend)",
+      "method": "GET",
+      "path": "/reports/me",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 17,
+      "responseSnippet": "{\"data\":[{\"id\":\"da6e0210-3566-4a1c-8f41-ef49b21462d7\",\"reporterId\":\"user-tutor-principal\",\"type\":\"USER\",\"category\":\"GENERAL\",\"targetId\":\"user-bloquead"
+    },
+    {
+      "battery": "B9: Moderation",
+      "name": "Moderar denúncia como Administrador",
+      "method": "PATCH",
+      "path": "/reports/da6e0210-3566-4a1c-8f41-ef49b21462d7/status",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 45,
+      "responseSnippet": "{\"id\":\"da6e0210-3566-4a1c-8f41-ef49b21462d7\",\"reporterId\":\"user-tutor-principal\",\"type\":\"USER\",\"category\":\"GENERAL\",\"targetId\":\"user-bloqueado\",\"messa"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Criar feira pet pela petshop parceira",
+      "method": "POST",
+      "path": "/events",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 97,
+      "responseSnippet": "{\"id\":\"d4bbeb0b-3703-4231-b0cb-2398d140b2f3\",\"title\":\"Feira de Adoção e Passeio 1789605879407\",\"description\":\"Venha adotar seu novo melhor amigo e par"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Listar eventos abertos",
+      "method": "GET",
+      "path": "/events",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 19,
+      "responseSnippet": "{\"data\":[{\"id\":\"d4bbeb0b-3703-4231-b0cb-2398d140b2f3\",\"title\":\"Feira de Adoção e Passeio 1789605879407\",\"description\":\"Venha adotar seu novo melhor am"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Detalhes do evento",
+      "method": "GET",
+      "path": "/events/d4bbeb0b-3703-4231-b0cb-2398d140b2f3",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 16,
+      "responseSnippet": "{\"id\":\"d4bbeb0b-3703-4231-b0cb-2398d140b2f3\",\"title\":\"Feira de Adoção e Passeio 1789605879407\",\"description\":\"Venha adotar seu novo melhor amigo e par"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Confirmar presença no evento",
+      "method": "POST",
+      "path": "/events/d4bbeb0b-3703-4231-b0cb-2398d140b2f3/attend",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 51,
+      "responseSnippet": "{\"ok\":true,\"status\":\"CONFIRMED\",\"attendeesCount\":1}"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Listar participantes confirmados",
+      "method": "GET",
+      "path": "/events/d4bbeb0b-3703-4231-b0cb-2398d140b2f3/attendees",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 11,
+      "responseSnippet": "{\"data\":[{\"id\":\"user-tutor-principal\",\"name\":\"Mariana Santos\",\"username\":\"mariana.santos\",\"image\":null}],\"paginatio\":{\"page\":1,\"perPage\":10,\"pages\":1,"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Cancelar presença",
+      "method": "DELETE",
+      "path": "/events/d4bbeb0b-3703-4231-b0cb-2398d140b2f3/attend",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 79,
+      "responseSnippet": "{\"ok\":true,\"attendeesCount\":0}"
+    },
+    {
+      "battery": "B10: Events",
+      "name": "Excluir evento",
+      "method": "DELETE",
+      "path": "/events/d4bbeb0b-3703-4231-b0cb-2398d140b2f3",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 77,
+      "responseSnippet": "{\"ok\":true}"
+    },
+    {
+      "battery": "B11: Adoptions",
+      "name": "Vitrine de animais disponíveis para adoção",
+      "method": "GET",
+      "path": "/animals/adoptable",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 37,
+      "responseSnippet": "{\"data\":[{\"id\":\"pet-luna-adocao\",\"name\":\"Luna\",\"about\":\"Gatinha frajola muito brincalhona pronta para encontrar um lar.\",\"image\":null,\"imageCover\":nul"
+    },
+    {
+      "battery": "B11: Adoptions",
+      "name": "Tentativa de adoção direta de pet com tutor (esperado 403)",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/adopt",
+      "expectedStatus": [
+        400,
+        403
+      ],
+      "actualStatus": 403,
+      "passed": true,
+      "durationMs": 42,
+      "responseSnippet": "{\"message\":\"Animal already has an owner\",\"error\":\"Forbidden\",\"statusCode\":403}"
+    },
+    {
+      "battery": "B11: Adoptions",
+      "name": "Candidatura de adoção com assinatura digital (alias /adoption-applications do frontend)",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/adoption-applications",
+      "expectedStatus": [
+        200,
+        201,
+        400,
+        403
+      ],
+      "actualStatus": 400,
+      "passed": true,
+      "durationMs": 32,
+      "responseSnippet": "{\"message\":\"Este pet nao esta disponivel para adocao responsavel\",\"error\":\"Bad Request\",\"statusCode\":400}"
+    },
+    {
+      "battery": "B12: Vet",
+      "name": "Submeter requerimento de CRMV",
+      "method": "POST",
+      "path": "/vet/apply",
+      "expectedStatus": [
+        200,
+        201,
+        409
+      ],
+      "actualStatus": 409,
+      "passed": true,
+      "durationMs": 25,
+      "responseSnippet": "{\"message\":\"Ja existe uma solicitacao de veterinario para este usuario\",\"error\":\"Conflict\",\"statusCode\":409}"
+    },
+    {
+      "battery": "B12: Vet",
+      "name": "Obter perfil do veterinário de teste",
+      "method": "GET",
+      "path": "/users/me",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 22,
+      "responseSnippet": "{\"id\":\"user-vet-aprovado\",\"name\":\"Dr. Carlos Eduardo Vet\",\"displayName\":\"Dr. Carlos Vet\",\"about\":null,\"image\":null,\"imageCover\":null,\"username\":\"carlo"
+    },
+    {
+      "battery": "B12: Vet",
+      "name": "Autorizar veterinário no pet pelo tutor",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/authorize-vet",
+      "expectedStatus": [
+        200,
+        201
+      ],
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 69,
+      "responseSnippet": "{\"id\":\"db856ad5-7d32-4f99-809d-80ce1e0461c8\",\"animalId\":\"c6db2fa7-48a4-4252-97a8-b1b2cba7f429\",\"veterinarianId\":\"user-vet-aprovado\",\"createdAt\":\"2026-"
+    },
+    {
+      "battery": "B12: Vet",
+      "name": "Veterinário registra prontuário clínico oficial",
+      "method": "POST",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429/medical-records",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 218,
+      "responseSnippet": "{\"id\":\"796c11c4-3a76-49eb-ba16-565bb42a55c5\",\"animalId\":\"c6db2fa7-48a4-4252-97a8-b1b2cba7f429\",\"veterinarianId\":\"user-vet-aprovado\",\"notes\":\"Pet avali"
+    },
+    {
+      "battery": "B13: Petshops",
+      "name": "Candidatar petshop PJ com novo CNPJ",
+      "method": "POST",
+      "path": "/petshops/apply",
+      "expectedStatus": [
+        200,
+        201,
+        409
+      ],
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 104,
+      "responseSnippet": "{\"id\":\"d0cebd95-640a-4d90-926c-1900097bab04\",\"ownerUserId\":\"user-tutor-principal\",\"cnpj\":\"50242947436437\",\"businessName\":\"Petshop Teste 1789605880204\""
+    },
+    {
+      "battery": "B13: Petshops",
+      "name": "Aprovar credenciamento PJ de Petshop pelo Administrador",
+      "method": "PATCH",
+      "path": "/admin/petshops/d0cebd95-640a-4d90-926c-1900097bab04/status",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 126,
+      "responseSnippet": "{\"id\":\"d0cebd95-640a-4d90-926c-1900097bab04\",\"ownerUserId\":\"user-tutor-principal\",\"cnpj\":\"50242947436437\",\"businessName\":\"Petshop Teste 1789605880204\""
+    },
+    {
+      "battery": "B14: Support",
+      "name": "Abrir ticket de suporte",
+      "method": "POST",
+      "path": "/support",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 194,
+      "responseSnippet": "{\"id\":\"fd2087f5-815d-4c50-a6b7-98dbd055ac3a\",\"authorId\":\"user-tutor-principal\",\"category\":\"GENERAL\",\"subject\":\"Dúvida sobre transferência de tutoria\","
+    },
+    {
+      "battery": "B14: Support",
+      "name": "Meus chamados de suporte",
+      "method": "GET",
+      "path": "/support/mine",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 27,
+      "responseSnippet": "{\"data\":[{\"id\":\"fd2087f5-815d-4c50-a6b7-98dbd055ac3a\",\"authorId\":\"user-tutor-principal\",\"category\":\"GENERAL\",\"subject\":\"Dúvida sobre transferência de "
+    },
+    {
+      "battery": "B14: Support",
+      "name": "Enviar réplica no chamado",
+      "method": "POST",
+      "path": "/support/fd2087f5-815d-4c50-a6b7-98dbd055ac3a/messages",
+      "expectedStatus": 201,
+      "actualStatus": 201,
+      "passed": true,
+      "durationMs": 58,
+      "responseSnippet": ""
+    },
+    {
+      "battery": "B14: Support",
+      "name": "Listar todos os chamados como Administrador",
+      "method": "GET",
+      "path": "/support/all",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 17,
+      "responseSnippet": "{\"data\":[{\"id\":\"fd2087f5-815d-4c50-a6b7-98dbd055ac3a\",\"authorId\":\"user-tutor-principal\",\"category\":\"GENERAL\",\"subject\":\"Dúvida sobre transferência de "
+    },
+    {
+      "battery": "B14: Support",
+      "name": "Atualizar status do chamado (Fechamento)",
+      "method": "PATCH",
+      "path": "/support/fd2087f5-815d-4c50-a6b7-98dbd055ac3a/status",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 37,
+      "responseSnippet": "{\"id\":\"fd2087f5-815d-4c50-a6b7-98dbd055ac3a\",\"authorId\":\"user-tutor-principal\",\"category\":\"GENERAL\",\"subject\":\"Dúvida sobre transferência de tutoria\","
+    },
+    {
+      "battery": "Cleanup",
+      "name": "Excluir pet de teste criado na bateria",
+      "method": "DELETE",
+      "path": "/animals/c6db2fa7-48a4-4252-97a8-b1b2cba7f429",
+      "expectedStatus": 200,
+      "actualStatus": 200,
+      "passed": true,
+      "durationMs": 55,
+      "responseSnippet": ""
+    }
+  ]
+}

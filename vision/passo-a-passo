@@ -1,0 +1,15 @@
+git clone https://github.com/Willen-Leolatto/patanet-vision.git
+
+winget install -e --id Python.Python.3.11
+py -3.11 -m venv .venv
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+.\.venv\Scripts\activate
+
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 (para abrir o swagger)
+
+.\.venv\Scripts\activate (em outro prompt)
+streamlit run demo/app.py
+
+IMPORTANTE: É necessário verificar integridade com versões das bibliotecas, sistema operacional e etc. Como foi testado em 3 ambientes diferentes, com configurações diferentes, tem que se atentar ao tipo de instalação e bibliotecas. 

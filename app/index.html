@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+
+    <!--
+      CSP como mitigação em profundidade para XSS (achado de segurança #5:
+      token JWT em localStorage). Mantém 'unsafe-inline' em script-src/style-src
+      porque o app usa um script inline no <head> (detecção de tema) e classes
+      utilitárias inline via Tailwind — removê-los exigiria refatorar para
+      nonce/hash, fora do escopo desta correção (o pedido foi mitigar sem
+      alterar a integridade/uso atual do sistema). Ainda assim, bloqueia de
+      verdade os vetores mais comuns de exfiltração de token via XSS: scripts
+      de terceiros não listados, frames/objects arbitrários e conexões de
+      rede fora de https. connect-src/img-src usam https: genérico (em vez
+      de travar num domínio fixo) porque VITE_API_URL varia por ambiente
+      (dev local, previews da Vercel, produção) e a imagem de pets/usuários
+      vem do S3, cujo domínio não é fixo neste código. Em dev local a API
+      (NestJS) e o MinIO rodam em http://localhost com portas variáveis
+      (não há certificado local), então connect-src/img-src liberam também
+      http://localhost:* explicitamente — isso não abre nada para hosts
+      externos, só para a própria máquina do desenvolvedor, então não
+      enfraquece a mitigação de exfiltração via XSS descrita acima.
+      worker-src inclui blob: porque a lib heic2any (conversão de fotos
+      HEIC/iPhone para JPEG no upload) roda sua conversão dentro de um Web
+      Worker instanciado a partir de uma blob: URL gerada em runtime — sem
+      isso o worker é bloqueado e a conversão de HEIC falha silenciosamente.
+      script-src inclui 'unsafe-eval' porque o decoder HEIC usado por dentro
+      desse mesmo Worker (libheif, compilado via Emscripten) usa
+      new Function()/eval internamente para inicializar o módulo — sem
+      'unsafe-eval' o Worker lança EvalError e a conversão trava (o upload
+      nunca resolve). Como CSP via <meta> não permite restringir eval a
+      apenas um Worker (o Worker herda o script-src do documento inteiro),
+      isso amplia um pouco a superfície da mitigação de XSS acima (um script
+      que já conseguisse rodar poderia agora também usar eval), mas é
+      necessário para o upload de fotos HEIC/iPhone continuar funcionando.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https: http://localhost:*; connect-src 'self' https: http://localhost:*; frame-src https://accounts.google.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    />
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Favicon (evita ícone genérico no browser) -->
+    <link rel="icon" type="image/png" sizes="196x196" href="/favicon-196.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon.png" />
+    <link rel="shortcut icon" href="/favicon-196.png" />
+
+    <!-- iOS PWA (Safari) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PataNet" />
+    <link rel="apple-touch-icon" href="/apple-icon-180.png" />
+
+    <!-- iOS splash screens (subset mais comum; você já tem todos no /public) -->
+    <link rel="apple-touch-startup-image" href="/apple-splash-1179-2556.jpg" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/apple-splash-1284-2778.jpg" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/apple-splash-1125-2436.jpg" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/apple-splash-1242-2688.jpg" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/apple-splash-1536-2048.jpg" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/apple-splash-1668-2388.jpg" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+    <link rel="apple-touch-startup-image" href="/apple-splash-2048-2732.jpg" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
+
+    <title>PataNet</title>
+
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("patanet_theme_v1");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var t =
+            saved === "light" || saved === "dark"
+              ? saved
+              : prefersDark
+              ? "dark"
+              : "light";
+          document.documentElement.classList.toggle("dark", t === "dark");
+          document.documentElement.style.colorScheme =
+            t === "dark" ? "dark" : "light";
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

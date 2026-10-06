@@ -1,0 +1,13 @@
+# Dependências leves para desenvolvimento local e testes unitários.
+# Não inclui torch/ultralytics/faiss/google-genai: os serviços que dependem
+# dessas libs pesadas usam import tardio e são substituídos por dublês de
+# teste (ver tests/conftest.py), então a suíte roda sem instalá-las.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+python-multipart>=0.0.12
+opencv-python-headless>=4.10,<5.0
+numpy>=1.26,<2.0
+pytest>=8.3,<9.0
+httpx>=0.27,<1.0

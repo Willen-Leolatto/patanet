@@ -1,0 +1,588 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =========================================================================
+// Users
+// =========================================================================
+
+enum UserRole {
+  USER
+  INSTITUTION
+  VETERINARIAN
+  ADMIN
+}
+
+model User {
+  id              String    @id
+  name            String
+  displayName     String?   @map("display_name")
+  about           String?
+  image           String?
+  imageCover      String?   @map("image_cover")
+  username        String    @unique
+  email           String    @unique
+  password        String?
+  googleId        String?   @unique @map("google_id")
+  role            UserRole  @default(USER)
+  isActive        Boolean   @default(true) @map("is_active")
+  deletedAt       DateTime? @map("deleted_at")
+  // Wave 2 (LGPD / Marco Civil): aceite dos Termos de Uso. Nullable porque
+  // contas existentes nao terao esses campos preenchidos ate a Wave 2
+  // implementar o fluxo de aceite.
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  termsVersion    String?   @map("terms_version")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  animals               Animal[]               @relation("AnimalOwners")
+  posts                 Post[]
+  comments              Comment[]
+  likes                 Like[]
+  events                Event[]
+  eventAttendances      EventAttendance[]
+  blocksMade            Block[]                @relation("Blocker")
+  blocksReceived        Block[]                @relation("Blocked")
+  connectionsFollowing  Connection[]           @relation("Follower")
+  connectionsFollowers  Connection[]           @relation("Following")
+  reports               Report[]
+  supportTickets        SupportTicket[]
+  supportTicketMessages SupportTicketMessage[]
+
+  @@map("users")
+}
+
+// =========================================================================
+// Animals (Pets)
+// =========================================================================
+
+enum AnimalSize {
+  SMALL
+  MEDIUM
+  LARGE
+}
+
+enum AnimalGender {
+  MALE
+  FEMALE
+  UNDEFINED
+  NOT_INFORMED
+}
+
+model Specie {
+  id        String   @id
+  name      String
+  image     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  breeds Breed[]
+
+  @@map("species")
+}
+
+enum BreedSize {
+  SMALL
+  MEDIUM
+  LARGE
+}
+
+model Breed {
+  id             String     @id
+  name           String
+  about          String?
+  appearance     String?
+  temperament    String?
+  trainability   String?
+  exercise       String?
+  coat           String?
+  health         String?
+  suggestedSize  BreedSize? @map("suggested_size")
+  typicalWeight  String?    @map("typical_weight")
+  typicalHeight  String?    @map("typical_height")
+  lifeExpectancy String?    @map("life_expectancy")
+  image          String?
+  specieId       String     @map("specie_id")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  specie  Specie   @relation(fields: [specieId], references: [id])
+  animals Animal[]
+
+  @@map("breeds")
+}
+
+model Animal {
+  id               String       @id
+  name             String
+  about            String?
+  image            String?
+  imageCover       String?      @map("image_cover")
+  weight           Float
+  size             AnimalSize
+  gender           AnimalGender @default(UNDEFINED)
+  birthDate        DateTime?    @map("birth_date")
+  adoptionDate     DateTime?    @map("adoption_date")
+  // Referencias "soltas" (sem FK), seguindo o padrao ja usado pelo TypeORM
+  // nesta tabela: o dono/criador pode ser um usuario desativado ou removido
+  // sem que isso quebre a integridade do pet.
+  ownerId          String?      @map("owner_id")
+  createdByOwnerId String?      @map("created_by_owner_id")
+  adoptionEventId  String?      @map("adoption_event_id")
+  // Wave 2 (modulo Petshop / Adocao Responsavel).
+  isForAdoption    Boolean      @default(false) @map("is_for_adoption")
+  petshopId        String?      @map("petshop_id")
+  breedId          String       @map("breed_id")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  breed          Breed                       @relation(fields: [breedId], references: [id])
+  owners         User[]                      @relation("AnimalOwners")
+  medias         AnimalMedia[]
+  visibility     AnimalUserVisibility[]
+  dewormings     Deworming[]
+  medications    Medication[]
+  vaccines       Vaccine[]
+  posts          Post[]                      @relation("PostPets")
+  authorizations VeterinarianAuthorization[]
+
+  @@map("animals")
+}
+
+enum AnimalMediaType {
+  IMAGE
+  VIDEO
+}
+
+model AnimalMedia {
+  id        String          @id
+  text      String?
+  path      String
+  type      AnimalMediaType
+  animalId  String          @map("animal_id")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  animal Animal @relation(fields: [animalId], references: [id])
+
+  @@map("animal_medias")
+}
+
+model AnimalUserVisibility {
+  id        String   @id
+  animalId  String   @map("animal_id")
+  userId    String   @map("user_id")
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  animal Animal @relation(fields: [animalId], references: [id])
+
+  @@unique([animalId, userId])
+  @@map("animal_user_visibility")
+}
+
+model Deworming {
+  id           String    @id
+  name         String
+  observations String?
+  clinic       String?
+  appliedAt    DateTime? @map("applied_at")
+  nextDose     DateTime? @map("next_dose")
+  animalId     String    @map("animal_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  animal Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  @@map("dewormings")
+}
+
+model Medication {
+  id           String    @id
+  name         String
+  startAt      DateTime? @map("start_at")
+  endAt        DateTime? @map("end_at")
+  dosage       String?
+  frequency    String?
+  clinic       String?
+  observations String?
+  animalId     String    @map("animal_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  animal Animal @relation(fields: [animalId], references: [id], onDelete: Cascade)
+
+  @@map("medications")
+}
+
+model Vaccine {
+  id             String    @id
+  name           String
+  observations   String
+  clinic         String
+  appliedAt      DateTime? @map("applied_at")
+  nextDose       DateTime? @map("next_dose")
+  animalId       String    @map("animal_id")
+  // Wave 2 (modulo Veterinario): vacina lancada e assinada por um CRMV
+  // validado. Sem FK obrigatoria para VeterinarianProfile ainda.
+  isOfficial     Boolean   @default(false) @map("is_official")
+  batchNumber    String?   @map("batch_number")
+  manufacturer   String?
+  veterinarianId String?   @map("veterinarian_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  animal Animal @relation(fields: [animalId], references: [id])
+
+  @@map("vaccines")
+}
+
+// =========================================================================
+// Social graph (blocks / connections)
+// =========================================================================
+
+model Block {
+  id        String   @id
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId], map: "uq_blocks_blocker_blocked")
+  @@map("blocks")
+}
+
+model Connection {
+  id          String   @id
+  followerId  String   @map("follower_id")
+  followingId String   @map("followed_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  follower  User @relation("Follower", fields: [followerId], references: [id])
+  following User @relation("Following", fields: [followingId], references: [id])
+
+  @@map("connections")
+}
+
+// =========================================================================
+// Events
+// =========================================================================
+
+model Event {
+  id           String   @id
+  title        String
+  description  String?
+  date         String?  @db.VarChar
+  time         String?  @db.VarChar(10)
+  locationText String?  @map("location_text")
+  latitude     Decimal? @db.Decimal(10, 7)
+  longitude    Decimal? @db.Decimal(10, 7)
+  imageUrl     String?  @map("image_url")
+  postId       String?  @map("post_id")
+  authorId     String   @map("author_id")
+  capacity     Int?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  author      User              @relation(fields: [authorId], references: [id])
+  attendances EventAttendance[]
+
+  @@map("events")
+}
+
+enum AttendanceStatus {
+  CONFIRMED
+  WAITLIST
+}
+
+model EventAttendance {
+  id        String           @id
+  eventId   String           @map("event_id")
+  userId    String           @map("user_id")
+  // Wave 2 (fila de espera de eventos com capacidade limitada).
+  status    AttendanceStatus @default(CONFIRMED)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  event Event @relation(fields: [eventId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([eventId, userId])
+  @@map("event_attendances")
+}
+
+// =========================================================================
+// Posts / feed
+// =========================================================================
+
+model Post {
+  id        String   @id
+  subtitle  String
+  authorId  String   @map("author_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  author   User      @relation(fields: [authorId], references: [id])
+  pets     Animal[]  @relation("PostPets")
+  medias   Media[]
+  likes    Like[]
+  comments Comment[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id
+  message   String
+  userId    String   @map("user_id")
+  postId    String   @map("post_id")
+  parentId  String?  @map("parent_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User      @relation(fields: [userId], references: [id])
+  post    Post      @relation(fields: [postId], references: [id])
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies Comment[] @relation("CommentReplies")
+
+  @@map("comments")
+}
+
+model Like {
+  id        String   @id
+  userId    String   @map("user_id")
+  postId    String   @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+  post Post @relation(fields: [postId], references: [id])
+
+  @@map("likes")
+}
+
+enum PostMediaType {
+  IMAGE
+  VIDEO
+}
+
+model Media {
+  id        String        @id
+  path      String
+  type      PostMediaType
+  postId    String        @map("post_id")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  post Post @relation(fields: [postId], references: [id])
+
+  @@map("medias")
+}
+
+// =========================================================================
+// Reports (denuncias)
+// =========================================================================
+
+enum ReportType {
+  POST
+  USER
+  ANIMAL
+  OTHER
+}
+
+enum ReportCategory {
+  GENERAL
+  CSAE
+  PET_ABUSE
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+model Report {
+  id                String         @id
+  reporterId        String         @map("reporter_id")
+  type              ReportType
+  category          ReportCategory
+  targetId          String         @map("target_id")
+  message           String
+  attachments       Json?
+  status            ReportStatus   @default(OPEN)
+  // Wave 2 (arquitetura de despacho publico): apenas armazenamento por
+  // enquanto, sem logica de envio a orgaos publicos ainda.
+  dispatchedAt      DateTime?      @map("dispatched_at")
+  dispatchChannel   String?        @map("dispatch_channel")
+  dispatchReference String?        @map("dispatch_reference")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@map("reports")
+}
+
+// =========================================================================
+// Support
+// =========================================================================
+
+enum TicketCategory {
+  GENERAL
+  PRIVACY
+  ACCOUNT_DELETION
+  OTHER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id        String         @id
+  userId    String         @map("user_id")
+  category  TicketCategory
+  subject   String         @db.VarChar(120)
+  status    TicketStatus   @default(OPEN)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages SupportTicketMessage[]
+
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id          String   @id
+  ticketId    String   @map("ticket_id")
+  authorId    String?  @map("author_id")
+  message     String
+  attachments Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@map("support_ticket_messages")
+}
+
+// =========================================================================
+// Wave 2 — Veterinarios, Petshops & Adocao Responsavel
+// Schema pronto nesta wave; sem use-cases/controllers ainda.
+// =========================================================================
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model VeterinarianProfile {
+  id           String             @id
+  userId       String             @unique @map("user_id")
+  crmv         String
+  uf           String             @db.VarChar(2)
+  status       VerificationStatus @default(PENDING)
+  documentUrls Json?              @map("document_urls")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  @@map("veterinarian_profiles")
+}
+
+// Wave 3: tutor autoriza formalmente um veterinario validado a atuar sobre
+// um pet especifico (relacao medico-paciente autorizada na plataforma).
+// Sem FK em veterinarianId/authorizedById (mesmo padrao de referencia
+// "solta" ja usado em Animal.ownerId) -- so animalId tem FK, porque e a
+// entidade dona da autorizacao.
+model VeterinarianAuthorization {
+  id             String    @id
+  animalId       String    @map("animal_id")
+  veterinarianId String    @map("veterinarian_id")
+  authorizedById String    @map("authorized_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  revokedAt      DateTime? @map("revoked_at")
+
+  animal Animal @relation(fields: [animalId], references: [id])
+
+  @@unique([animalId, veterinarianId])
+  @@map("veterinarian_authorizations")
+}
+
+model Petshop {
+  id                     String             @id
+  ownerUserId            String             @map("owner_user_id")
+  cnpj                   String             @unique
+  businessName           String             @map("business_name")
+  alvaraUrl              String?            @map("alvara_url")
+  responsavelTecnicoNome String?            @map("responsavel_tecnico_nome")
+  status                 VerificationStatus @default(PENDING)
+  addressLine            String?            @map("address_line")
+  addressCity            String?            @map("address_city")
+  addressState           String?            @map("address_state") @db.VarChar(2)
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  @@map("petshops")
+}
+
+enum AdoptionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AdoptionRequest {
+  id              String                @id
+  animalId        String                @map("animal_id")
+  requesterUserId String                @map("requester_user_id")
+  petshopId       String                @map("petshop_id")
+  status          AdoptionRequestStatus @default(PENDING)
+  message         String?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  custodyTransfer AdoptionCustodyTransfer?
+
+  @@map("adoption_requests")
+}
+
+model AdoptionCustodyTransfer {
+  id                  String   @id
+  animalId            String   @map("animal_id")
+  adoptionRequestId   String   @unique @map("adoption_request_id")
+  fromPetshopId       String   @map("from_petshop_id")
+  toUserId            String   @map("to_user_id")
+  transferDocumentUrl String?  @map("transfer_document_url")
+  transferredAt       DateTime @default(now()) @map("transferred_at")
+
+  adoptionRequest AdoptionRequest @relation(fields: [adoptionRequestId], references: [id])
+
+  @@map("adoption_custody_transfers")
+}
+
+model MedicalRecord {
+  id              String    @id
+  animalId        String    @map("animal_id")
+  veterinarianId  String    @map("veterinarian_id")
+  notes           String
+  examRequestUrls Json?     @map("exam_request_urls")
+  signedAt        DateTime? @map("signed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("medical_records")
+}
